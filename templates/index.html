@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome to PES6 League{% endblock %}
+
+{% block content %}
+    <h2>Welcome to the Pro Evolution Soccer 6 League!</h2>
+    <p>This is the central hub for our PES6 league. Here you can:</p>
+    <ul>
+        <li>Manage your team and players.</li>
+        <li>Post updates and engage with other league members on the blog.</li>
+        <li>Stay updated with league news, fixtures, and standings (coming soon!).</li>
+    </ul>
+
+    <h3>Latest Blog Posts</h3>
+    {% if recent_posts %}
+        {% for post in recent_posts %}
+            <div class="post-item">
+                <h3><a href="{{ url_for('view_post', post_id=post[0]) }}">{{ post[1] }}</a></h3>
+                <p class="post-meta">By {{ post[3] }} on {{ post[4].strftime('%Y-%m-%d %H:%M') }}</p>
+                <p>{{ post[2][:200] }}...</p> {# Display first 200 chars #}
+                <p><a href="{{ url_for('view_post', post_id=post[0]) }}">Read More</a></p>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>No recent posts yet. Be the first to create one!</p>
+    {% endif %}
+
+{% endblock %}

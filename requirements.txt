@@ -1,0 +1,5 @@
+Flask==2.3.2
+Flask-MySQLdb==1.0.1
+Werkzeug==2.3.7  # Pinning Werkzeug to avoid compatibility issues with Flask versions
+Flask-Login==0.6.2
+python-dotenv==1.0.0

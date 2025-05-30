@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Blog{% endblock %}
+
+{% block content %}
+    <h2>Blog</h2>
+    <p><a href="{{ url_for('create_post') }}">Create New Post</a></p>
+
+    {% if posts %}
+        {% for post in posts %}
+            <div class="post-item">
+                <h3><a href="{{ url_for('view_post', post_id=post[0]) }}">{{ post[1] }}</a></h3>
+                <p class="post-meta">By {{ post[3] }} on {{ post[4].strftime('%Y-%m-%d %H:%M') }}</p>
+                <p>{{ post[2][:300] }}...</p> {# Display first 300 chars #}
+                <p><a href="{{ url_for('view_post', post_id=post[0]) }}">Read More</a></p>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>No blog posts yet. Be the first to create one!</p>
+    {% endif %}
+{% endblock %}

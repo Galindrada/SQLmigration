@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+    <h2>Welcome, {{ user.username }}!</h2>
+    <p>This is your personalized dashboard. From here you can:</p>
+    <ul>
+        <li><a href="{{ url_for('team_management') }}">Manage Your Team</a></li>
+        <li><a href="{{ url_for('create_post') }}">Create a New Blog Post</a></li>
+        <li>View your recent activity (coming soon!)</li>
+    </ul>
+{% endblock %}

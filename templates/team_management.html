@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Team Management{% endblock %}
+
+{% block content %}
+    <h2>Team Management</h2>
+
+    {% if user_team %}
+        <div class="team-section">
+            <h3>Your Team: {{ user_team[1] }}</h3>
+
+            <h4>Current Roster</h4>
+            {% if team_players %}
+                <div class="player-list">
+                    <ul>
+                        {% for player in team_players %}
+                            <li>
+                                <span>{{ player[1] }} (OVR: {{ player[2] }}, Pos: {{ player[3] }})</span>
+                                <form action="{{ url_for('remove_player_from_team', player_id=player[0]) }}" method="POST">
+                                    <button type="submit">Remove</button>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% else %}
+                <p>Your team currently has no players. Add some below!</p>
+            {% endif %}
+
+            <h4>Available Players to Sign</h4>
+            {% if available_players %}
+                <div class="player-list">
+                    <ul>
+                        {% for player in available_players %}
+                            <li>
+                                <span>{{ player[1] }} (OVR: {{ player[2] }}, Pos: {{ player[3] }})</span>
+                                <form action="{{ url_for('add_player_to_team') }}" method="POST">
+                                    <input type="hidden" name="player_id" value="{{ player[0] }}">
+                                    <button type="submit">Add to Team</button>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% else %}
+                <p>No more players available to sign or you have all of them!</p>
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="team-section">
+            <h3>Create Your Team</h3>
+            <p>You don't have a team yet. Create one to get started!</p>
+            <form action="{{ url_for('create_team') }}" method="POST">
+                <label for="team_name">Team Name:</label>
+                <input type="text" id="team_name" name="team_name" required>
+                <button type="submit">Create Team</button>
+            </form>
+        </div>
+
+        <div class="team-section">
+            <h4>Available Players (for reference before creating team)</h4>
+            {% if available_players %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Overall Rating</th>
+                            <th>Position</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for player in available_players %}
+                            <tr>
+                                <td>{{ player[1] }}</td>
+                                <td>{{ player[2] }}</td>
+                                <td>{{ player[3] }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>No players in the database yet.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+
+{% endblock %}
