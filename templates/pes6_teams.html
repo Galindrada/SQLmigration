@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}PES6 Game Teams{% endblock %}
+
+{% block content %}
+    <h2>All PES6 Game Teams</h2>
+    <p>Click on a team to see its roster and basic player information.</p>
+
+    {% if game_teams %}
+        <ul class="team-list">
+            {% for team in game_teams %}
+                <li><a href="{{ url_for('pes6_team_details', team_id=team[0]) }}">{{ team[1] }}</a></li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No PES6 teams found in the database. Please ensure you've run the import script.</p>
+    {% endif %}
+
+    <style>
+        .team-list {
+            list-style: none;
+            padding: 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        .team-list li {
+            background-color: #e9e9e9;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .team-list li a {
+            text-decoration: none;
+            color: #337ab7;
+            font-weight: bold;
+            display: block;
+        }
+        .team-list li a:hover {
+            color: #1a4f7a;
+        }
+    </style>
+{% endblock %}

@@ -6,6 +6,19 @@
     <div class="post-item">
         <h2>{{ post[1] }}</h2>
         <p class="post-meta">By {{ post[3] }} on {{ post[4].strftime('%Y-%m-%d %H:%M') }}</p>
+
+        {# Display media if available #}
+        {% if post[5] == 'image' and post[6] %}
+            <p><img src="{{ url_for('static', filename='uploads/' + post[6]) }}" alt="{{ post[1] }}" style="max-width: 100%; height: auto;"></p>
+        {% elif post[5] == 'video' and post[6] %}
+            <p>
+                <video width="100%" controls>
+                    <source src="{{ url_for('static', filename='uploads/' + post[6]) }}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </p>
+        {% endif %}
+
         <p>{{ post[2] }}</p>
     </div>
 

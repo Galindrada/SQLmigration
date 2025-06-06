@@ -4,12 +4,17 @@
 
 {% block content %}
     <h2>Create New Blog Post</h2>
-    <form method="POST">
+    {# IMPORTANT: Add enctype="multipart/form-data" for file uploads #}
+    <form method="POST" enctype="multipart/form-data">
         <label for="title">Title:</label>
         <input type="text" id="title" name="title" required>
 
         <label for="content">Content:</label>
         <textarea id="content" name="content" rows="10" required></textarea>
+
+        <label for="media_file">Upload Image or Video (Optional):</label>
+        <input type="file" id="media_file" name="media_file" accept="image/*,video/*">
+        {# `accept` attribute hints to the browser about allowed file types #}
 
         <button type="submit">Create Post</button>
     </form>

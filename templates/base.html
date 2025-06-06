@@ -17,6 +17,8 @@
             <ul>
                 <li><a href="{{ url_for('index') }}">Home</a></li>
                 <li><a href="{{ url_for('blog') }}">Blog</a></li>
+                {# New Navigation Link #}
+                <li><a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a></li>
                 {% if current_user.is_authenticated %}
                     <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
                     <li><a href="{{ url_for('team_management') }}">My Team</a></li>

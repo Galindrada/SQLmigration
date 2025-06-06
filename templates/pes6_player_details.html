@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}{{ player.player_name }} - Full Skillset{% endblock %}
+
+{% block content %}
+    <h2>{{ player.player_name }} - Full Skillset</h2>
+    <p><a href="{{ url_for('pes6_team_details', team_id=player.club_id) }}">← Back to {{ basic_info.Club }} Roster</a></p>
+
+    <h3>Basic Information</h3>
+    <div class="player-details-section">
+        {% for key, value in basic_info.items() %}
+            <p><strong>{{ key }}:</strong> {{ value }}</p>
+        {% endfor %}
+    </div>
+
+    <h3>Numeric Skills</h3>
+    <div class="player-details-section">
+        <div class="skills-grid">
+            {% for skill, value in skills_numeric.items() %}
+                <p><strong>{{ skill }}:</strong> {{ value }}</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <h3>Positional Skills (0=No, 1=Yes)</h3>
+    <div class="player-details-section">
+        <div class="skills-grid">
+            {% for pos, value in positional_skills.items() %}
+                <p><strong>{{ pos }}:</strong> {{ value }}</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <h3>Special Skills (0=No, 1=Yes)</h3>
+    <div class="player-details-section">
+        <div class="skills-grid">
+            {% for skill, value in special_skills.items() %}
+                <p><strong>{{ skill }}:</strong> {{ value }}</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# You can add more sections here for other details like face type, body measurements etc. if desired #}
+
+    <style>
+        .player-details-section {
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .player-details-section h4 {
+            color: #337ab7;
+            margin-top: 0;
+        }
+        .skills-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        .skills-grid p {
+            margin: 5px 0;
+        }
+    </style>
+{% endblock %}

@@ -11,8 +11,17 @@
             <div class="post-item">
                 <h3><a href="{{ url_for('view_post', post_id=post[0]) }}">{{ post[1] }}</a></h3>
                 <p class="post-meta">By {{ post[3] }} on {{ post[4].strftime('%Y-%m-%d %H:%M') }}</p>
+
+                {# Display thumbnail if image is available #}
+                {% if post[5] == 'image' and post[6] %}
+                    <p><img src="{{ url_for('static', filename='uploads/' + post[6]) }}" alt="Post image" style="max-width: 150px; height: auto; float: left; margin-right: 15px;"></p>
+                {% elif post[5] == 'video' and post[6] %}
+                    <p style="float: left; margin-right: 15px;">[Video attached]</p>
+                {% endif %}
+
                 <p>{{ post[2][:300] }}...</p> {# Display first 300 chars #}
                 <p><a href="{{ url_for('view_post', post_id=post[0]) }}">Read More</a></p>
+                <div style="clear: both;"></div> {# Clear float #}
             </div>
         {% endfor %}
     {% else %}
