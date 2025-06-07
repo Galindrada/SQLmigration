@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Tools{% endblock %}
+
+{% block content %}
+    <h2>League Tools</h2>
+    <p>Here you can access various tools to manage and interact with your league data.</p>
+
+    <div class="tool-section">
+        <h3>Export Player Data</h3>
+        <p>Click the button below to generate and download an updated CSV file containing all player data from the database, including financial information.</p>
+        <a href="{{ url_for('download_updated_csv') }}" class="button">Download Updated Player CSV</a>
+    </div>
+
+    {# You can add more tool sections here as you develop them #}
+
+    <style>
+        .tool-section {
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .tool-section h3 {
+            color: #337ab7;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .tool-section p {
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        .button {
+            display: inline-block;
+            background-color: #4CAF50; /* Green */
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+    </style>
+{% endblock %}

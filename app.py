@@ -1,10 +1,11 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory
 from flask_mysqldb import MySQL
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import MySQLdb.cursors
+import pandas as pd
 
 from config import Config
 
@@ -19,6 +20,11 @@ login_manager.login_view = 'login'
 # Ensure the upload folder exists
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
+
+# Define DOWNLOAD_FOLDER for generated CSVs
+DOWNLOAD_FOLDER = os.path.join(app.root_path, 'static', 'downloads')
+if not os.path.exists(DOWNLOAD_FOLDER):
+    os.makedirs(DOWNLOAD_FOLDER)
 
 # User model for Flask-Login
 class User(UserMixin):
@@ -55,11 +61,9 @@ def get_media_type(filename):
     return 'none'
 
 # --- Jinja2 Filter for Currency Formatting ---
-@app.template_filter('format_currency') # Register as a template filter named 'format_currency'
+@app.template_filter('format_currency')
 def format_currency_filter(value):
     if isinstance(value, (int, float)):
-        # Format as Euro currency, e.g., €1,234,567
-        # Handle potential non-integer values from division if needed, or ensure int before filter
         return f"€{value:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return value
 # --- END Jinja2 Filter ---
@@ -237,7 +241,6 @@ def view_post(post_id):
             flash(f'Error adding comment: {e}', 'danger')
         finally:
             cur.close()
-
     return render_template('view_post.html', post=post, comments=comments)
 
 
@@ -250,7 +253,7 @@ def team_management():
     cur.close()
 
     team_players = []
-    available_players = [] # This will be empty now, as per design
+    available_players = []
 
     if user_team:
         team_id = user_team[0]
@@ -491,6 +494,150 @@ def pes6_player_details(player_id):
                            skills_numeric=skills_numeric,
                            positional_skills=positional_skills,
                            special_skills=special_skills)
+
+# --- NEW ROUTES FOR TOOLS PAGE AND CSV DOWNLOAD ---
+@app.route('/tools')
+def tools():
+    return render_template('tools.html')
+
+@app.route('/download_updated_csv')
+@login_required # Often good to require login for tools/downloads
+def download_updated_csv():
+    try:
+        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        # Fetch all player data, including financial info
+        cur.execute("""
+            SELECT
+                p.id, p.player_name, p.shirt_name, t.club_name AS club_team_raw,
+                p.registered_position, p.age, p.height, p.weight, p.nationality,
+                p.strong_foot, p.favoured_side, p.gk, p.cwp, p.cbt, p.sb, p.dmf, p.wb,
+                p.cmf, p.smf, p.amf, p.wf, p.ss, p.cf, p.attack, p.defense, p.balance,
+                p.stamina, p.top_speed, p.acceleration, p.response, p.agility,
+                p.dribble_accuracy, p.dribble_speed, p.short_pass_accuracy,
+                p.short_pass_speed, p.long_pass_accuracy, p.long_pass_speed,
+                p.shot_accuracy, p.shot_power, p.shot_technique,
+                p.free_kick_accuracy, p.swerve, p.heading, p.jump, p.technique,
+                p.aggression, p.mentality, p.goal_keeping, p.team_work, p.consistency,
+                p.condition_fitness, p.dribbling_skill, p.tactical_dribble, p.positioning,
+                p.reaction, p.playmaking, p.passing, p.scoring, p.one_one_scoring,
+                p.post_player, p.lines, p.middle_shooting, p.side, p.centre, p.penalties,
+                p.one_touch_pass, p.outside, p.marking, p.sliding, p.covering,
+                p.d_line_control, p.penalty_stopper, p.one_on_one_stopper, p.long_throw,
+                p.injury_tolerance, p.dribble_style, p.free_kick_style, p.pk_style,
+                p.drop_kick_style, p.skin_color, p.face_type, p.preset_face_number,
+                p.head_width, p.neck_length, p.neck_width, p.shoulder_height,
+                p.shoulder_width, p.chest_measurement, p.waist_circumference,
+                p.arm_circumference, p.leg_circumference, p.calf_circumference,
+                p.leg_length, p.wristband, p.wristband_color, p.international_number,
+                p.classic_number, p.club_number,
+                p.salary, p.contract_years_remaining, p.market_value, p.yearly_wage_rise
+            FROM players p
+            LEFT JOIN teams t ON p.club_id = t.id
+            ORDER BY p.id
+        """)
+        players_data = cur.fetchall()
+        cur.close()
+
+        if not players_data:
+            flash("No player data available to export.", "warning")
+            return redirect(url_for('tools'))
+
+        # Define the desired column order and original CSV headers
+        csv_header_map = {
+            'id': 'ID',
+            'player_name': 'NAME',
+            'shirt_name': 'SHIRT_NAME',
+            'gk': 'GK  0',
+            'cwp': 'CWP  2',
+            'cbt': 'CBT  3',
+            'sb': 'SB  4',
+            'dmf': 'DMF  5',
+            'wb': 'WB  6',
+            'cmf': 'CMF  7',
+            'smf': 'SMF  8',
+            'amf': 'AMF  9',
+            'wf': 'WF 10',
+            'ss': 'SS  11',
+            'cf': 'CF  12',
+            'registered_position': 'REGISTERED POSITION',
+            'height': 'HEIGHT',
+            'strong_foot': 'STRONG FOOT',
+            'favoured_side': 'FAVOURED SIDE',
+            'weak_foot_accuracy': 'WEAK FOOT ACCURACY', # Note: Removed from DB, will be 0/empty
+            'weak_foot_frequency': 'WEAK FOOT FREQUENCY', # Note: Removed from DB, will be 0/empty
+            'attack': 'ATTACK', 'defense': 'DEFENSE', 'balance': 'BALANCE',
+            'stamina': 'STAMINA', 'top_speed': 'TOP SPEED', 'acceleration': 'ACCELERATION',
+            'response': 'RESPONSE', 'agility': 'AGILITY', 'dribble_accuracy': 'DRIBBLE ACCURACY',
+            'dribble_speed': 'DRIBBLE SPEED', 'short_pass_accuracy': 'SHORT PASS ACCURACY',
+            'short_pass_speed': 'SHORT PASS SPEED', 'long_pass_accuracy': 'LONG PASS ACCURACY',
+            'long_pass_speed': 'LONG PASS SPEED', 'shot_accuracy': 'SHOT ACCURACY',
+            'shot_power': 'SHOT POWER', 'shot_technique': 'SHOT TECHNIQUE',
+            'free_kick_accuracy': 'FREE KICK ACCURACY', 'swerve': 'SWERVE', 'heading': 'HEADING',
+            'jump': 'JUMP', 'technique': 'TECHNIQUE', 'aggression': 'AGGRESSION',
+            'mentality': 'MENTALITY', 'goal_keeping': 'GOAL KEEPING', 'team_work': 'TEAM WORK',
+            'consistency': 'CONSISTENCY', 'condition_fitness': 'CONDITION / FITNESS',
+            'dribbling_skill': 'DRIBBLING', 'tactical_dribble': 'TACTIAL DRIBBLE',
+            'positioning': 'POSITIONING', 'reaction': 'REACTION', 'playmaking': 'PLAYMAKING',
+            'passing': 'PASSING', 'scoring': 'SCORING', 'one_one_scoring': '1-1 SCORING',
+            'post_player': 'POST PLAYER', 'lines': 'LINES', 'middle_shooting': 'MIDDLE SHOOTING',
+            'side': 'SIDE', 'centre': 'CENTRE', 'penalties': 'PENALTIES',
+            'one_touch_pass': '1-TOUCH PASS', 'outside': 'OUTSIDE', 'marking': 'MARKING',
+            'sliding': 'SLIDING', 'covering': 'COVERING', 'd_line_control': 'D-LINE CONTROL',
+            'penalty_stopper': 'PENALTY STOPPER', 'one_on_one_stopper': '1-ON-1 STOPPER',
+            'long_throw': 'LONG THROW', 'injury_tolerance': 'INJURY TOLERANCE',
+            'dribble_style': 'DRIBBLE STYLE', 'free_kick_style': 'FREE KICK STYLE',
+            'pk_style': 'PK STYLE', 'drop_kick_style': 'DROP KICK STYLE',
+            'age': 'AGE', 'weight': 'WEIGHT', 'nationality': 'NATIONALITY',
+            'skin_color': 'SKIN COLOR', 'face_type': 'FACE TYPE', 'preset_face_number': 'PRESET FACE NUMBER',
+            'head_width': 'HEAD WIDTH', 'neck_length': 'NECK LENGTH', 'neck_width': 'NECK WIDTH',
+            'shoulder_height': 'SHOULDER HEIGHT', 'shoulder_width': 'SHOULDER WIDTH',
+            'chest_measurement': 'CHEST MEASUREMENT', 'waist_circumference': 'WAIST CIRCUMFERENCE',
+            'arm_circumference': 'ARM CIRCUMFERENCE', 'leg_circumference': 'LEG CIRCUMFERENCE',
+            'calf_circumference': 'CALF CIRCUMFERENCE', 'leg_length': 'LEG LENGTH',
+            'wristband': 'WRISTBAND', 'wristband_color': 'WRISTBAND COLOR',
+            'international_number': 'INTERNATIONAL NUMBER', 'classic_number': 'CLASSIC NUMBER',
+            'club_number': 'CLUB NUMBER',
+            'club_team_raw': 'CLUB TEAM', # Ensure this maps back to original 'CLUB TEAM'
+            # New financial fields
+            'salary': 'SALARY',
+            'contract_years_remaining': 'CONTRACT YEARS REMAINING',
+            'market_value': 'MARKET VALUE',
+            'yearly_wage_rise': 'YEARLY WAGE RISE'
+        }
+
+        df_players = pd.DataFrame(players_data)
+
+        current_to_desired_map = {sql_col: csv_header_map[sql_col] for sql_col in csv_header_map if sql_col in df_players.columns}
+        df_players_output = df_players.rename(columns=current_to_desired_map)
+
+        # Correct the list of original CSV headers provided in a previous turn (100 headers)
+        original_csv_headers_exact = [
+            'ID', 'NAME', 'SHIRT_NAME', 'GK  0', 'CWP  2', 'CBT  3', 'SB  4', 'DMF  5', 'WB  6', 'CMF  7', 'SMF  8', 'AMF  9', 'WF 10', 'SS  11', 'CF  12', 'REGISTERED POSITION', 'HEIGHT', 'STRONG FOOT', 'FAVOURED SIDE', 'WEAK FOOT ACCURACY', 'WEAK FOOT FREQUENCY', 'ATTACK', 'DEFENSE', 'BALANCE', 'STAMINA', 'TOP SPEED', 'ACCELERATION', 'RESPONSE', 'AGILITY', 'DRIBBLE ACCURACY', 'DRIBBLE SPEED', 'SHORT PASS ACCURACY', 'SHORT PASS SPEED', 'LONG PASS ACCURACY', 'LONG PASS SPEED', 'SHOT ACCURACY', 'SHOT POWER', 'SHOT TECHNIQUE', 'FREE KICK ACCURACY', 'SWERVE', 'HEADING', 'JUMP', 'TECHNIQUE', 'AGGRESSION', 'MENTALITY', 'GOAL KEEPING', 'TEAM WORK', 'CONSISTENCY', 'CONDITION / FITNESS', 'DRIBBLING', 'TACTIAL DRIBBLE', 'POSITIONING', 'REACTION', 'PLAYMAKING', 'PASSING', 'SCORING', '1-1 SCORING', 'POST PLAYER', 'LINES', 'MIDDLE SHOOTING', 'SIDE', 'CENTRE', 'PENALTIES', '1-TOUCH PASS', 'OUTSIDE', 'MARKING', 'SLIDING', 'COVERING', 'D-LINE CONTROL', 'PENALTY STOPPER', '1-ON-1 STOPPER', 'LONG THROW', 'INJURY TOLERANCE', 'DRIBBLE STYLE', 'FREE KICK STYLE', 'PK STYLE', 'DROP KICK STYLE', 'AGE', 'WEIGHT', 'NATIONALITY', 'SKIN COLOR', 'FACE TYPE', 'PRESET FACE NUMBER', 'HEAD WIDTH', 'NECK LENGTH', 'NECK WIDTH', 'SHOULDER HEIGHT', 'SHOULDER WIDTH', 'CHEST MEASUREMENT', 'WAIST CIRCUMFERENCE', 'ARM CIRCUMFERENCE', 'LEG CIRCUMFERENCE', 'CALF CIRCUMFERENCE', 'LEG LENGTH', 'WRISTBAND', 'WRISTBAND COLOR', 'INTERNATIONAL NUMBER', 'CLASSIC NUMBER', 'CLUB TEAM', 'CLUB NUMBER'
+        ]
+        
+        # Append new financial headers to the exact original list
+        financial_headers = ['SALARY', 'CONTRACT YEARS REMAINING', 'MARKET VALUE', 'YEARLY WAGE RISE']
+        final_column_order = original_csv_headers_exact + financial_headers
+
+        df_players_output = df_players_output.reindex(columns=final_column_order)
+
+        for col in df_players_output.columns:
+            if df_players_output[col].dtype == 'object':
+                df_players_output[col] = df_players_output[col].fillna('')
+            else:
+                df_players_output[col] = df_players_output[col].fillna(0)
+
+        output_filename = 'pe6_player_data_updated.csv'
+        output_filepath = os.path.join(DOWNLOAD_FOLDER, output_filename)
+
+        df_players_output.to_csv(output_filepath, index=False, encoding='utf-8')
+
+        return send_from_directory(DOWNLOAD_FOLDER, output_filename, as_attachment=True)
+
+    except Exception as e:
+        flash(f"Error generating or downloading CSV: {e}", "danger")
+        app.logger.error(f"Error in download_updated_csv: {e}", exc_info=True)
+        return redirect(url_for('tools'))
 
 if __name__ == '__main__':
     # For local development
