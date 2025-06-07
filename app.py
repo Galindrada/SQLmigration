@@ -1,10 +1,11 @@
 import os
-import MySQLdb.cursors 
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_mysqldb import MySQL
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+import MySQLdb.cursors
+
 from config import Config
 
 app = Flask(__name__)
@@ -19,7 +20,7 @@ login_manager.login_view = 'login'
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
 
-# User model for Flask-Login (remains the same)
+# User model for Flask-Login
 class User(UserMixin):
     def __init__(self, id, username, email):
         self.id = id
@@ -40,7 +41,7 @@ class User(UserMixin):
 def load_user(user_id):
     return User.get(user_id)
 
-# --- Helper function for file uploads (remains the same) ---
+# --- Helper function for file uploads ---
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
@@ -53,8 +54,17 @@ def get_media_type(filename):
         return 'video'
     return 'none'
 
+# --- Jinja2 Filter for Currency Formatting ---
+@app.template_filter('format_currency') # Register as a template filter named 'format_currency'
+def format_currency_filter(value):
+    if isinstance(value, (int, float)):
+        # Format as Euro currency, e.g., €1,234,567
+        # Handle potential non-integer values from division if needed, or ensure int before filter
+        return f"€{value:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return value
+# --- END Jinja2 Filter ---
 
-# --- Routes (existing routes remain the same) ---
+# --- Routes ---
 
 @app.route('/')
 def index():
@@ -78,7 +88,6 @@ def register():
         username = request.form['username']
         email = request.form['email']
         password = request.form['password']
-        # FIX: Changed 'pbk2:sha256' to 'pbkdf2:sha256'
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
 
         cur = mysql.connection.cursor()
@@ -236,19 +245,18 @@ def view_post(post_id):
 @login_required
 def team_management():
     cur = mysql.connection.cursor()
-    # Assuming 'teams' here refers to the user-created teams from your league (now 'league_teams')
     cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = %s", (current_user.id,))
     user_team = cur.fetchone()
     cur.close()
 
     team_players = []
-    available_players = []
+    available_players = [] # This will be empty now, as per design
 
     if user_team:
         team_id = user_team[0]
         cur = mysql.connection.cursor()
         cur.execute("""
-            SELECT p.id, p.player_name, p.registered_position, p.attack, p.defense, p.stamina, p.top_speed
+            SELECT p.id, p.player_name, p.registered_position
             FROM players p
             JOIN team_players tp ON p.id = tp.player_id
             WHERE tp.team_id = %s
@@ -256,21 +264,7 @@ def team_management():
         """, (team_id,))
         team_players = cur.fetchall()
         cur.close()
-
-        cur = mysql.connection.cursor()
-        cur.execute("""
-            SELECT id, player_name, registered_position, attack, defense, stamina, top_speed
-            FROM players
-            WHERE id NOT IN (SELECT player_id FROM team_players WHERE team_id = %s)
-            ORDER BY player_name ASC
-        """, (team_id,))
-        available_players = cur.fetchall()
-        cur.close()
-    else:
-        cur = mysql.connection.cursor()
-        cur.execute("SELECT id, player_name, registered_position, attack, defense, stamina, top_speed FROM players ORDER BY player_name ASC")
-        available_players = cur.fetchall()
-        cur.close()
+    # No "available_players" query here, as per design for a cleaner "My Team" page
 
     return render_template('team_management.html', user_team=user_team, team_players=team_players, available_players=available_players)
 
@@ -282,7 +276,6 @@ def create_team():
 
     cur = mysql.connection.cursor()
     try:
-        # Insert into 'league_teams'
         cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (%s, %s)",
                     (user_id, team_name))
         mysql.connection.commit()
@@ -301,7 +294,7 @@ def add_player_to_team():
     user_id = current_user.id
 
     cur = mysql.connection.cursor()
-    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (user_id,))
+    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (current_user.id,))
     team_id_data = cur.fetchone()
     cur.close()
 
@@ -330,7 +323,7 @@ def remove_player_from_team(player_id):
     user_id = current_user.id
 
     cur = mysql.connection.cursor()
-    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (user_id,))
+    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (current_user.id,))
     team_id_data = cur.fetchone()
     cur.close()
 
@@ -374,7 +367,7 @@ def pes6_team_details(team_id):
     team_name = team_name[0]
 
     cur.execute("""
-        SELECT id, player_name, registered_position, age, height, strong_foot
+        SELECT id, player_name, registered_position, age, height, strong_foot, attack
         FROM players
         WHERE club_id = %s
         ORDER BY player_name ASC
@@ -397,7 +390,6 @@ def pes6_player_details(player_id):
 
     basic_info = {
         'Name': player_data.get('player_name'),
-        # 'Club' needs to be fetched via a join or another query if not in player_data directly
         'Age': player_data.get('age'),
         'Height': player_data.get('height'),
         'Weight': player_data.get('weight'),
@@ -405,19 +397,27 @@ def pes6_player_details(player_id):
         'Strong Foot': player_data.get('strong_foot'),
         'Favoured Side': player_data.get('favoured_side'),
         'Registered Position': player_data.get('registered_position'),
+        'Games': 0,    # Added empty field
+        'Assists': 0,  # Added empty field
+        'Goals': 0     # Added empty field
     }
 
-    # Fetch club name for the player
     club_name = None
     if player_data.get('club_id'):
-        cur = mysql.connection.cursor()
-        cur.execute("SELECT club_name FROM teams WHERE id = %s", (player_data['club_id'],))
-        club_name_result = cur.fetchone()
+        temp_cur = mysql.connection.cursor()
+        temp_cur.execute("SELECT club_name FROM teams WHERE id = %s", (player_data['club_id'],))
+        club_name_result = temp_cur.fetchone()
         if club_name_result:
             club_name = club_name_result[0]
-        cur.close()
+        temp_cur.close()
     basic_info['Club'] = club_name
 
+    financial_info = {
+        'Salary': player_data.get('salary'),
+        'Contract Years': player_data.get('contract_years_remaining'),
+        'Market Value': player_data.get('market_value'),
+        'Yearly Wage Rise': player_data.get('yearly_wage_rise')
+    }
 
     skills_numeric = {
         'Attack': player_data.get('attack'),
@@ -448,8 +448,6 @@ def pes6_player_details(player_id):
         'Team Work': player_data.get('team_work'),
         'Consistency': player_data.get('consistency'),
         'Condition / Fitness': player_data.get('condition_fitness'),
-        # 'Weak Foot Accuracy': player_data.get('weak_foot_accuracy'), # REMOVED
-        # 'Weak Foot Frequency': player_data.get('weak_foot_frequency'), # REMOVED
     }
 
     positional_skills = {
@@ -485,12 +483,19 @@ def pes6_player_details(player_id):
         'Long Throw': player_data.get('long_throw'),
     }
 
+
     return render_template('pes6_player_details.html',
                            player=player_data,
                            basic_info=basic_info,
+                           financial_info=financial_info, # Pass new financial_info dictionary
                            skills_numeric=skills_numeric,
                            positional_skills=positional_skills,
                            special_skills=special_skills)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # For local development
+    # app.run(debug=True)
+
+    # For production with Waitress (if you decide to use it manually)
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=5000)

@@ -14,28 +14,20 @@
                     <th>Position</th>
                     <th>Age</th>
                     <th>Height (cm)</th>
+                    <th>Strong Foot</th>
                     <th>Attack</th>
-                    <th>Defense</th>
-                    <th>Stamina</th>
-                    <th>Top Speed</th>
-                    <th>Dribble Acc.</th>
-                    <th>Shot Power</th>
                     <th>Details</th>
                 </tr>
             </thead>
             <tbody>
                 {% for player in players_in_team %}
                     <tr>
-                        <td>{{ player[1] }}</td> {# player_name #}
+                        <td><a href="{{ url_for('pes6_player_details', player_id=player[0]) }}">{{ player[1] }}</a></td> {# player_name #}
                         <td>{{ player[2] }}</td> {# registered_position #}
                         <td>{{ player[3] }}</td> {# age #}
                         <td>{{ player[4] }}</td> {# height #}
-                        <td>{{ player[5] }}</td> {# attack #}
-                        <td>{{ player[6] }}</td> {# defense #}
-                        <td>{{ player[7] }}</td> {# stamina #}
-                        <td>{{ player[8] }}</td> {# top_speed #}
-                        <td>{{ player[9] }}</td> {# dribble_accuracy #}
-                        <td>{{ player[10] }}</td> {# shot_power #}
+                        <td>{{ player[5] }}</td> {# strong_foot #}
+                        <td>{{ player[6] }}</td> {# attack #}
                         <td><a href="{{ url_for('pes6_player_details', player_id=player[0]) }}">View Full Skills</a></td>
                     </tr>
                 {% endfor %}

@@ -4,6 +4,12 @@ CREATE DATABASE IF NOT EXISTS pes6_league_db;
 -- Use the database
 USE pes6_league_db;
 
+ALTER TABLE players
+ADD COLUMN salary INT DEFAULT 0,
+ADD COLUMN contract_years_remaining INT DEFAULT 0,
+ADD COLUMN market_value BIGINT DEFAULT 0, -- Market value can be large
+ADD COLUMN yearly_wage_rise INT DEFAULT 0;
+
 -- Drop dependent tables first to avoid foreign key constraints issues when recreating
 -- IMPORTANT: Only run these DROP statements if you are okay with deleting all existing data!
 -- This will wipe all data in these tables and recreate them from scratch.
