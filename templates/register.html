@@ -1,19 +1,139 @@
 {% extends "base.html" %}
 
-{% block title %}Register{% endblock %}
+{% block title %}Register for PES6 League{% endblock %}
 
 {% block content %}
-    <h2>Register</h2>
+    <h2>Register for PES6 League</h2>
+    <p>Create your account and select the two PES6 teams you will manage!</p>
+
     <form method="POST">
-        <label for="username">Username:</label>
-        <input type="text" id="username" name="username" required>
+        <div class="registration-form-section">
+            <h3>Account Details</h3>
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" value="{{ old_username if old_username else '' }}" required>
 
-        <label for="email">Email:</label>
-        <input type="email" id="email" name="email" required>
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" value="{{ old_email if old_email else '' }}" required>
 
-        <label for="password">Password:</label>
-        <input type="password" id="password" name="password" required>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required>
+        </div>
 
-        <button type="submit">Register</button>
+        <div class="team-selection-section">
+            <h3>Select Your Teams (Choose Exactly 2)</h3>
+            <div class="team-grid">
+                {% for team in teams %}
+                    <label class="team-card">
+                        <input type="checkbox" name="selected_teams" value="{{ team.id }}" 
+                               onchange="limitSelections(this)">
+                        <span>{{ team.club_name }}</span>
+                    </label>
+                {% endfor %}
+            </div>
+            <p class="selection-note">Currently selected: <span id="selectedCount">0</span>/2 teams</p>
+        </div>
+
+        <button type="submit">Register Account</button>
     </form>
+
+    <style>
+        .registration-form-section, .team-selection-section {
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+        .registration-form-section h3, .team-selection-section h3 {
+            color: #337ab7;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .team-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            max-height: 400px; /* Limit height for scrollability */
+            overflow-y: auto; /* Add scrollbar if content overflows */
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .team-card {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #e0e0e0;
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s, box-shadow 0.2s;
+            text-align: center;
+            font-weight: bold;
+            color: #333;
+            border: 1px solid transparent;
+        }
+        .team-card:hover {
+            background-color: #d0d0d0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .team-card input[type="checkbox"] {
+            display: none; /* Hide default checkbox */
+        }
+        .team-card input[type="checkbox"]:checked + span {
+            background-color: #4CAF50; /* Green background when selected */
+            color: white;
+            border-color: #4CAF50;
+            padding: 8px 12px; /* Adjust padding due to background change */
+            border-radius: 4px;
+        }
+        .team-card span {
+            padding: 8px 12px; /* Padding for the text itself */
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%; /* Make span fill card width */
+            box-sizing: border-box; /* Include padding and border in width */
+        }
+        .selection-note {
+            text-align: center;
+            margin-top: 10px;
+            font-weight: bold;
+            color: #666;
+        }
+        .selection-note #selectedCount {
+            color: #007bff; /* Blue */
+        }
+    </style>
+
+    <script>
+        function limitSelections(checkbox) {
+            var checkboxes = document.querySelectorAll('input[name="selected_teams"]');
+            var selectedCount = 0;
+            for (var i = 0; i < checkboxes.length; i++) {
+                if (checkboxes[i].checked) {
+                    selectedCount++;
+                }
+            }
+            document.getElementById('selectedCount').innerText = selectedCount;
+
+            if (selectedCount > 2) {
+                checkbox.checked = false; // Uncheck the one that just made it over 2
+                alert('You can only select a maximum of 2 teams.');
+                document.getElementById('selectedCount').innerText = selectedCount - 1; // Update count back
+            }
+        }
+
+        // Initialize count on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            var checkboxes = document.querySelectorAll('input[name="selected_teams"]');
+            var selectedCount = 0;
+            for (var i = 0; i < checkboxes.length; i++) {
+                if (checkboxes[i].checked) {
+                    selectedCount++;
+                }
+            }
+            document.getElementById('selectedCount').innerText = selectedCount;
+        });
+    </script>
 {% endblock %}
+

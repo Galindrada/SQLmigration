@@ -18,10 +18,11 @@
                 <li><a href="{{ url_for('index') }}">Home</a></li>
                 <li><a href="{{ url_for('blog') }}">Blog</a></li>
                 <li><a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a></li>
-                <li><a href="{{ url_for('tools') }}">Tools</a></li> {# NEW LINK #}
+                <li><a href="{{ url_for('tools') }}">Tools</a></li>
                 {% if current_user.is_authenticated %}
                     <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
-                    <li><a href="{{ url_for('team_management') }}">My Team</a></li>
+                    <li><a href="{{ url_for('team_management') }}">My Teams</a></li> {# Updated text #}
+                    {# Removed link to Admin Summary Page #}
                     <li><a href="{{ url_for('logout') }}">Logout</a></li>
                 {% else %}
                     <li><a href="{{ url_for('login') }}">Login</a></li>
@@ -50,3 +51,4 @@
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
+

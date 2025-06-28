@@ -88,25 +88,84 @@ def register():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
 
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
+    pes6_teams_for_selection = cur.fetchall()
+    cur.close()
+
     if request.method == 'POST':
         username = request.form['username']
         email = request.form['email']
         password = request.form['password']
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+        
+        selected_team_ids = request.form.getlist('selected_teams') # Get list of selected team IDs
 
-        cur = mysql.connection.cursor()
+        if len(selected_team_ids) != 2:
+            flash('Please select exactly 2 teams to manage.', 'danger')
+            return render_template('register.html', teams=pes6_teams_for_selection, 
+                                   old_username=username, old_email=email) # Pass back data
+
+        new_user_id = None
         try:
+            cur = mysql.connection.cursor()
+            # Insert new user
             cur.execute("INSERT INTO users (username, email, password) VALUES (%s, %s, %s)",
                         (username, email, hashed_password))
             mysql.connection.commit()
+            new_user_id = cur.lastrowid # Get the ID of the newly created user
+
+            # For each selected PES6 team, create a league team and populate its roster
+            for pes6_team_id_str in selected_team_ids:
+                pes6_team_id = int(pes6_team_id_str)
+                
+                # Get the name of the selected PES6 team
+                cur.execute("SELECT club_name FROM teams WHERE id = %s", (pes6_team_id,))
+                pes6_team_name_result = cur.fetchone()
+                if not pes6_team_name_result:
+                    raise Exception(f"Selected PES6 team with ID {pes6_team_id} not found.")
+                pes6_team_name = pes6_team_name_result[0]
+
+                # Create a new league_team entry for this user
+                cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (%s, %s)",
+                            (new_user_id, pes6_team_name))
+                mysql.connection.commit()
+                new_league_team_id = cur.lastrowid # Get the ID of the newly created league team
+
+                # Get all players from the selected PES6 team
+                cur.execute("SELECT id FROM players WHERE club_id = %s", (pes6_team_id,))
+                players_in_pes6_team = cur.fetchall()
+
+                # Populate the new league_team with players from the selected PES6 team
+                if players_in_pes6_team:
+                    player_team_data = [(new_league_team_id, player[0]) for player in players_in_pes6_team]
+                    cur.executemany("INSERT INTO team_players (team_id, player_id) VALUES (%s, %s)",
+                                    player_team_data)
+                    mysql.connection.commit()
+            
             flash('Registration successful! Please log in.', 'success')
             return redirect(url_for('login'))
+
         except Exception as e:
             mysql.connection.rollback()
-            flash(f'Registration failed: {e}', 'danger')
+            # If user was created but team creation failed, try to clean up user (optional, complex)
+            if new_user_id:
+                try:
+                    cur.execute("DELETE FROM users WHERE id = %s", (new_user_id,))
+                    mysql.connection.commit()
+                    flash(f"Error during team setup for new user. User account rolled back. Please try again. Error: {e}", 'danger')
+                except Exception as cleanup_e:
+                    flash(f"Error during registration and cleanup failed. Contact admin. Error: {e}, Cleanup Error: {cleanup_e}", 'danger')
+            else:
+                flash(f'Registration failed: {e}', 'danger')
+            app.logger.error(f"Registration Error: {e}", exc_info=True)
+            return render_template('register.html', teams=pes6_teams_for_selection, 
+                                   old_username=username, old_email=email) # Pass back data
+
         finally:
             cur.close()
-    return render_template('register.html')
+            
+    return render_template('register.html', teams=pes6_teams_for_selection)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -247,33 +306,69 @@ def view_post(post_id):
 @app.route('/team_management')
 @login_required
 def team_management():
-    cur = mysql.connection.cursor()
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = %s", (current_user.id,))
-    user_team = cur.fetchone()
+    user_teams_meta = cur.fetchall() # Fetch all teams this user manages
     cur.close()
 
-    team_players = []
-    available_players = []
+    managed_teams_data = []
+    total_salaries_user_teams = 0 # Initialize total salaries for financial summary
 
-    if user_team:
-        team_id = user_team[0]
-        cur = mysql.connection.cursor()
+    for team_meta in user_teams_meta:
+        team_id = team_meta['id']
+        team_name = team_meta['team_name']
+
+        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor) # New cursor for player data
+        # Fetch players for this specific team, including financial info
         cur.execute("""
-            SELECT p.id, p.player_name, p.registered_position
+            SELECT
+                p.id, p.player_name, p.registered_position, p.salary, p.contract_years_remaining, p.market_value
             FROM players p
             JOIN team_players tp ON p.id = tp.player_id
             WHERE tp.team_id = %s
             ORDER BY p.player_name ASC
         """, (team_id,))
-        team_players = cur.fetchall()
+        team_players_roster = cur.fetchall()
         cur.close()
-    # No "available_players" query here, as per design for a cleaner "My Team" page
 
-    return render_template('team_management.html', user_team=user_team, team_players=team_players, available_players=available_players)
+        # Sum salaries for this team
+        team_salary_sum = sum(p.get('salary', 0) for p in team_players_roster if p.get('salary') is not None)
+        total_salaries_user_teams += team_salary_sum
+
+        managed_teams_data.append({
+            'id': team_id,
+            'name': team_name,
+            'players': team_players_roster,
+            'team_salary_sum': team_salary_sum # Optionally pass per-team salary sum
+        })
+    
+    # Calculate financial summary for the user's managed teams
+    TOTAL_LEAGUE_BUDGET = 450000000 # Define your total budget (same as admin page)
+    free_cap_user_teams = TOTAL_LEAGUE_BUDGET - total_salaries_user_teams
+
+    # Check if user can create more teams
+    can_create_team = len(user_teams_meta) < 2
+
+    return render_template('team_management.html', 
+                           managed_teams=managed_teams_data, 
+                           can_create_team=can_create_team,
+                           coach_username=current_user.username,
+                           total_budget_display=TOTAL_LEAGUE_BUDGET,
+                           total_salaries_user_teams=total_salaries_user_teams,
+                           free_cap_user_teams=free_cap_user_teams)
 
 @app.route('/team_management/create', methods=['POST'])
 @login_required
 def create_team():
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT COUNT(id) FROM league_teams WHERE user_id = %s", (current_user.id,))
+    team_count = cur.fetchone()[0]
+    cur.close()
+
+    if team_count >= 2:
+        flash('You can only manage a maximum of 2 teams.', 'danger')
+        return redirect(url_for('team_management'))
+
     team_name = request.form['team_name']
     user_id = current_user.id
 
@@ -293,22 +388,30 @@ def create_team():
 @app.route('/team_management/add_player', methods=['POST'])
 @login_required
 def add_player_to_team():
-    player_id = request.form['player_id']
-    user_id = current_user.id
+    player_id = request.form['player_id'] # This player_id comes from a form field, assuming user picked from a list
+    team_id = request.form['team_id'] # New: need to know which of the user's teams to add to
 
     cur = mysql.connection.cursor()
-    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (current_user.id,))
-    team_id_data = cur.fetchone()
+    # Verify the team_id belongs to the current user
+    cur.execute("SELECT id FROM league_teams WHERE id = %s AND user_id = %s", (team_id, current_user.id))
+    user_team_check = cur.fetchone()
     cur.close()
 
-    if not team_id_data:
-        flash('You must create a team first!', 'danger')
+    if not user_team_check:
+        flash('Invalid team selected for adding player.', 'danger')
         return redirect(url_for('team_management'))
-
-    team_id = team_id_data[0]
 
     cur = mysql.connection.cursor()
     try:
+        # Optional: Check if player is already in ANY of the user's teams, or a specific team
+        # For this design, let's allow a player to be in only ONE of a user's teams
+        cur.execute("SELECT tp.player_id FROM team_players tp JOIN league_teams lt ON tp.team_id = lt.id WHERE lt.user_id = %s AND tp.player_id = %s", (current_user.id, player_id))
+        player_already_in_user_teams = cur.fetchone()
+        if player_already_in_user_teams:
+            flash("This player is already in one of your managed teams!", "warning")
+            return redirect(url_for('team_management'))
+
+        # Insert player into the specified team
         cur.execute("INSERT INTO team_players (team_id, player_id) VALUES (%s, %s)",
                     (team_id, player_id))
         mysql.connection.commit()
@@ -320,21 +423,18 @@ def add_player_to_team():
             cur.close()
     return redirect(url_for('team_management'))
 
-@app.route('/team_management/remove_player/<int:player_id>', methods=['POST'])
+@app.route('/team_management/remove_player/<int:team_id>/<int:player_id>', methods=['POST'])
 @login_required
-def remove_player_from_team(player_id):
-    user_id = current_user.id
-
+def remove_player_from_team(team_id, player_id): # Team ID added to parameters
+    # Verify the team_id belongs to the current user
     cur = mysql.connection.cursor()
-    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (current_user.id,))
-    team_id_data = cur.fetchone()
+    cur.execute("SELECT id FROM league_teams WHERE id = %s AND user_id = %s", (team_id, current_user.id))
+    user_team_check = cur.fetchone()
     cur.close()
 
-    if not team_id_data:
-        flash('You do not have a team.', 'danger')
+    if not user_team_check:
+        flash('Invalid team selected for removing player.', 'danger')
         return redirect(url_for('team_management'))
-
-    team_id = team_id_data[0]
 
     cur = mysql.connection.cursor()
     try:
@@ -563,8 +663,8 @@ def download_updated_csv():
             'height': 'HEIGHT',
             'strong_foot': 'STRONG FOOT',
             'favoured_side': 'FAVOURED SIDE',
-            'weak_foot_accuracy': 'WEAK FOOT ACCURACY', # Note: Removed from DB, will be 0/empty
-            'weak_foot_frequency': 'WEAK FOOT FREQUENCY', # Note: Removed from DB, will be 0/empty
+            'weak_foot_accuracy': 'WEAK FOOT ACCURACY',
+            'weak_foot_frequency': 'WEAK FOOT FREQUENCY',
             'attack': 'ATTACK', 'defense': 'DEFENSE', 'balance': 'BALANCE',
             'stamina': 'STAMINA', 'top_speed': 'TOP SPEED', 'acceleration': 'ACCELERATION',
             'response': 'RESPONSE', 'agility': 'AGILITY', 'dribble_accuracy': 'DRIBBLE ACCURACY',
@@ -610,7 +710,7 @@ def download_updated_csv():
         current_to_desired_map = {sql_col: csv_header_map[sql_col] for sql_col in csv_header_map if sql_col in df_players.columns}
         df_players_output = df_players.rename(columns=current_to_desired_map)
 
-        # Correct the list of original CSV headers provided in a previous turn (100 headers)
+        # Correct the list of original CSV headers provided (100 headers)
         original_csv_headers_exact = [
             'ID', 'NAME', 'SHIRT_NAME', 'GK  0', 'CWP  2', 'CBT  3', 'SB  4', 'DMF  5', 'WB  6', 'CMF  7', 'SMF  8', 'AMF  9', 'WF 10', 'SS  11', 'CF  12', 'REGISTERED POSITION', 'HEIGHT', 'STRONG FOOT', 'FAVOURED SIDE', 'WEAK FOOT ACCURACY', 'WEAK FOOT FREQUENCY', 'ATTACK', 'DEFENSE', 'BALANCE', 'STAMINA', 'TOP SPEED', 'ACCELERATION', 'RESPONSE', 'AGILITY', 'DRIBBLE ACCURACY', 'DRIBBLE SPEED', 'SHORT PASS ACCURACY', 'SHORT PASS SPEED', 'LONG PASS ACCURACY', 'LONG PASS SPEED', 'SHOT ACCURACY', 'SHOT POWER', 'SHOT TECHNIQUE', 'FREE KICK ACCURACY', 'SWERVE', 'HEADING', 'JUMP', 'TECHNIQUE', 'AGGRESSION', 'MENTALITY', 'GOAL KEEPING', 'TEAM WORK', 'CONSISTENCY', 'CONDITION / FITNESS', 'DRIBBLING', 'TACTIAL DRIBBLE', 'POSITIONING', 'REACTION', 'PLAYMAKING', 'PASSING', 'SCORING', '1-1 SCORING', 'POST PLAYER', 'LINES', 'MIDDLE SHOOTING', 'SIDE', 'CENTRE', 'PENALTIES', '1-TOUCH PASS', 'OUTSIDE', 'MARKING', 'SLIDING', 'COVERING', 'D-LINE CONTROL', 'PENALTY STOPPER', '1-ON-1 STOPPER', 'LONG THROW', 'INJURY TOLERANCE', 'DRIBBLE STYLE', 'FREE KICK STYLE', 'PK STYLE', 'DROP KICK STYLE', 'AGE', 'WEIGHT', 'NATIONALITY', 'SKIN COLOR', 'FACE TYPE', 'PRESET FACE NUMBER', 'HEAD WIDTH', 'NECK LENGTH', 'NECK WIDTH', 'SHOULDER HEIGHT', 'SHOULDER WIDTH', 'CHEST MEASUREMENT', 'WAIST CIRCUMFERENCE', 'ARM CIRCUMFERENCE', 'LEG CIRCUMFERENCE', 'CALF CIRCUMFERENCE', 'LEG LENGTH', 'WRISTBAND', 'WRISTBAND COLOR', 'INTERNATIONAL NUMBER', 'CLASSIC NUMBER', 'CLUB TEAM', 'CLUB NUMBER'
         ]
@@ -638,6 +738,27 @@ def download_updated_csv():
         flash(f"Error generating or downloading CSV: {e}", "danger")
         app.logger.error(f"Error in download_updated_csv: {e}", exc_info=True)
         return redirect(url_for('tools'))
+
+# --- NEW ROUTE FOR ADMIN FINANCIAL SUMMARY ---
+# This route is being removed as per user request
+# @app.route('/admin/financial_summary')
+# @login_required
+# def admin_financial_summary():
+#     TOTAL_LEAGUE_BUDGET = 450000000
+#
+#     cur = mysql.connection.cursor()
+#     cur.execute("SELECT SUM(salary) FROM players")
+#     total_player_salaries = cur.fetchone()[0]
+#     cur.close()
+#
+#     total_player_salaries = total_player_salaries if total_player_salaries is not None else 0
+#     available_budget = TOTAL_LEAGUE_BUDGET - total_player_salaries
+#
+#     return render_template('admin_financial_summary.html',
+#                            total_budget=TOTAL_LEAGUE_BUDGET,
+#                            total_player_salaries=total_player_salaries,
+#                            available_budget=available_budget)
+
 
 if __name__ == '__main__':
     # For local development

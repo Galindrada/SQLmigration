@@ -1,82 +1,192 @@
 {% extends "base.html" %}
 
-{% block title %}My Team{% endblock %}
+{% block title %}My Teams{% endblock %}
 
 {% block content %}
-    <h2>My Team Management</h2>
+    <h2>My Managed Teams</h2>
+    <p>You can manage up to 2 teams for the league.</p>
 
-    {% if user_team %}
-        <div class="team-section">
-            <h3>Your Team: {{ user_team[1] }}</h3>
-
-            <h4>Current Roster</h4>
-            {% if team_players %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Player Name</th>
-                            <th>Position</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for player in team_players %}
-                            <tr>
-                                <td><a href="{{ url_for('pes6_player_details', player_id=player[0]) }}">{{ player[1] }}</a></td> {# Player Name #}
-                                <td>{{ player[2] }}</td> {# Position #}
-                                <td>
-                                    <form action="{{ url_for('remove_player_from_team', player_id=player[0]) }}" method="POST" style="display: inline;">
-                                        <button type="submit" onclick="return confirm('Are you sure you want to remove {{ player[1] }}?');">Remove</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>Your team currently has no players. You can add players.</p>
-            {% endif %}
-
-            <p>To add or remove players, visit the <a href="#">Player Transfer/Management</a> page (future feature).</p>
-            {# Optionally add a link here to the PES6 Game Data if that's where they pick players for their league team #}
-            <p>Go to <a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a> to view all available players.</p>
-
+    <div class="financial-summary-section">
+        <h3>Your Financial Overview</h3>
+        <div class="financial-grid">
+            <p><strong>Coach:</strong> {{ coach_username }}</p>
+            <p><strong>Total Budget:</strong> {{ total_budget_display | int | format_currency }}</p>
+            <p><strong>Total Salaries:</strong> {{ total_salaries_user_teams | int | format_currency }}</p>
+            <p><strong>Free Cap:</strong> {{ free_cap_user_teams | int | format_currency }}</p>
         </div>
-    {% else %}
+    </div>
+
+    {% if can_create_team %}
         <div class="team-section">
-            <h3>Create Your Team</h3>
-            <p>You don't have a team yet. Create one to get started in the league!</p>
+            <h3>Create New Team</h3>
             <form action="{{ url_for('create_team') }}" method="POST">
-                <label for="team_name">Team Name:</label>
+                <label for="team_name">New Team Name:</label>
                 <input type="text" id="team_name" name="team_name" required>
                 <button type="submit">Create Team</button>
             </form>
         </div>
+    {% else %}
+        <p class="info">You have reached your limit of 2 managed teams.</p>
+    {% endif %}
+
+    {% if managed_teams %}
+        {% for team in managed_teams %}
+            <div class="team-section">
+                <h3>Team: {{ team.name }} (ID: {{ team.id }})</h3>
+
+                <h4>Current Roster</h4>
+                {% if team.players %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Player Name</th>
+                                <th>Position</th>
+                                <th>Salary</th>
+                                <th>Contract Years</th>
+                                <th>Market Value</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in team.players %}
+                                <tr>
+                                    <td><a href="{{ url_for('pes6_player_details', player_id=player.id) }}">{{ player.player_name }}</a></td>
+                                    <td>{{ player.registered_position }}</td>
+                                    <td>{{ player.salary | int | format_currency }}</td>
+                                    <td>{{ player.contract_years_remaining }}</td>
+                                    <td>{{ player.market_value | int | format_currency }}</td>
+                                    <td>
+                                        <form action="{{ url_for('remove_player_from_team', team_id=team.id, player_id=player.id) }}" method="POST" style="display: inline;">
+                                            <button type="submit" onclick="return confirm('Are you sure you want to remove {{ player.player_name }} from {{ team.name }}?');">Remove</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <p>Your team "{{ team.name }}" currently has no players. Go to <a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a> to view players and add them to your team.</p>
+                {% endif %}
+
+                {# Add Player Section (Placeholder for future player selection form) #}
+                <div class="add-player-section">
+                    <h4>Add Player to {{ team.name }} (Manual ID for now)</h4>
+                    <form action="{{ url_for('add_player_to_team') }}" method="POST">
+                        <input type="hidden" name="team_id" value="{{ team.id }}">
+                        <label for="player_id_{{ team.id }}">Player ID:</label>
+                        <input type="number" id="player_id_{{ team.id }}" name="player_id" required min="1">
+                        <button type="submit">Add Player</button>
+                    </form>
+                    <p class="note">You can find Player IDs on the <a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a> pages.</p>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>You haven't created any teams yet. Use the form above to get started!</p>
     {% endif %}
 
     <style>
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
-        }
-
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-
-        th {
-            background-color: #f2f2f2;
-        }
-
         .team-section {
             background-color: #f9f9f9;
             border: 1px solid #eee;
             padding: 15px;
             margin-bottom: 20px;
             border-radius: 5px;
+        }
+        .team-section h3 {
+            color: #337ab7;
+            margin-top: 0;
+        }
+        .team-section h4 {
+            color: #555;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        form button {
+            background-color: #007bff; /* Blue for Add/Create */
+            margin-top: 5px;
+        }
+        form button:hover {
+            background-color: #0056b3;
+        }
+        .add-player-section {
+            border-top: 1px dashed #ddd;
+            padding-top: 15px;
+            margin-top: 15px;
+        }
+        .add-player-section label {
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .add-player-section input[type="number"] {
+            width: 80px;
+            padding: 5px;
+            margin-right: 10px;
+        }
+        .note {
+            font-size: 0.85em;
+            color: #777;
+            margin-top: 10px;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        /* Styles for the new financial summary at the top */
+        .financial-summary-section {
+            background-color: #e6f7ff; /* Light blue background */
+            border: 1px solid #91d5ff; /* Blue border */
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            text-align: left;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .financial-summary-section h3 {
+            color: #1890ff; /* Darker blue for header */
+            margin-top: 0;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .financial-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px 20px; /* Row gap, column gap */
+            padding: 0 10px;
+        }
+        .financial-grid p {
+            margin: 5px 0;
+            font-size: 1.1em;
+        }
+        .financial-grid strong {
+            color: #096dd9; /* A shade of blue for labels */
+        }
+        /* Media query for smaller screens to stack grid items */
+        @media (max-width: 600px) {
+            .financial-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 {% endblock %}
