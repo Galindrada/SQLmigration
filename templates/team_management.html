@@ -3,8 +3,8 @@
 {% block title %}My Teams{% endblock %}
 
 {% block content %}
-    <h2>My Managed Teams</h2>
-    <p>You can manage up to 2 teams for the league.</p>
+    <h2>My Managed Team</h2>
+    <p>You can manage only 1 team for the league.</p>
 
     <div class="financial-summary-section">
         <h3>Your Financial Overview</h3>
@@ -26,7 +26,7 @@
             </form>
         </div>
     {% else %}
-        <p class="info">You have reached your limit of 2 managed teams.</p>
+        <p class="info">You have reached your limit of 1 managed team.</p>
     {% endif %}
 
     {% if managed_teams %}

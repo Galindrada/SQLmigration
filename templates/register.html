@@ -4,7 +4,7 @@
 
 {% block content %}
     <h2>Register for PES6 League</h2>
-    <p>Create your account and select the two PES6 teams you will manage!</p>
+    <p>Create your account and select the PES6 team you will manage!</p>
 
     <form method="POST">
         <div class="registration-form-section">
@@ -20,17 +20,16 @@
         </div>
 
         <div class="team-selection-section">
-            <h3>Select Your Teams (Choose Exactly 2)</h3>
+            <h3>Select Your Team (Choose Exactly 1)</h3>
             <div class="team-grid">
                 {% for team in teams %}
                     <label class="team-card">
-                        <input type="checkbox" name="selected_teams" value="{{ team.id }}" 
-                               onchange="limitSelections(this)">
+                        <input type="radio" name="selected_teams" value="{{ team.id }}" onchange="updateSelectionCount()">
                         <span>{{ team.club_name }}</span>
                     </label>
                 {% endfor %}
             </div>
-            <p class="selection-note">Currently selected: <span id="selectedCount">0</span>/2 teams</p>
+            <p class="selection-note">Currently selected: <span id="selectedCount">0</span>/1 team</p>
         </div>
 
         <button type="submit">Register Account</button>
@@ -77,10 +76,10 @@
             background-color: #d0d0d0;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        .team-card input[type="checkbox"] {
-            display: none; /* Hide default checkbox */
+        .team-card input[type="radio"] {
+            display: none; /* Hide default radio button */
         }
-        .team-card input[type="checkbox"]:checked + span {
+        .team-card input[type="radio"]:checked + span {
             background-color: #4CAF50; /* Green background when selected */
             color: white;
             border-color: #4CAF50;
@@ -106,33 +105,21 @@
     </style>
 
     <script>
-        function limitSelections(checkbox) {
-            var checkboxes = document.querySelectorAll('input[name="selected_teams"]');
+        function updateSelectionCount() {
+            var radios = document.querySelectorAll('input[name="selected_teams"]');
             var selectedCount = 0;
-            for (var i = 0; i < checkboxes.length; i++) {
-                if (checkboxes[i].checked) {
-                    selectedCount++;
+            for (var i = 0; i < radios.length; i++) {
+                if (radios[i].checked) {
+                    selectedCount = 1;
+                    break;
                 }
             }
             document.getElementById('selectedCount').innerText = selectedCount;
-
-            if (selectedCount > 2) {
-                checkbox.checked = false; // Uncheck the one that just made it over 2
-                alert('You can only select a maximum of 2 teams.');
-                document.getElementById('selectedCount').innerText = selectedCount - 1; // Update count back
-            }
         }
 
         // Initialize count on page load
         document.addEventListener('DOMContentLoaded', function() {
-            var checkboxes = document.querySelectorAll('input[name="selected_teams"]');
-            var selectedCount = 0;
-            for (var i = 0; i < checkboxes.length; i++) {
-                if (checkboxes[i].checked) {
-                    selectedCount++;
-                }
-            }
-            document.getElementById('selectedCount').innerText = selectedCount;
+            updateSelectionCount();
         });
     </script>
 {% endblock %}

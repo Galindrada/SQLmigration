@@ -22,6 +22,7 @@
                 {% if current_user.is_authenticated %}
                     <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
                     <li><a href="{{ url_for('team_management') }}">My Teams</a></li> {# Updated text #}
+                    <li><a href="{{ url_for('inbox') }}">Inbox</a></li>
                     {# Removed link to Admin Summary Page #}
                     <li><a href="{{ url_for('logout') }}">Logout</a></li>
                 {% else %}

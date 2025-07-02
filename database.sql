@@ -205,3 +205,22 @@ CREATE TABLE IF NOT EXISTS team_players (
     FOREIGN KEY (team_id) REFERENCES league_teams(id) ON DELETE CASCADE,
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
 );
+
+-- Table for user messages and league news (inbox)
+CREATE TABLE IF NOT EXISTS messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sender_id INT NULL, -- NULL for league news
+    recipient_id INT NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    type ENUM('user', 'league') DEFAULT 'user',
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+ALTER TABLE players ADD COLUMN salary INT DEFAULT 0;
+ALTER TABLE players ADD COLUMN contract_years_remaining INT DEFAULT 0;
+ALTER TABLE players ADD COLUMN yearly_wage_rise INT DEFAULT 0;
+ALTER TABLE players ADD COLUMN market_value INT DEFAULT 0;

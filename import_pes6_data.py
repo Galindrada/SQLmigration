@@ -1,17 +1,15 @@
 import pandas as pd
 import mysql.connector
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 import os
 
-# Load environment variables from .env
-load_dotenv()
 
 # Database connection details from config.py or .env
 DB_CONFIG = {
-    'host': os.environ.get('MYSQL_HOST'),
-    'user': os.environ.get('MYSQL_USER'),
-    'password': os.environ.get('MYSQL_PASSWORD'),
-    'database': os.environ.get('MYSQL_DB')
+    'host': 'localhost',
+    'user': 'simpleuser',
+    'password': '',  # or your password here
+    'database': 'pes6_league_db'
 }
 
 CSV_FILE = 'pe6_player_data.csv'

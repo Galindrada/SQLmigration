@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Send Message{% endblock %}
+
+{% block content %}
+    <h2>Send Message</h2>
+    <form method="POST">
+        <label for="recipient_id">To:</label>
+        <select id="recipient_id" name="recipient_id" required>
+            <option value="">-- Select User --</option>
+            {% for user in users %}
+                <option value="{{ user.id }}" {% if user.id == selected_recipient_id %}selected{% endif %}>{{ user.username }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="subject">Subject:</label>
+        <input type="text" id="subject" name="subject" value="{{ subject|default('') }}" required>
+
+        <label for="body">Message:</label>
+        <textarea id="body" name="body" rows="6" required>{{ body|default('') }}</textarea>
+
+        <button type="submit">Send</button>
+    </form>
+    <a href="{{ url_for('inbox') }}">Back to Inbox</a>
+{% endblock %} 

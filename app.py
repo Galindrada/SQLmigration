@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, abort
 from flask_mysqldb import MySQL
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -101,8 +101,8 @@ def register():
         
         selected_team_ids = request.form.getlist('selected_teams') # Get list of selected team IDs
 
-        if len(selected_team_ids) != 2:
-            flash('Please select exactly 2 teams to manage.', 'danger')
+        if len(selected_team_ids) != 1:
+            flash('Please select exactly 1 team to manage.', 'danger')
             return render_template('register.html', teams=pes6_teams_for_selection, 
                                    old_username=username, old_email=email) # Pass back data
 
@@ -115,33 +115,31 @@ def register():
             mysql.connection.commit()
             new_user_id = cur.lastrowid # Get the ID of the newly created user
 
-            # For each selected PES6 team, create a league team and populate its roster
-            for pes6_team_id_str in selected_team_ids:
-                pes6_team_id = int(pes6_team_id_str)
-                
-                # Get the name of the selected PES6 team
-                cur.execute("SELECT club_name FROM teams WHERE id = %s", (pes6_team_id,))
-                pes6_team_name_result = cur.fetchone()
-                if not pes6_team_name_result:
-                    raise Exception(f"Selected PES6 team with ID {pes6_team_id} not found.")
-                pes6_team_name = pes6_team_name_result[0]
+            # Only one selected PES6 team, create a league team and populate its roster
+            pes6_team_id = int(selected_team_ids[0])
+            # Get the name of the selected PES6 team
+            cur.execute("SELECT club_name FROM teams WHERE id = %s", (pes6_team_id,))
+            pes6_team_name_result = cur.fetchone()
+            if not pes6_team_name_result:
+                raise Exception(f"Selected PES6 team with ID {pes6_team_id} not found.")
+            pes6_team_name = pes6_team_name_result[0]
 
-                # Create a new league_team entry for this user
-                cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (%s, %s)",
-                            (new_user_id, pes6_team_name))
+            # Create a new league_team entry for this user
+            cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (%s, %s)",
+                        (new_user_id, pes6_team_name))
+            mysql.connection.commit()
+            new_league_team_id = cur.lastrowid # Get the ID of the newly created league team
+
+            # Get all players from the selected PES6 team
+            cur.execute("SELECT id FROM players WHERE club_id = %s", (pes6_team_id,))
+            players_in_pes6_team = cur.fetchall()
+
+            # Populate the new league_team with players from the selected PES6 team
+            if players_in_pes6_team:
+                player_team_data = [(new_league_team_id, player[0]) for player in players_in_pes6_team]
+                cur.executemany("INSERT INTO team_players (team_id, player_id) VALUES (%s, %s)",
+                                player_team_data)
                 mysql.connection.commit()
-                new_league_team_id = cur.lastrowid # Get the ID of the newly created league team
-
-                # Get all players from the selected PES6 team
-                cur.execute("SELECT id FROM players WHERE club_id = %s", (pes6_team_id,))
-                players_in_pes6_team = cur.fetchall()
-
-                # Populate the new league_team with players from the selected PES6 team
-                if players_in_pes6_team:
-                    player_team_data = [(new_league_team_id, player[0]) for player in players_in_pes6_team]
-                    cur.executemany("INSERT INTO team_players (team_id, player_id) VALUES (%s, %s)",
-                                    player_team_data)
-                    mysql.connection.commit()
             
             flash('Registration successful! Please log in.', 'success')
             return redirect(url_for('login'))
@@ -347,7 +345,7 @@ def team_management():
     free_cap_user_teams = TOTAL_LEAGUE_BUDGET - total_salaries_user_teams
 
     # Check if user can create more teams
-    can_create_team = len(user_teams_meta) < 2
+    can_create_team = len(user_teams_meta) < 1
 
     return render_template('team_management.html', 
                            managed_teams=managed_teams_data, 
@@ -366,7 +364,7 @@ def create_team():
     cur.close()
 
     if team_count >= 2:
-        flash('You can only manage a maximum of 2 teams.', 'danger')
+        flash('You can only manage a maximum of 1 team.', 'danger')
         return redirect(url_for('team_management'))
 
     team_name = request.form['team_name']
@@ -759,6 +757,80 @@ def download_updated_csv():
 #                            total_player_salaries=total_player_salaries,
 #                            available_budget=available_budget)
 
+@app.route('/inbox')
+@login_required
+def inbox():
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("""
+        SELECT m.*, u.username AS sender_username
+        FROM messages m
+        LEFT JOIN users u ON m.sender_id = u.id
+        WHERE m.recipient_id = %s
+        ORDER BY m.created_at DESC
+    """, (current_user.id,))
+    messages = cur.fetchall()
+    cur.close()
+    return render_template('inbox.html', messages=messages)
+
+@app.route('/inbox/<int:msg_id>')
+@login_required
+def view_message(msg_id):
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT * FROM messages WHERE id = %s AND recipient_id = %s", (msg_id, current_user.id))
+    message = cur.fetchone()
+    if not message:
+        cur.close()
+        abort(404)
+    # Mark as read if not already
+    if not message['is_read']:
+        cur2 = mysql.connection.cursor()
+        cur2.execute("UPDATE messages SET is_read = TRUE WHERE id = %s", (msg_id,))
+        mysql.connection.commit()
+        cur2.close()
+    sender_username = None
+    if message['type'] == 'user' and message['sender_id']:
+        cur.execute("SELECT username FROM users WHERE id = %s", (message['sender_id'],))
+        sender = cur.fetchone()
+        if sender:
+            sender_username = sender['username']
+    cur.close()
+    return render_template('view_message.html', message=message, sender_username=sender_username)
+
+@app.route('/inbox/send', methods=['GET', 'POST'])
+@login_required
+def send_message():
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT id, username FROM users WHERE id != %s ORDER BY username ASC", (current_user.id,))
+    users = cur.fetchall()
+    cur.close()
+    subject = ''
+    body = ''
+    selected_recipient_id = None
+    reply_to = request.args.get('reply_to')
+    # If replying, pre-fill subject/body
+    if reply_to:
+        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cur.execute("SELECT * FROM messages WHERE id = %s AND recipient_id = %s", (reply_to, current_user.id))
+        orig = cur.fetchone()
+        cur.close()
+        if orig:
+            subject = 'Re: ' + orig['subject']
+            selected_recipient_id = orig['sender_id']
+    if request.method == 'POST':
+        recipient_id = request.form['recipient_id']
+        subject = request.form['subject']
+        body = request.form['body']
+        if not recipient_id or not subject or not body:
+            flash('All fields are required.', 'danger')
+        else:
+            cur = mysql.connection.cursor()
+            cur.execute("INSERT INTO messages (sender_id, recipient_id, subject, body, type) VALUES (%s, %s, %s, %s, 'user')",
+                        (current_user.id, recipient_id, subject, body))
+            mysql.connection.commit()
+            cur.close()
+            flash('Message sent!', 'success')
+            return redirect(url_for('inbox'))
+    return render_template('send_message.html', users=users, subject=subject, body=body, selected_recipient_id=selected_recipient_id)
 
 if __name__ == '__main__':
     # For local development
