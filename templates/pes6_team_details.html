@@ -28,7 +28,10 @@
                         <td>{{ player[4] }}</td> {# height #}
                         <td>{{ player[5] }}</td> {# strong_foot #}
                         <td>{{ player[6] }}</td> {# attack #}
-                        <td><a href="{{ url_for('pes6_player_details', player_id=player[0]) }}">View Full Skills</a></td>
+                        <td>
+                            <a href="{{ url_for('pes6_player_details', player_id=player[0]) }}">View Full Skills</a>
+                            <button type="button" class="btn btn-primary btn-sm negotiate-btn" data-player-id="{{ player[0] }}" data-player-name="{{ player[1] }}" data-toggle="modal" data-target="#negotiateModal">Negotiate</button>
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -36,6 +39,29 @@
     {% else %}
         <p>No players found for {{ team_name }}.</p>
     {% endif %}
+
+    <!-- Negotiation Modal -->
+    <div class="modal fade" id="negotiateModal" tabindex="-1" role="dialog" aria-labelledby="negotiateModalLabel" aria-hidden="true">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="negotiateModalLabel">Negotiate for <span id="modalPlayerName"></span></h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body" id="negotiationContent">
+            <!-- Negotiation steps will be loaded here via JS -->
+            <div class="text-center text-muted">Negotiation logic coming soon...</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-success" id="acceptDealBtn">Accept</button>
+            <button type="button" class="btn btn-warning" id="counterOfferBtn">Counter</button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <style>
         table {

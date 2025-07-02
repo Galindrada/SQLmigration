@@ -10,30 +10,37 @@
         <h3>Your Financial Overview</h3>
         <div class="financial-grid">
             <p><strong>Coach:</strong> {{ coach_username }}</p>
-            <p><strong>Total Budget:</strong> {{ total_budget_display | int | format_currency }}</p>
+            <p><strong>Total Budget:</strong> <span id="user-budget">{{ total_budget_display | int | format_currency }}</span></p>
             <p><strong>Total Salaries:</strong> {{ total_salaries_user_teams | int | format_currency }}</p>
             <p><strong>Free Cap:</strong> {{ free_cap_user_teams | int | format_currency }}</p>
         </div>
     </div>
 
-    {% if can_create_team %}
-        <div class="team-section">
-            <h3>Create New Team</h3>
-            <form action="{{ url_for('create_team') }}" method="POST">
-                <label for="team_name">New Team Name:</label>
-                <input type="text" id="team_name" name="team_name" required>
-                <button type="submit">Create Team</button>
+    {% if not managed_teams %}
+        <div class="team-section" style="text-align:center;">
+            <p>You haven't selected any team yet. Please select a team to manage in the league.</p>
+            <form action="{{ url_for('select_team') }}" method="POST" style="max-width: 500px; margin: 0 auto;">
+                {% if available_teams %}
+                    <div class="team-grid">
+                        {% for team in available_teams %}
+                            <label class="team-card">
+                                <input type="radio" name="selected_team" value="{{ team.id }}" required>
+                                <span>{{ team.club_name }}</span>
+                            </label>
+                        {% endfor %}
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="margin-top: 15px;">Select Team</button>
+                {% else %}
+                    <p>No teams are currently available for selection.</p>
+                {% endif %}
             </form>
         </div>
-    {% else %}
-        <p class="info">You have reached your limit of 1 managed team.</p>
     {% endif %}
 
     {% if managed_teams %}
         {% for team in managed_teams %}
             <div class="team-section">
                 <h3>Team: {{ team.name }} (ID: {{ team.id }})</h3>
-
                 <h4>Current Roster</h4>
                 {% if team.players %}
                     <table>
@@ -67,8 +74,6 @@
                 {% else %}
                     <p>Your team "{{ team.name }}" currently has no players. Go to <a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a> to view players and add them to your team.</p>
                 {% endif %}
-
-                {# Add Player Section (Placeholder for future player selection form) #}
                 <div class="add-player-section">
                     <h4>Add Player to {{ team.name }} (Manual ID for now)</h4>
                     <form action="{{ url_for('add_player_to_team') }}" method="POST">
@@ -81,8 +86,6 @@
                 </div>
             </div>
         {% endfor %}
-    {% else %}
-        <p>You haven't created any teams yet. Use the form above to get started!</p>
     {% endif %}
 
     <style>

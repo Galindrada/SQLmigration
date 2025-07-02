@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS league_teams (
     user_id INT NOT NULL, -- The owner of the team
     team_name VARCHAR(100) UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    budget BIGINT DEFAULT 450000000,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -217,6 +218,21 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     type ENUM('user', 'league') DEFAULT 'user',
     FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Table for Offers (player trades between users)
+CREATE TABLE IF NOT EXISTS offers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sender_id INT NOT NULL,
+    recipient_id INT NOT NULL,
+    offered_players JSON NOT NULL,      -- List of player IDs offered by sender
+    offered_money INT DEFAULT 0,        -- Money offered by sender
+    requested_players JSON NOT NULL,    -- List of player IDs requested from recipient
+    requested_money INT DEFAULT 0,      -- Money requested from recipient
+    status ENUM('pending', 'accepted', 'rejected') DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
 );
 

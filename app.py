@@ -1,11 +1,14 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, abort, jsonify
 from flask_mysqldb import MySQL
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import MySQLdb.cursors
 import pandas as pd
+import json
+import random
+import time
 
 from config import Config
 
@@ -305,16 +308,19 @@ def view_post(post_id):
 @login_required
 def team_management():
     cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = %s", (current_user.id,))
+    cur.execute("SELECT id, team_name, budget FROM league_teams WHERE user_id = %s", (current_user.id,))
     user_teams_meta = cur.fetchall() # Fetch all teams this user manages
     cur.close()
 
     managed_teams_data = []
     total_salaries_user_teams = 0 # Initialize total salaries for financial summary
+    user_total_budget = 0
 
     for team_meta in user_teams_meta:
         team_id = team_meta['id']
         team_name = team_meta['team_name']
+        team_budget = team_meta.get('budget', 0)
+        user_total_budget += team_budget
 
         cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor) # New cursor for player data
         # Fetch players for this specific team, including financial info
@@ -351,7 +357,7 @@ def team_management():
                            managed_teams=managed_teams_data, 
                            can_create_team=can_create_team,
                            coach_username=current_user.username,
-                           total_budget_display=TOTAL_LEAGUE_BUDGET,
+                           total_budget_display=user_total_budget,
                            total_salaries_user_teams=total_salaries_user_teams,
                            free_cap_user_teams=free_cap_user_teams)
 
@@ -454,8 +460,11 @@ def pes6_game_teams():
     cur = mysql.connection.cursor()
     cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
     game_teams = cur.fetchall()
+    # Get all team names from league_teams that are managed by a real user (user_id != 1)
+    cur.execute("SELECT team_name FROM league_teams WHERE user_id != 1")
+    user_assigned_team_names = set(row[0] for row in cur.fetchall())
     cur.close()
-    return render_template('pes6_teams.html', game_teams=game_teams)
+    return render_template('pes6_teams.html', game_teams=game_teams, user_assigned_team_names=user_assigned_team_names)
 
 @app.route('/pes6_game_teams/<int:team_id>')
 def pes6_team_details(team_id):
@@ -769,8 +778,32 @@ def inbox():
         ORDER BY m.created_at DESC
     """, (current_user.id,))
     messages = cur.fetchall()
+    # Fetch offers for this user
+    cur.execute("""
+        SELECT o.*, u.username AS sender_username
+        FROM offers o
+        JOIN users u ON o.sender_id = u.id
+        WHERE o.recipient_id = %s
+        ORDER BY o.created_at DESC
+    """, (current_user.id,))
+    offers = cur.fetchall()
+    # Parse JSON fields and fetch player names for template
+    for offer in offers:
+        offer['offered_players'] = json.loads(offer['offered_players'])
+        offer['requested_players'] = json.loads(offer['requested_players'])
+        # Fetch player names for both sides
+        if offer['offered_players']:
+            cur.execute("SELECT id, player_name FROM players WHERE id IN %s", (tuple(offer['offered_players']),))
+            offer['offered_player_names'] = [row['player_name'] for row in cur.fetchall()]
+        else:
+            offer['offered_player_names'] = []
+        if offer['requested_players']:
+            cur.execute("SELECT id, player_name FROM players WHERE id IN %s", (tuple(offer['requested_players']),))
+            offer['requested_player_names'] = [row['player_name'] for row in cur.fetchall()]
+        else:
+            offer['requested_player_names'] = []
     cur.close()
-    return render_template('inbox.html', messages=messages)
+    return render_template('inbox.html', messages=messages, offers=offers)
 
 @app.route('/inbox/<int:msg_id>')
 @login_required
@@ -831,6 +864,418 @@ def send_message():
             flash('Message sent!', 'success')
             return redirect(url_for('inbox'))
     return render_template('send_message.html', users=users, subject=subject, body=body, selected_recipient_id=selected_recipient_id)
+
+@app.route('/get_team_players/<int:user_id>')
+@login_required
+def get_team_players(user_id):
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("""
+        SELECT p.id, p.player_name FROM players p
+        JOIN team_players tp ON p.id = tp.player_id
+        JOIN league_teams lt ON tp.team_id = lt.id
+        WHERE lt.user_id = %s
+        ORDER BY p.player_name ASC
+    """, (user_id,))
+    players = cur.fetchall()
+    cur.close()
+    return jsonify(players)
+
+@app.route('/send_offer', methods=['GET', 'POST'])
+@login_required
+def send_offer():
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT id, username FROM users WHERE id != %s ORDER BY username ASC", (current_user.id,))
+    users = cur.fetchall()
+    cur.execute("""
+        SELECT p.id, p.player_name FROM players p
+        JOIN team_players tp ON p.id = tp.player_id
+        JOIN league_teams lt ON tp.team_id = lt.id
+        WHERE lt.user_id = %s
+        ORDER BY p.player_name ASC
+    """, (current_user.id,))
+    my_players = cur.fetchall()
+    recipient_players = []
+    selected_recipient_id = request.form.get('recipient_id') if request.method == 'POST' else request.args.get('recipient_id')
+    if selected_recipient_id:
+        try:
+            selected_recipient_id_int = int(selected_recipient_id)
+            cur.execute("""
+                SELECT p.id, p.player_name FROM players p
+                JOIN team_players tp ON p.id = tp.player_id
+                JOIN league_teams lt ON tp.team_id = lt.id
+                WHERE lt.user_id = %s
+                ORDER BY p.player_name ASC
+            """, (selected_recipient_id_int,))
+            recipient_players = cur.fetchall()
+        except ValueError:
+            recipient_players = []
+    cur.close()
+
+    if request.method == 'POST':
+        recipient_id = request.form['recipient_id']
+        offered_players = request.form.getlist('offered_players')
+        offered_money = request.form.get('offered_money', 0)
+        requested_players = request.form.getlist('requested_players')
+        requested_money = request.form.get('requested_money', 0)
+        cur = mysql.connection.cursor()
+        cur.execute("""
+            INSERT INTO offers (sender_id, recipient_id, offered_players, offered_money, requested_players, requested_money)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            current_user.id,
+            recipient_id,
+            json.dumps([int(pid) for pid in offered_players]),
+            int(offered_money),
+            json.dumps([int(pid) for pid in requested_players]),
+            int(requested_money)
+        ))
+        mysql.connection.commit()
+        cur.close()
+        flash('Offer sent!', 'success')
+        return redirect(url_for('inbox'))
+
+    return render_template('send_offer.html', users=users, my_players=my_players, recipient_players=recipient_players, selected_recipient_id=selected_recipient_id)
+
+@app.route('/offer/<int:offer_id>/accept', methods=['POST'])
+@login_required
+def accept_offer(offer_id):
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    # Get offer details
+    cur.execute("SELECT * FROM offers WHERE id = %s AND recipient_id = %s AND status = 'pending'", (offer_id, current_user.id))
+    offer = cur.fetchone()
+    if not offer:
+        cur.close()
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'error': 'Offer not found or already handled.'}), 404
+        flash('Offer not found or already handled.', 'danger')
+        return redirect(url_for('inbox'))
+    # Get sender and recipient league_team ids
+    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (offer['sender_id'],))
+    sender_team = cur.fetchone()
+    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (offer['recipient_id'],))
+    recipient_team = cur.fetchone()
+    if not sender_team or not recipient_team:
+        cur.close()
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'error': 'Teams not found for one of the users.'}), 400
+        flash('Teams not found for one of the users.', 'danger')
+        return redirect(url_for('inbox'))
+    sender_team_id = sender_team['id']
+    recipient_team_id = recipient_team['id']
+    # Transfer players: offered_players to recipient, requested_players to sender
+    offered_players = json.loads(offer['offered_players'])
+    requested_players = json.loads(offer['requested_players'])
+    # Remove offered players from sender, add to recipient
+    for pid in offered_players:
+        cur.execute("DELETE FROM team_players WHERE team_id = %s AND player_id = %s", (sender_team_id, pid))
+        cur.execute("INSERT IGNORE INTO team_players (team_id, player_id) VALUES (%s, %s)", (recipient_team_id, pid))
+    # Remove requested players from recipient, add to sender
+    for pid in requested_players:
+        cur.execute("DELETE FROM team_players WHERE team_id = %s AND player_id = %s", (recipient_team_id, pid))
+        cur.execute("INSERT IGNORE INTO team_players (team_id, player_id) VALUES (%s, %s)", (sender_team_id, pid))
+    # Update budgets
+    cur.execute("SELECT budget FROM league_teams WHERE id = %s", (sender_team_id,))
+    sender_budget = cur.fetchone()['budget']
+    cur.execute("SELECT budget FROM league_teams WHERE id = %s", (recipient_team_id,))
+    recipient_budget = cur.fetchone()['budget']
+    new_sender_budget = sender_budget - offer['offered_money'] + offer['requested_money']
+    new_recipient_budget = recipient_budget + offer['offered_money'] - offer['requested_money']
+    cur.execute("UPDATE league_teams SET budget = %s WHERE id = %s", (new_sender_budget, sender_team_id))
+    cur.execute("UPDATE league_teams SET budget = %s WHERE id = %s", (new_recipient_budget, recipient_team_id))
+    # Mark offer as accepted
+    cur.execute("UPDATE offers SET status = 'accepted' WHERE id = %s", (offer_id,))
+    mysql.connection.commit()
+    cur.close()
+    if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({'success': True, 'updated_budget': new_recipient_budget, 'message': 'Offer accepted and transfer completed!'})
+    flash('Offer accepted and transfer completed!', 'success')
+    return redirect(url_for('inbox'))
+
+@app.route('/offer/<int:offer_id>/reject', methods=['POST'])
+@login_required
+def reject_offer(offer_id):
+    cur = mysql.connection.cursor()
+    cur.execute("UPDATE offers SET status = 'rejected' WHERE id = %s AND recipient_id = %s", (offer_id, current_user.id))
+    mysql.connection.commit()
+    cur.close()
+    flash('Offer rejected.', 'info')
+    return redirect(url_for('inbox'))
+
+@app.route('/negotiate_with_cpu/<int:player_id>', methods=['POST'])
+def negotiate_with_cpu(player_id):
+    data = request.get_json()
+    action = data.get('action')
+    current_deal = data.get('current_deal')
+    user_team_players = data.get('user_team_players', [])  # List of dicts with at least 'id', 'NAME', 'Market Value'
+
+    # Fetch player info from DB
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT * FROM players WHERE id = %s", (player_id,))
+    player = cur.fetchone()
+    if not player:
+        cur.close()
+        return jsonify({'error': 'Player not found'}), 404
+    market_value = player.get('market_value', 0)
+    player_name = player.get('player_name', 'Unknown')
+    selling_club_id = player.get('club_id')
+    # Get selling club name
+    club_name = None
+    if selling_club_id:
+        cur.execute("SELECT club_name FROM teams WHERE id = %s", (selling_club_id,))
+        club_row = cur.fetchone()
+        if club_row:
+            club_name = club_row['club_name']
+    # Get selling CPU league_team (if any)
+    cpu_league_team_id = None
+    cur.execute("SELECT id FROM league_teams WHERE team_name = %s", (club_name,))
+    cpu_league_team = cur.fetchone()
+    if cpu_league_team:
+        cpu_league_team_id = cpu_league_team['id']
+    else:
+        # Create a CPU league team if missing (user_id=1 is the special CPU user)
+        app.logger.info(f"Creating CPU league_team for club_name: {club_name}")
+        cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (%s, %s)", (1, club_name))
+        mysql.connection.commit()
+        cpu_league_team_id = cur.lastrowid
+    # Get user's league_team
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (current_user.id,))
+    user_team_row = cur.fetchone()
+    if not user_team_row:
+        cur.close()
+        return jsonify({'error': 'You do not manage a team.'}), 400
+    user_league_team_id = user_team_row['id']
+
+    # Initial negotiation step
+    if not current_deal:
+        initial_asking_price = int(market_value * random.uniform(1.25, 1.75))
+        negotiation_prob = 0.75
+        cur.close()
+        return jsonify({
+            'deal': {
+                'cash_paid': initial_asking_price,
+                'player_given': None,
+                'cpu_player_given': None,
+                'negotiation_prob': negotiation_prob,
+                'club_name': club_name
+            },
+            'player_name': player_name,
+            'market_value': market_value,
+            'club_name': club_name,
+            'step': 'initial'
+        })
+
+    # Accepting the deal
+    if action == 'accept':
+        try:
+            # Compose offer details
+            cash_paid = current_deal.get('cash_paid', 0)
+            player_given = current_deal.get('player_given')
+            cpu_player_given = current_deal.get('cpu_player_given')
+            # Prepare offered/requested players for the offer
+            offered_players = []
+            if cpu_player_given:
+                offered_players.append(cpu_player_given.get('id'))
+            offered_players.append(player_id)  # The main player CPU is offering
+            requested_players = []
+            if player_given:
+                requested_players.append(player_given.get('id'))
+            # Insert offer into offers table (CPU user_id=1)
+            cur = mysql.connection.cursor()
+            cur.execute("""
+                INSERT INTO offers (sender_id, recipient_id, offered_players, offered_money, requested_players, requested_money)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                1,  # CPU user
+                current_user.id,
+                json.dumps([pid for pid in offered_players if pid]),
+                0,  # CPU is not offering money
+                json.dumps([pid for pid in requested_players if pid]),
+                cash_paid  # User pays this to CPU
+            ))
+            # Compose summary for blog
+            cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+            cur.execute("SELECT team_name FROM league_teams WHERE user_id = %s", (current_user.id,))
+            user_team_row = cur.fetchone()
+            user_team_name = user_team_row['team_name'] if user_team_row else 'your team'
+            summary = f"Daily Mail: {player_name} has been transferred from {club_name} to {user_team_name} for €{cash_paid:,.0f}. The negotiation is pending ultimate details."
+            if player_given:
+                summary += f", with {player_given.get('NAME')} going the other way."
+            if cpu_player_given:
+                summary += f" ({club_name} also included {cpu_player_given.get('NAME')})"
+            summary += "."
+            cur.execute("INSERT INTO posts (user_id, title, content, media_type) VALUES (%s, %s, %s, %s)", (1, 'Daily Mail Transfer', summary, 'none'))
+            mysql.connection.commit()
+            cur.close()
+            return jsonify({'success': True, 'message': 'The Offer is on your mail for acceptance.'})
+        except Exception as e:
+            app.logger.error(f'Exception in accept deal: {str(e)}', exc_info=True)
+            mysql.connection.rollback()
+            cur.close()
+            return jsonify({'error': f'Error creating offer: {str(e)}'}), 500
+
+    # Counter-offer logic (CPU responds)
+    if action == 'counter':
+        negotiation_prob = current_deal.get('negotiation_prob', 0.75)
+        negotiation_prob = max(0, negotiation_prob - random.uniform(0.05, 0.15))
+        if random.random() > negotiation_prob:
+            cur.close()
+            return jsonify({'deal': None, 'step': 'cpu_quit', 'message': 'The CPU has ended negotiations. They are firm on their price.'})
+        cash_demand = current_deal.get('cash_paid', 0)
+        player_demand = current_deal.get('player_given')
+        player_demand_mv = player_demand.get('Market Value', 0) if player_demand else 0
+        current_total_demand_value = cash_demand + player_demand_mv
+        new_total_demand_value = int(current_total_demand_value * (1 - random.uniform(0.05, 0.15)))
+        # Only sometimes ask for a player from user's team if any are available
+        if user_team_players and random.random() < 0.5:
+            # 1. Get CPU team position counts
+            cpu_position_counts = {}
+            if cpu_league_team_id:
+                cur.execute("SELECT registered_position FROM players p JOIN team_players tp ON p.id = tp.player_id WHERE tp.team_id = %s", (cpu_league_team_id,))
+                cpu_positions = [row['registered_position'] for row in cur.fetchall() if row['registered_position']]
+                for pos in cpu_positions:
+                    cpu_position_counts[pos] = cpu_position_counts.get(pos, 0) + 1
+            # 2. Find the least common position(s)
+            min_count = None
+            lacking_positions = set()
+            if cpu_position_counts:
+                min_count = min(cpu_position_counts.values())
+                lacking_positions = {pos for pos, count in cpu_position_counts.items() if count == min_count}
+            # 3. Try to get a user player in a lacking position, else any user player
+            lacking_position_players = [p for p in user_team_players if p.get('registered_position') in lacking_positions] if lacking_positions else []
+            if lacking_position_players:
+                player_request = random.choice(lacking_position_players)
+            else:
+                player_request = random.choice(user_team_players)
+            new_cash_demand = max(0, new_total_demand_value - player_request.get('Market Value', 0))
+            cur.close()
+            return jsonify({'deal': {'cash_paid': new_cash_demand, 'player_given': player_request, 'cpu_player_given': None, 'negotiation_prob': negotiation_prob, 'club_name': club_name}, 'step': 'cpu_counter'})
+        # Otherwise, just lower cash
+        cur.close()
+        return jsonify({'deal': {'cash_paid': new_total_demand_value, 'player_given': None, 'cpu_player_given': None, 'negotiation_prob': negotiation_prob, 'club_name': club_name}, 'step': 'cpu_counter'})
+
+    cur.close()
+    return jsonify({'error': 'Invalid action'}), 400
+
+@app.route('/get_team_players_full/<int:user_id>')
+@login_required
+def get_team_players_full(user_id):
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("""
+        SELECT p.id, p.player_name AS NAME, p.market_value AS `Market Value`, p.registered_position
+        FROM players p
+        JOIN team_players tp ON p.id = tp.player_id
+        JOIN league_teams lt ON tp.team_id = lt.id
+        WHERE lt.user_id = %s
+        ORDER BY p.player_name ASC
+    """, (user_id,))
+    players = cur.fetchall()
+    cur.close()
+    return jsonify(players)
+
+@app.route('/select_team', methods=['GET', 'POST'])
+@login_required
+def select_team():
+    # Only allow if user has no team
+    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    cur.execute("SELECT COUNT(*) as count FROM league_teams WHERE user_id = %s", (current_user.id,))
+    if cur.fetchone()['count'] > 0:
+        cur.close()
+        flash('You already manage a team.', 'warning')
+        return redirect(url_for('team_management'))
+    # Get available teams (not already assigned)
+    cur.execute("SELECT t.id, t.club_name FROM teams t LEFT JOIN league_teams lt ON t.club_name = lt.team_name WHERE lt.id IS NULL ORDER BY t.club_name ASC")
+    available_teams = cur.fetchall()
+    if request.method == 'POST':
+        selected_team_id = request.form.get('selected_team')
+        if not selected_team_id:
+            flash('Please select a team.', 'danger')
+            return render_template('team_management.html', managed_teams=[], available_teams=available_teams, coach_username=current_user.username, total_budget_display=450000000, total_salaries_user_teams=0, free_cap_user_teams=450000000)
+        # Assign team to user
+        cur.execute("SELECT club_name FROM teams WHERE id = %s", (selected_team_id,))
+        team_row = cur.fetchone()
+        if not team_row:
+            flash('Selected team not found.', 'danger')
+            return render_template('team_management.html', managed_teams=[], available_teams=available_teams, coach_username=current_user.username, total_budget_display=450000000, total_salaries_user_teams=0, free_cap_user_teams=450000000)
+        team_name = team_row['club_name']
+        cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (%s, %s)", (current_user.id, team_name))
+        mysql.connection.commit()
+        new_league_team_id = cur.lastrowid
+        # Populate roster
+        cur.execute("SELECT id FROM players WHERE club_id = %s", (selected_team_id,))
+        players_in_team = cur.fetchall()
+        if players_in_team:
+            player_team_data = [(new_league_team_id, player['id']) for player in players_in_team]
+            cur.executemany("INSERT INTO team_players (team_id, player_id) VALUES (%s, %s)", player_team_data)
+            mysql.connection.commit()
+        cur.close()
+        flash('Team selected and roster assigned!','success')
+        return redirect(url_for('team_management'))
+    cur.close()
+    return render_template('team_management.html', managed_teams=[], available_teams=available_teams, coach_username=current_user.username, total_budget_display=450000000, total_salaries_user_teams=0, free_cap_user_teams=450000000)
+
+@app.route('/confirm_transfer_with_cpu/<int:player_id>', methods=['POST'])
+@login_required
+def confirm_transfer_with_cpu(player_id):
+    data = request.get_json()
+    current_deal = data.get('current_deal')
+    try:
+        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        # Get selling club name and league_team ids
+        cur.execute("SELECT * FROM players WHERE id = %s", (player_id,))
+        player = cur.fetchone()
+        if not player:
+            cur.close()
+            return jsonify({'error': 'Player not found'}), 404
+        club_name = None
+        if player.get('club_id'):
+            cur.execute("SELECT club_name FROM teams WHERE id = %s", (player['club_id'],))
+            club_row = cur.fetchone()
+            if club_row:
+                club_name = club_row['club_name']
+        cpu_league_team_id = None
+        cur.execute("SELECT id FROM league_teams WHERE team_name = %s", (club_name,))
+        cpu_league_team = cur.fetchone()
+        if cpu_league_team:
+            cpu_league_team_id = cpu_league_team['id']
+        else:
+            cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (%s, %s)", (1, club_name))
+            mysql.connection.commit()
+            cpu_league_team_id = cur.lastrowid
+        cur.execute("SELECT id FROM league_teams WHERE user_id = %s", (current_user.id,))
+        user_league_team = cur.fetchone()
+        if not user_league_team:
+            cur.close()
+            return jsonify({'error': 'You do not manage a team.'}), 400
+        user_league_team_id = user_league_team['id']
+        # Transfer the main player from CPU to user
+        cur.execute("DELETE FROM team_players WHERE player_id = %s", (player_id,))
+        cur.execute("INSERT INTO team_players (team_id, player_id) VALUES (%s, %s)", (user_league_team_id, player_id))
+        # If user gives a player, transfer from user to CPU
+        player_given = current_deal.get('player_given')
+        if player_given:
+            given_id = player_given.get('id')
+            if not given_id:
+                cur.close()
+                return jsonify({'error': 'No player ID found for player_given.'}), 400
+            cur.execute("DELETE FROM team_players WHERE player_id = %s", (given_id,))
+            cur.execute("INSERT INTO team_players (team_id, player_id) VALUES (%s, %s)", (cpu_league_team_id, given_id))
+        # If CPU gives a player, transfer from CPU to user
+        cpu_player_given = current_deal.get('cpu_player_given')
+        if cpu_player_given:
+            cpu_given_id = cpu_player_given.get('id')
+            if not cpu_given_id:
+                cur.close()
+                return jsonify({'error': 'No player ID found for cpu_player_given.'}), 400
+            cur.execute("DELETE FROM team_players WHERE player_id = %s", (cpu_given_id,))
+            cur.execute("INSERT INTO team_players (team_id, player_id) VALUES (%s, %s)", (user_league_team_id, cpu_given_id))
+        mysql.connection.commit()
+        cur.close()
+        return jsonify({'success': True, 'message': 'Transfer confirmed and players swapped.'})
+    except Exception as e:
+        mysql.connection.rollback()
+        cur.close()
+        return jsonify({'error': f'Error confirming transfer: {str(e)}'}), 500
 
 if __name__ == '__main__':
     # For local development
