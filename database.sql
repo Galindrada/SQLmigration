@@ -4,24 +4,19 @@ CREATE DATABASE IF NOT EXISTS pes6_league_db;
 -- Use the database
 USE pes6_league_db;
 
-ALTER TABLE players
-ADD COLUMN salary INT DEFAULT 0,
-ADD COLUMN contract_years_remaining INT DEFAULT 0,
-ADD COLUMN market_value BIGINT DEFAULT 0, -- Market value can be large
-ADD COLUMN yearly_wage_rise INT DEFAULT 0;
-
 -- Drop dependent tables first to avoid foreign key constraints issues when recreating
 -- IMPORTANT: Only run these DROP statements if you are okay with deleting all existing data!
 -- This will wipe all data in these tables and recreate them from scratch.
-DROP TABLE IF EXISTS team_players;    -- Your league's user-managed teams' players (references 'league_teams' and 'players')
-DROP TABLE IF EXISTS player_performance; -- PES6 player performance stats (references 'players')
-DROP TABLE IF EXISTS league_teams;    -- Your league's user-managed teams (references 'users')
-DROP TABLE IF EXISTS comments;        -- Blog comments (references 'posts' and 'users')
-DROP TABLE IF EXISTS posts;           -- Blog posts (references 'users')
-DROP TABLE IF EXISTS users;           -- User accounts for the website
-DROP TABLE IF EXISTS players;         -- PES6 player data
-DROP TABLE IF EXISTS teams;           -- PES6 club teams
-
+DROP TABLE IF EXISTS team_players;    -- references 'league_teams' and 'players'
+DROP TABLE IF EXISTS player_performance; -- references 'players'
+DROP TABLE IF EXISTS league_teams;    -- references 'users'
+DROP TABLE IF EXISTS comments;        -- references 'posts' and 'users'
+DROP TABLE IF EXISTS posts;           -- references 'users'
+DROP TABLE IF EXISTS messages;        -- references 'users'
+DROP TABLE IF EXISTS offers;          -- references 'users'
+DROP TABLE IF EXISTS players;         -- references 'teams'
+DROP TABLE IF EXISTS teams;           -- no dependencies
+DROP TABLE IF EXISTS users;           -- referenced by many, drop last
 
 -- Table for Users (for your website login)
 CREATE TABLE IF NOT EXISTS users (
@@ -74,7 +69,6 @@ CREATE TABLE IF NOT EXISTS players (
     nationality VARCHAR(100),
     strong_foot VARCHAR(10),
     favoured_side VARCHAR(10),
-
     -- Positional Awareness
     gk TINYINT DEFAULT 0,
     cwp TINYINT DEFAULT 0,
@@ -88,7 +82,6 @@ CREATE TABLE IF NOT EXISTS players (
     wf TINYINT DEFAULT 0,
     ss TINYINT DEFAULT 0,
     cf TINYINT DEFAULT 0,
-
     -- Basic Attributes (Skills)
     attack SMALLINT,
     defense SMALLINT,
@@ -118,7 +111,6 @@ CREATE TABLE IF NOT EXISTS players (
     team_work SMALLINT,
     consistency SMALLINT,
     condition_fitness SMALLINT,
-
     -- Special Player Skills (enclosed problematic ones in backticks)
     dribbling_skill TINYINT DEFAULT 0,
     tactical_dribble TINYINT DEFAULT 0,
@@ -143,7 +135,6 @@ CREATE TABLE IF NOT EXISTS players (
     penalty_stopper TINYINT DEFAULT 0,
     one_on_one_stopper TINYINT DEFAULT 0,
     long_throw TINYINT DEFAULT 0,
-
     -- Other Details (from CSV, but not skills)
     injury_tolerance VARCHAR(10),
     dribble_style SMALLINT,
@@ -169,7 +160,10 @@ CREATE TABLE IF NOT EXISTS players (
     international_number SMALLINT,
     classic_number SMALLINT,
     club_number SMALLINT,
-
+    salary INT DEFAULT 0,
+    contract_years_remaining INT DEFAULT 0,
+    market_value BIGINT DEFAULT 0,
+    yearly_wage_rise INT DEFAULT 0,
     FOREIGN KEY (club_id) REFERENCES teams(id)
 );
 
@@ -198,7 +192,6 @@ CREATE TABLE IF NOT EXISTS league_teams (
 );
 
 -- Table for user-managed teams' players (references 'league_teams' and 'players')
--- This is your existing 'team_players' table from your league setup.
 CREATE TABLE IF NOT EXISTS team_players (
     team_id INT NOT NULL,         -- This is your league's user-created team_id from league_teams
     player_id INT NOT NULL,       -- This is the PES6 player_id from the new 'players' table
@@ -236,7 +229,21 @@ CREATE TABLE IF NOT EXISTS offers (
     FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-ALTER TABLE players ADD COLUMN salary INT DEFAULT 0;
-ALTER TABLE players ADD COLUMN contract_years_remaining INT DEFAULT 0;
-ALTER TABLE players ADD COLUMN yearly_wage_rise INT DEFAULT 0;
-ALTER TABLE players ADD COLUMN market_value INT DEFAULT 0;
+-- Find all CPU teams
+SELECT * FROM league_teams WHERE user_id = 1;
+
+-- Ensure CPU user exists
+try:
+    cursor.execute("SELECT id FROM users WHERE id = 1")
+    result = cursor.fetchone()  # Always fetch the result!
+    if not result:
+        cursor.execute("INSERT INTO users (id, username, password, email) VALUES (1, 'CPU', '', 'cpu@localhost')")
+        conn.commit()
+        print('CPU user created.')
+    else:
+        print('CPU user already exists.')
+except Exception as e:
+    print(f"Error ensuring CPU user: {e}")
+
+SELECT id FROM players;
+SELECT id, user_id, team_name FROM league_teams;

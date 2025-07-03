@@ -129,6 +129,13 @@ def import_data():
         # Rename columns in the DataFrame using the map
         df = df.rename(columns=raw_to_sql_column_map)
 
+        # --- Check for duplicate player IDs in the DataFrame ---
+        duplicate_ids = df['id'][df['id'].duplicated()].unique()
+        if len(duplicate_ids) > 0:
+            print(f"ERROR: Duplicate player IDs found in CSV: {duplicate_ids}")
+            print("Aborting import. Please fix the CSV to remove duplicates.")
+            return
+
         # --- 1. Populate the 'teams' table ---
         print("Populating 'teams' table...")
         unique_clubs = df['club_team_raw'].dropna().unique()

@@ -63,9 +63,7 @@
                                     <td>{{ player.contract_years_remaining }}</td>
                                     <td>{{ player.market_value | int | format_currency }}</td>
                                     <td>
-                                        <form action="{{ url_for('remove_player_from_team', team_id=team.id, player_id=player.id) }}" method="POST" style="display: inline;">
-                                            <button type="submit" onclick="return confirm('Are you sure you want to remove {{ player.player_name }} from {{ team.name }}?');">Remove</button>
-                                        </form>
+                                        <button type="button" class="btn btn-warning sell-player-btn" data-player-id="{{ player.id }}" data-player-name="{{ player.player_name }}">Sell</button>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -74,19 +72,29 @@
                 {% else %}
                     <p>Your team "{{ team.name }}" currently has no players. Go to <a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a> to view players and add them to your team.</p>
                 {% endif %}
-                <div class="add-player-section">
-                    <h4>Add Player to {{ team.name }} (Manual ID for now)</h4>
-                    <form action="{{ url_for('add_player_to_team') }}" method="POST">
-                        <input type="hidden" name="team_id" value="{{ team.id }}">
-                        <label for="player_id_{{ team.id }}">Player ID:</label>
-                        <input type="number" id="player_id_{{ team.id }}" name="player_id" required min="1">
-                        <button type="submit">Add Player</button>
-                    </form>
-                    <p class="note">You can find Player IDs on the <a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a> pages.</p>
-                </div>
             </div>
         {% endfor %}
     {% endif %}
+
+    <!-- Sell Player Modal -->
+    <div class="modal fade" id="sellPlayerModal" tabindex="-1" role="dialog" aria-labelledby="sellPlayerModalLabel" aria-hidden="true">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="sellPlayerModalLabel">Sell Player</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body" id="sellNegotiationContent">
+            <!-- Negotiation content will be loaded here -->
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <style>
         .team-section {
