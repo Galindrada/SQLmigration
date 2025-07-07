@@ -608,7 +608,13 @@ def pes6_player_details(player_id):
 # --- NEW ROUTES FOR TOOLS PAGE AND CSV DOWNLOAD ---
 @app.route('/tools')
 def tools():
-    return render_template('tools.html')
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT id, player_name FROM players ORDER BY player_name ASC")
+    players = cur.fetchall()
+    cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
+    teams = cur.fetchall()
+    cur.close()
+    return render_template('tools.html', players=players, teams=teams)
 
 @app.route('/download_updated_csv')
 @login_required # Often good to require login for tools/downloads
@@ -1571,6 +1577,27 @@ def confirm_sell_offer(offer_id):
     mysql.connection.commit()
     cur.close()
     return jsonify({'success': True, 'updated_budget': new_user_budget, 'message': 'Sale confirmed and transfer completed!'})
+
+# --- Change Player Team Tool ---
+@app.route('/change_player_team', methods=['GET', 'POST'])
+def change_player_team():
+    cur = mysql.connection.cursor()
+    message = None
+    if request.method == 'POST':
+        player_id = request.form.get('player_id')
+        new_team_id = request.form.get('team_id')
+        if player_id and new_team_id:
+            cur.execute("UPDATE players SET club_id = %s WHERE id = %s", (new_team_id, player_id))
+            mysql.connection.commit()
+            message = 'Player team updated!'
+    # Fetch all players and teams for the dropdowns
+    cur.execute("SELECT id, player_name FROM players ORDER BY player_name ASC")
+    players = cur.fetchall()
+    cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
+    teams = cur.fetchall()
+    cur.close()
+    # Render tools.html with extra context for the form
+    return render_template('tools.html', players=players, teams=teams, message=message)
 
 if __name__ == '__main__':
     # For local development

@@ -6,6 +6,33 @@
     <h2>League Tools</h2>
     <p>Here you can access various tools to manage and interact with your league data.</p>
 
+    {# --- Change Player Team Tool --- #}
+    {% if players and teams %}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>Change Player's Team</h3>
+        <form method="post" action="{{ url_for('change_player_team') }}">
+            <label for="player_id">Player:</label>
+            <select name="player_id" id="player_id" required>
+                <option value="" disabled selected>Select player</option>
+                {% for player in players %}
+                    <option value="{{ player[0] }}">{{ player[1] }}</option>
+                {% endfor %}
+            </select>
+            <label for="team_id" style="margin-left: 20px;">New Team:</label>
+            <select name="team_id" id="team_id" required>
+                <option value="" disabled selected>Select team</option>
+                {% for team in teams %}
+                    <option value="{{ team[0] }}">{{ team[1] }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="button" style="margin-left: 20px;">Change Team</button>
+        </form>
+        {% if message %}
+            <div style="color: green; margin-top: 10px;">{{ message }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <div class="tool-section">
         <h3>Export Player Data</h3>
         <p>Click the button below to generate and download an updated CSV file containing all player data from the database, including financial information.</p>
