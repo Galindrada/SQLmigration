@@ -33,6 +33,15 @@
     </div>
     {% endif %}
 
+    {# --- Clear Blacklist Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>Clear Blacklist</h3>
+        <p>Remove all user restrictions for CPU negotiations. Use this every 48 hours to reset player availability.</p>
+        <form method="post" action="{{ url_for('clear_blacklist_route') }}" onsubmit="return confirm('Are you sure you want to clear all blacklist entries?')">
+            <button type="submit" class="button" style="background-color: #d9534f;">Clear Blacklist</button>
+        </form>
+    </div>
+
     <div class="tool-section">
         <h3>Export Player Data</h3>
         <p>Click the button below to generate and download an updated CSV file containing all player data from the database, including financial information.</p>

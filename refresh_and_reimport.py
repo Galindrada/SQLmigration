@@ -78,6 +78,17 @@ def assign_teams_to_cpu():
     print('All teams assigned to CPU.')
 
 
+def clear_blacklist():
+    print('Clearing blacklist...')
+    conn = mysql.connector.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM blacklist")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print('Blacklist cleared.')
+
+
 def main():
     refresh_database()
     print('Importing PES6 player and team data...')
@@ -97,6 +108,7 @@ def main():
     assign_teams_to_cpu()
     print('Updating player finances...')
     update_player_finances.update_player_finances()
+    clear_blacklist()
     print('All done!')
 
 if __name__ == '__main__':

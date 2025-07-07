@@ -30,13 +30,28 @@
                     <td>
                         <strong>Their Offer:</strong> Players: {{ offer.offered_player_names|join(', ') }} | Money: {{ offer.offered_money }}<br>
                         <strong>Your Side:</strong> Players: {{ offer.requested_player_names|join(', ') }} | Money: {{ offer.requested_money }}
+                        {% if offer.is_cpu_offer and offer.cpu_team_name %}
+                            <br><em>Negotiating with: {{ offer.cpu_team_name }}</em>
+                        {% endif %}
                     </td>
                     <td>{{ offer.status.capitalize() }}</td>
                     <td>
                         {% if offer.status == 'pending' %}
-                            <form action="{{ url_for('accept_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
-                                <button type="submit">Accept</button>
-                            </form>
+                            {% if offer.is_cpu_offer %}
+                                {% if offer.is_sell_offer %}
+                                    <form action="{{ url_for('confirm_sell_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
+                                        <button type="submit">Confirm Sale to {{ offer.cpu_team_name }}</button>
+                                    </form>
+                                {% else %}
+                                    <form action="{{ url_for('confirm_buy_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
+                                        <button type="submit">Confirm Purchase from {{ offer.cpu_team_name }}</button>
+                                    </form>
+                                {% endif %}
+                            {% else %}
+                                <form action="{{ url_for('accept_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
+                                    <button type="submit">Accept</button>
+                                </form>
+                            {% endif %}
                             <form action="{{ url_for('reject_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
                                 <button type="submit">Reject</button>
                             </form>

@@ -58,8 +58,12 @@ $('#negotiateModal').on('show.bs.modal', function (event) {
                 $('#negotiationContent').html(renderDeal(currentDeal));
                 setDealButtonsEnabled(true);
             },
-            error: function() {
-                $('#negotiationContent').html('<div class="text-danger">Error loading negotiation. Please try again.</div>');
+            error: function(xhr) {
+                if (xhr.status === 403) {
+                    $('#negotiationContent').html('<div class="alert alert-warning">This player is no longer available for negotiation with you.</div>');
+                } else {
+                    $('#negotiationContent').html('<div class="text-danger">Error loading negotiation. Please try again.</div>');
+                }
                 setDealButtonsEnabled(false);
             }
         });
@@ -244,8 +248,12 @@ $(document).on('click', '.sell-player-btn', function() {
                 $('#sellNegotiationContent').html('<div class="text-danger">No proposals received. Try again later.</div>');
             }
         },
-        error: function() {
-            $('#sellNegotiationContent').html('<div class="text-danger">Error loading proposals. Please try again.</div>');
+        error: function(xhr) {
+            if (xhr.status === 403) {
+                $('#sellNegotiationContent').html('<div class="alert alert-warning">This player is no longer available for sale negotiations.</div>');
+            } else {
+                $('#sellNegotiationContent').html('<div class="text-danger">Error loading proposals. Please try again.</div>');
+            }
         }
     });
 });
