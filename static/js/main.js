@@ -73,52 +73,44 @@ $('#negotiateModal').on('show.bs.modal', function (event) {
 $('#acceptDealBtn').on('click', function() {
     if (!playerIdForNegotiation || !currentDeal) return;
     setDealButtonsEnabled(false);
-    $('#negotiationContent').html('<div class="text-center text-muted">Finalizing deal...</div>');
-    console.log('Accepting deal:', currentDeal);
-    $.ajax({
-        url: `/negotiate_with_cpu/${playerIdForNegotiation}`,
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify({
-            action: 'accept',
-            current_deal: currentDeal,
-            user_team_players: userTeamPlayers
-        }),
-        success: function(resp) {
-            if (resp.success) {
-                $('#negotiationContent').html('<div class="alert alert-success">' + resp.message + '</div>' +
-                    '<button id="confirmTransferBtn" class="btn btn-success mt-3">Confirm Transfer</button>');
-                if (resp.updated_budget !== undefined && $("#user-budget").length) {
-                    $("#user-budget").text(resp.updated_budget.toLocaleString('en-US'));
+    // Show a final confirmation summary before executing the transfer
+    let summaryHtml = '<div class="alert alert-info">';
+    summaryHtml += '<h5>Confirm Transfer</h5>';
+    let fromClub = currentDeal.club_name ? currentDeal.club_name : 'CPU';
+    let toClub = window.userTeamName || 'Your Team';
+    let cash = currentDeal.cash_paid || 0;
+    let playerA = currentDeal.cpu_player_given ? currentDeal.cpu_player_given.NAME : null;
+    let playerB = currentDeal.player_given ? currentDeal.player_given.NAME : null;
+    summaryHtml += `<p>Confirm the transfer from <strong>${fromClub}</strong> of <strong>€${cash.toLocaleString()}</strong>`;
+    if (playerA) summaryHtml += ` + <strong>${playerA}</strong>`;
+    summaryHtml += ` to <strong>${toClub}</strong>`;
+    if (playerB) summaryHtml += ` + <strong>${playerB}</strong>`;
+    summaryHtml += '?</p>';
+    summaryHtml += '</div>';
+    summaryHtml += '<button id="finalConfirmTransferBtn" class="btn btn-success mt-3">Confirm Transfer</button>';
+    $('#negotiationContent').html(summaryHtml);
+    $('#finalConfirmTransferBtn').on('click', function() {
+        $('#negotiationContent').html('<div class="text-center text-muted">Executing transfer...</div>');
+        console.log('Sending transfer data:', { current_deal: currentDeal });
+        $.ajax({
+            url: `/confirm_transfer_with_cpu/${playerIdForNegotiation}`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ current_deal: currentDeal }),
+            success: function(resp2) {
+                console.log('Transfer response:', resp2);
+                if (resp2.success) {
+                    $('#negotiationContent').html('<div class="alert alert-success">' + resp2.message + '</div>');
+                    setTimeout(function() { location.reload(); }, 1500);
+                } else {
+                    $('#negotiationContent').html('<div class="alert alert-danger">' + (resp2.error || 'Unknown error') + '</div>');
                 }
-                $('#confirmTransferBtn').on('click', function() {
-                    $.ajax({
-                        url: `/confirm_transfer_with_cpu/${playerIdForNegotiation}`,
-                        method: 'POST',
-                        contentType: 'application/json',
-                        data: JSON.stringify({ current_deal: currentDeal }),
-                        success: function(resp2) {
-                            if (resp2.success) {
-                                $('#negotiationContent').html('<div class="alert alert-success">' + resp2.message + '</div>');
-                                setTimeout(function() { location.reload(); }, 1200);
-                            } else {
-                                $('#negotiationContent').html('<div class="alert alert-danger">' + (resp2.error || 'Unknown error') + '</div>');
-                            }
-                        },
-                        error: function() {
-                            $('#negotiationContent').html('<div class="alert alert-danger">Error confirming transfer. Please try again.</div>');
-                        }
-                    });
-                });
-            } else {
-                $('#negotiationContent').html('<div class="alert alert-danger">' + (resp.error || 'Unknown error') + '</div>');
+            },
+            error: function(xhr, status, error) {
+                console.error('Transfer error:', xhr.responseText);
+                $('#negotiationContent').html('<div class="alert alert-danger">Error confirming transfer. Please try again.</div>');
             }
-            setDealButtonsEnabled(false);
-        },
-        error: function() {
-            $('#negotiationContent').html('<div class="alert alert-danger">Error completing deal. Please try again.</div>');
-            setDealButtonsEnabled(false);
-        }
+        });
     });
 });
 
@@ -194,6 +186,241 @@ $(document).on('submit', 'form[action^="/offer/"][action$="/accept"]', function(
             alert(msg);
         }
     });
+});
+
+// --- AJAX Deal Confirmation for CPU Offers ---
+let currentDealConfirmation = null;
+
+$(document).on('click', '.confirm-deal-btn', function(e) {
+    e.preventDefault();
+    const offerId = $(this).data('offer-id');
+    const dealType = $(this).data('deal-type');
+    const cpuTeam = $(this).data('cpu-team');
+    
+    // Show modal and load deal details
+    $('#dealConfirmationModal').modal('show');
+    $('#dealConfirmationModalLabel').text(`Confirm ${dealType === 'sell' ? 'Sale' : 'Purchase'} with ${cpuTeam}`);
+    
+    // Load deal details via AJAX
+    $.ajax({
+        url: `/offer/${offerId}/details`,
+        method: 'GET',
+        success: function(resp) {
+            currentDealConfirmation = resp;
+            renderDealConfirmation(resp, dealType, cpuTeam);
+        },
+        error: function() {
+            $('#dealConfirmationContent').html('<div class="alert alert-danger">Error loading deal details.</div>');
+        }
+    });
+});
+
+function renderDealConfirmation(deal, dealType, cpuTeam) {
+    let html = '<div class="deal-summary">';
+    html += '<h6>Deal Summary:</h6>';
+    
+    if (dealType === 'sell') {
+        html += `<div class="row">
+            <div class="col-md-6">
+                <h6>You Receive:</h6>
+                <ul>`;
+        if (deal.offered_money > 0) {
+            html += `<li>€${deal.offered_money.toLocaleString()}</li>`;
+        }
+        if (deal.offered_players && deal.offered_players.length > 0) {
+            deal.offered_players.forEach(player => {
+                html += `<li>${player.player_name} (${player.registered_position})</li>`;
+            });
+        }
+        html += `</ul></div>
+            <div class="col-md-6">
+                <h6>You Give:</h6>
+                <ul>`;
+        if (deal.requested_players && deal.requested_players.length > 0) {
+            deal.requested_players.forEach(player => {
+                html += `<li>${player.player_name} (${player.registered_position})</li>`;
+            });
+        }
+        html += `</ul></div></div>`;
+    } else {
+        html += `<div class="row">
+            <div class="col-md-6">
+                <h6>You Receive:</h6>
+                <ul>`;
+        if (deal.offered_players && deal.offered_players.length > 0) {
+            deal.offered_players.forEach(player => {
+                html += `<li>${player.player_name} (${player.registered_position})</li>`;
+            });
+        }
+        html += `</ul></div>
+            <div class="col-md-6">
+                <h6>You Give:</h6>
+                <ul>`;
+        if (deal.requested_money > 0) {
+            html += `<li>€${deal.requested_money.toLocaleString()}</li>`;
+        }
+        if (deal.requested_players && deal.requested_players.length > 0) {
+            deal.requested_players.forEach(player => {
+                html += `<li>${player.player_name} (${player.registered_position})</li>`;
+            });
+        }
+        html += `</ul></div></div>`;
+    }
+    
+    html += '</div>';
+    $('#dealConfirmationContent').html(html);
+}
+
+// Handle deal execution
+$('#executeDealBtn').on('click', function() {
+    if (!currentDealConfirmation) return;
+    
+    const offerId = currentDealConfirmation.offer_id;
+    const dealType = currentDealConfirmation.deal_type;
+    
+    // Disable button and show loading
+    $(this).prop('disabled', true).text('Executing...');
+    
+    // Execute the deal
+    const url = dealType === 'sell' ? `/offer/${offerId}/confirm_sell` : `/offer/${offerId}/confirm_buy`;
+    
+    $.ajax({
+        url: url,
+        method: 'POST',
+        dataType: 'json',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        success: function(resp) {
+            if (resp.success) {
+                // Update budget if element exists
+                if (resp.updated_budget !== undefined && $("#user-budget").length) {
+                    $("#user-budget").text(resp.updated_budget.toLocaleString('en-US'));
+                }
+                
+                // Show success message
+                $('#dealConfirmationContent').html(`
+                    <div class="alert alert-success">
+                        <h6>Deal Executed Successfully!</h6>
+                        <p>${resp.message}</p>
+                        <div class="mt-3">
+                            <strong>Assets Swapped:</strong>
+                            <ul class="mt-2">
+                                ${resp.asset_changes ? resp.asset_changes.map(change => `<li>${change}</li>`).join('') : ''}
+                            </ul>
+                        </div>
+                    </div>
+                `);
+                
+                // Update the offer row in the table
+                const $row = $(`.confirm-deal-btn[data-offer-id="${offerId}"]`).closest('tr');
+                $row.find('td:eq(2)').text('Accepted');
+                $row.find('td:eq(3)').html('<span class="badge badge-success">Completed</span>');
+                
+                // Close modal after delay
+                setTimeout(function() {
+                    $('#dealConfirmationModal').modal('hide');
+                    location.reload(); // Refresh to show updated team/players
+                }, 3000);
+                
+            } else {
+                $('#dealConfirmationContent').html(`<div class="alert alert-danger">${resp.error || 'Error executing deal.'}</div>`);
+                $('#executeDealBtn').prop('disabled', false).text('Execute Deal');
+            }
+        },
+        error: function(xhr) {
+            let errorMsg = 'Error executing deal.';
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMsg = xhr.responseJSON.error;
+            }
+            $('#dealConfirmationContent').html(`<div class="alert alert-danger">${errorMsg}</div>`);
+            $('#executeDealBtn').prop('disabled', false).text('Execute Deal');
+        }
+    });
+});
+
+// Handle regular offer acceptance
+$(document).on('click', '.accept-offer-btn', function(e) {
+    e.preventDefault();
+    const offerId = $(this).data('offer-id');
+    const $row = $(this).closest('tr');
+    
+    // Disable button and show loading
+    $(this).prop('disabled', true).text('Accepting...');
+    
+    $.ajax({
+        url: `/offer/${offerId}/accept`,
+        method: 'POST',
+        dataType: 'json',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        success: function(resp) {
+            if (resp.success) {
+                // Update budget if element exists
+                if (resp.updated_budget !== undefined && $("#user-budget").length) {
+                    $("#user-budget").text(resp.updated_budget.toLocaleString('en-US'));
+                }
+                // Update offer row/status
+                $row.find('td:eq(2)').text('Accepted');
+                $row.find('td:eq(3)').html('<span class="badge badge-success">Accepted</span>');
+            } else {
+                alert(resp.error || 'Error accepting offer.');
+                $('.accept-offer-btn[data-offer-id="' + offerId + '"]').prop('disabled', false).text('Accept');
+            }
+        },
+        error: function(xhr) {
+            let msg = 'Error accepting offer.';
+            if (xhr.responseJSON && xhr.responseJSON.error) msg = xhr.responseJSON.error;
+            alert(msg);
+            $('.accept-offer-btn[data-offer-id="' + offerId + '"]').prop('disabled', false).text('Accept');
+        }
+    });
+});
+
+// Handle offer rejection
+$(document).on('click', '.reject-offer-btn', function(e) {
+    e.preventDefault();
+    const offerId = $(this).data('offer-id');
+    const $row = $(this).closest('tr');
+    
+    if (!confirm('Are you sure you want to reject this offer?')) return;
+    
+    // Disable button and show loading
+    $(this).prop('disabled', true).text('Rejecting...');
+    
+    $.ajax({
+        url: `/offer/${offerId}/reject`,
+        method: 'POST',
+        dataType: 'json',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        success: function(resp) {
+            if (resp.success) {
+                // Update offer row/status
+                $row.find('td:eq(2)').text('Rejected');
+                $row.find('td:eq(3)').html('<span class="badge badge-danger">Rejected</span>');
+            } else {
+                alert(resp.error || 'Error rejecting offer.');
+                $('.reject-offer-btn[data-offer-id="' + offerId + '"]').prop('disabled', false).text('Reject');
+            }
+        },
+        error: function(xhr) {
+            let msg = 'Error rejecting offer.';
+            if (xhr.responseJSON && xhr.responseJSON.error) msg = xhr.responseJSON.error;
+            alert(msg);
+            $('.reject-offer-btn[data-offer-id="' + offerId + '"]').prop('disabled', false).text('Reject');
+        }
+    });
+});
+
+// Reset modal state when closed
+$('#dealConfirmationModal').on('hidden.bs.modal', function () {
+    currentDealConfirmation = null;
+    $('#executeDealBtn').prop('disabled', false).text('Execute Deal');
+    $('#dealConfirmationContent').html(`
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+            <p class="mt-2">Processing deal...</p>
+        </div>
+    `);
 });
 
 // --- Sell Player Modal Logic ---

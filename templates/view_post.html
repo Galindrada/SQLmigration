@@ -1,34 +1,34 @@
 {% extends "base.html" %}
 
-{% block title %}{{ post[1] }}{% endblock %}
+{% block title %}{{ post.title }}{% endblock %}
 
 {% block content %}
     <div class="post-item">
-        <h2>{{ post[1] }}</h2>
-        <p class="post-meta">By {{ post[3] }} on {{ post[4].strftime('%Y-%m-%d %H:%M') }}</p>
+        <h2>{{ post.title }}</h2>
+        <p class="post-meta">By {{ post.username }} on {{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
 
         {# Display media if available #}
-        {% if post[5] == 'image' and post[6] %}
-            <p><img src="{{ url_for('static', filename='uploads/' + post[6]) }}" alt="{{ post[1] }}" style="max-width: 100%; height: auto;"></p>
-        {% elif post[5] == 'video' and post[6] %}
+        {% if post.media_type == 'image' and post.media_path %}
+            <p><img src="{{ url_for('static', filename='uploads/' + post.media_path) }}" alt="{{ post.title }}" style="max-width: 100%; height: auto;"></p>
+        {% elif post.media_type == 'video' and post.media_path %}
             <p>
                 <video width="100%" controls>
-                    <source src="{{ url_for('static', filename='uploads/' + post[6]) }}" type="video/mp4">
+                    <source src="{{ url_for('static', filename='uploads/' + post.media_path) }}" type="video/mp4">
                     Your browser does not support the video tag.
                 </video>
             </p>
         {% endif %}
 
-        <p>{{ post[2] }}</p>
+        <div class="post-content">{{ post.content | safe }}</div>
     </div>
 
     <h3>Comments</h3>
     {% if comments %}
         {% for comment in comments %}
             <div class="comment-item">
-                <h4>{{ comment[1] }}</h4>
-                <p class="comment-meta">{{ comment[2].strftime('%Y-%m-%d %H:%M') }}</p>
-                <p>{{ comment[0] }}</p>
+                <h4>{{ comment.username }}</h4>
+                <p class="comment-meta">{{ comment.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                <p>{{ comment.content }}</p>
             </div>
         {% endfor %}
     {% else %}

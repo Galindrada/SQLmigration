@@ -1,50 +1,47 @@
 import os
-import mysql.connector
+import sqlite3
 import import_pes6_data
 import update_player_finances
-
-# Database connection details (hardcoded for local use)
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'simpleuser',
-    'password': '',  # or your password here
-    'database': 'pes6_league_db'
-}
+from config import Config
 
 SQL_SCHEMA_FILE = 'database.sql'
+DB_PATH = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
 
+# Always start with a clean database file
+if os.path.exists(DB_PATH):
+    print(f"Deleting old database file: {DB_PATH}")
+    os.remove(DB_PATH)
 
 def refresh_database():
     print('Refreshing database schema...')
+    print('Reading schema from:', os.path.abspath(SQL_SCHEMA_FILE))
     with open(SQL_SCHEMA_FILE, 'r') as f:
-        sql_commands = f.read().split(';')
-    conn = mysql.connector.connect(
-        host=DB_CONFIG['host'],
-        user=DB_CONFIG['user'],
-        password=DB_CONFIG['password']
-    )
+        sql_script = f.read()
+    print('Schema script length:', len(sql_script))
+    print('--- First 40 lines of schema script ---')
+    for i, line in enumerate(sql_script.splitlines()):
+        if i > 40: break
+        print(line)
+    print('--- End of preview ---')
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
-    # Create DB if not exists
-    cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_CONFIG['database']}")
-    cursor.execute(f"USE {DB_CONFIG['database']}")
-    for command in sql_commands:
-        cmd = command.strip()
-        # Skip comments and empty lines
-        if not cmd or cmd.startswith('--'):
-            continue
-        try:
-            cursor.execute(cmd)
-            # If it's a SELECT, fetch all results to avoid unread result error
-            if cmd.lower().startswith('select'):
-                cursor.fetchall()
-        except Exception as e:
-            print(f"Error executing SQL: {cmd[:60]}...\n{e}")
+    try:
+        cursor.executescript(sql_script)
+        print('Schema script executed.')
+        conn.commit()
+        print('Schema committed.')
+    except Exception as e:
+        print(f"Error executing schema script:\n{e}")
+        cursor.close()
+        conn.close()
+        return  # Stop further execution if schema fails
     # Ensure CPU user exists
     try:
         cursor.execute("SELECT id FROM users WHERE id = 1")
         result = cursor.fetchone()
         if not result:
-            cursor.execute("INSERT INTO users (id, username, password, email) VALUES (1, 'CPU', '', 'cpu@localhost')")
+            cursor.execute("INSERT INTO users (id, username, password, email) VALUES (?, ?, ?, ?)", (1, 'CPU', '', 'cpu@localhost'))
             conn.commit()
             print('CPU user created.')
         else:
@@ -58,29 +55,52 @@ def refresh_database():
         print('All users (except CPU) erased.')
     except Exception as e:
         print(f"Error erasing users: {e}")
+    # After schema creation, ensure offers table has new columns for richer deals
+    try:
+        # Add offered_players
+        cursor.execute("ALTER TABLE offers ADD COLUMN offered_players TEXT")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding offered_players column: {e}")
+    try:
+        cursor.execute("ALTER TABLE offers ADD COLUMN offered_money INTEGER DEFAULT 0")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding offered_money column: {e}")
+    try:
+        cursor.execute("ALTER TABLE offers ADD COLUMN requested_players TEXT")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding requested_players column: {e}")
+    try:
+        cursor.execute("ALTER TABLE offers ADD COLUMN requested_money INTEGER DEFAULT 0")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding requested_money column: {e}")
+    conn.commit()
     cursor.close()
     conn.close()
     print('Database schema refreshed.')
 
-
 def assign_teams_to_cpu():
     print('Assigning all teams to CPU in league_teams...')
-    conn = mysql.connector.connect(**DB_CONFIG)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
     cursor.execute("DELETE FROM league_teams")
     cursor.execute("SELECT club_name FROM teams")
     all_teams = cursor.fetchall()
     for (club_name,) in all_teams:
-        cursor.execute("INSERT INTO league_teams (user_id, team_name) VALUES (1, %s)", (club_name,))
+        cursor.execute("INSERT INTO league_teams (user_id, team_name) VALUES (?, ?)", (1, club_name))
     conn.commit()
     cursor.close()
     conn.close()
     print('All teams assigned to CPU.')
 
-
 def clear_blacklist():
     print('Clearing blacklist...')
-    conn = mysql.connector.connect(**DB_CONFIG)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
     cursor.execute("DELETE FROM blacklist")
     conn.commit()
@@ -88,12 +108,34 @@ def clear_blacklist():
     conn.close()
     print('Blacklist cleared.')
 
+def populate_team_players_for_cpu():
+    print('Populating team_players for all CPU teams...')
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
+    cursor = conn.cursor()
+    # For each league_team (CPU only), add all players whose club_id matches the team
+    cursor.execute("SELECT id, team_name FROM league_teams WHERE user_id = 1")
+    cpu_teams = cursor.fetchall()
+    for team_id, team_name in cpu_teams:
+        cursor.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+        club = cursor.fetchone()
+        if club:
+            club_id = club[0]
+            cursor.execute("SELECT id FROM players WHERE club_id = ?", (club_id,))
+            player_ids = cursor.fetchall()
+            for (player_id,) in player_ids:
+                cursor.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)", (team_id, player_id))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print('team_players table populated for all CPU teams.')
 
 def main():
     refresh_database()
     print('Importing PES6 player and team data...')
     # Delete player_performance and players to avoid FK constraint errors
-    conn = mysql.connector.connect(**DB_CONFIG)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
     try:
         cursor.execute("DELETE FROM player_performance")
@@ -106,6 +148,7 @@ def main():
     conn.close()
     import_pes6_data.import_data()
     assign_teams_to_cpu()
+    populate_team_players_for_cpu()
     print('Updating player finances...')
     update_player_finances.update_player_finances()
     clear_blacklist()

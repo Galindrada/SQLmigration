@@ -1,17 +1,10 @@
 import pandas as pd
-import mysql.connector
-#from dotenv import load_dotenv
+import sqlite3
 import os
-
-# Database connection details (simplified for local use)
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'simpleuser',
-    'password': '',  # or your password here
-    'database': 'pes6_league_db'
-}
+from config import Config
 
 CSV_FILE = 'routine1_players_financials.csv'
+DB_PATH = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
 
 def update_player_finances():
     try:
@@ -25,7 +18,8 @@ def update_player_finances():
             if col not in df.columns:
                 raise Exception(f"Column '{col}' not found in {CSV_FILE}")
 
-        conn = mysql.connector.connect(**DB_CONFIG)
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute('PRAGMA foreign_keys = ON;')
         cursor = conn.cursor()
 
         print(f"Updating player finances for {len(df)} players from CSV...")
@@ -38,11 +32,11 @@ def update_player_finances():
 
             update_sql = """
             UPDATE players
-            SET salary = %s,
-                contract_years_remaining = %s,
-                yearly_wage_rise = %s,
-                market_value = %s
-            WHERE id = %s
+            SET salary = ?,
+                contract_years_remaining = ?,
+                yearly_wage_rise = ?,
+                market_value = ?
+            WHERE id = ?
             """
             cursor.execute(update_sql, (salary, contract_years_remaining, yearly_wage_rise, market_value, player_id))
             updated_count += 1
@@ -50,17 +44,13 @@ def update_player_finances():
         conn.commit()
         print(f"Financial data updated successfully for {updated_count} players!")
 
-    except mysql.connector.Error as err:
-        print(f"Database Error: {err}")
+        cursor.close()
+        conn.close()
+
     except FileNotFoundError:
         print(f"Error: CSV file '{CSV_FILE}' not found.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            cursor.close()
-            conn.close()
-            print("MySQL connection closed.")
 
 if __name__ == "__main__":
     update_player_finances()

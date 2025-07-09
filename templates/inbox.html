@@ -39,22 +39,30 @@
                         {% if offer.status == 'pending' %}
                             {% if offer.is_cpu_offer %}
                                 {% if offer.is_sell_offer %}
-                                    <form action="{{ url_for('confirm_sell_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
-                                        <button type="submit">Confirm Sale to {{ offer.cpu_team_name }}</button>
-                                    </form>
+                                    <button class="btn btn-success btn-sm confirm-deal-btn" 
+                                            data-offer-id="{{ offer.id }}" 
+                                            data-deal-type="sell"
+                                            data-cpu-team="{{ offer.cpu_team_name }}">
+                                        Confirm Sale to {{ offer.cpu_team_name }}
+                                    </button>
                                 {% else %}
-                                    <form action="{{ url_for('confirm_buy_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
-                                        <button type="submit">Confirm Purchase from {{ offer.cpu_team_name }}</button>
-                                    </form>
+                                    <button class="btn btn-success btn-sm confirm-deal-btn" 
+                                            data-offer-id="{{ offer.id }}" 
+                                            data-deal-type="buy"
+                                            data-cpu-team="{{ offer.cpu_team_name }}">
+                                        Confirm Purchase from {{ offer.cpu_team_name }}
+                                    </button>
                                 {% endif %}
                             {% else %}
-                                <form action="{{ url_for('accept_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
-                                    <button type="submit">Accept</button>
-                                </form>
+                                <button class="btn btn-success btn-sm accept-offer-btn" 
+                                        data-offer-id="{{ offer.id }}">
+                                    Accept
+                                </button>
                             {% endif %}
-                            <form action="{{ url_for('reject_offer', offer_id=offer.id) }}" method="post" style="display:inline;">
-                                <button type="submit">Reject</button>
-                            </form>
+                            <button class="btn btn-danger btn-sm reject-offer-btn" 
+                                    data-offer-id="{{ offer.id }}">
+                                Reject
+                            </button>
                         {% else %}
                             {{ offer.status.capitalize() }}
                         {% endif %}
@@ -91,4 +99,30 @@
     {% else %}
         <p>No messages yet.</p>
     {% endif %}
+
+    <!-- Deal Confirmation Modal -->
+    <div class="modal fade" id="dealConfirmationModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="dealConfirmationModalLabel">Confirm Deal</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" id="dealConfirmationContent">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                        <p class="mt-2">Processing deal...</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" id="executeDealBtn">Execute Deal</button>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %} 

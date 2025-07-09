@@ -1,22 +1,15 @@
 import pandas as pd
-import mysql.connector
-#from dotenv import load_dotenv
+import sqlite3
 import os
-
-
-# Database connection details from config.py or .env
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'simpleuser',
-    'password': '',  # or your password here
-    'database': 'pes6_league_db'
-}
+from config import Config
 
 CSV_FILE = 'pe6_player_data.csv'
+DB_PATH = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
 
 def import_data():
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute('PRAGMA foreign_keys = ON;')
         cursor = conn.cursor()
 
         # IMPORTANT: Specify encoding (try 'latin1' or 'cp1252')
@@ -141,24 +134,28 @@ def import_data():
         unique_clubs = df['club_team_raw'].dropna().unique()
         for club in unique_clubs:
             try:
-                cursor.execute("INSERT INTO teams (club_name) VALUES (%s)", (club,))
-            except mysql.connector.Error as err:
-                if err.errno == 1062:
-                    pass
-                else:
-                    print(f"Error inserting club {club}: {err}")
+                cursor.execute("INSERT OR IGNORE INTO teams (club_name) VALUES (?)", (club,))
+            except Exception as err:
+                print(f"Error inserting club {club}: {err}")
+        # Ensure 'No Club' exists
+        cursor.execute("INSERT OR IGNORE INTO teams (club_name) VALUES (?)", ("No Club",))
         conn.commit()
         print("Teams table populated.")
 
         # --- 2. Create a club_name to club_id mapping ---
         cursor.execute("SELECT id, club_name FROM teams")
         club_id_map = {name: id for id, name in cursor.fetchall()}
+        no_club_id = club_id_map.get("No Club")
 
         # --- 3. Prepare data for 'players' table insertion ---
         print("Preparing player data for insertion...")
 
-        # Map 'club_team_raw' to 'club_id' using the created map
-        df['club_id'] = df['club_team_raw'].apply(lambda x: club_id_map.get(x) if pd.notna(x) else None)
+        # Map 'club_team_raw' to 'club_id' using the created map, default to 'No Club' id if missing
+        def map_club_id(x):
+            if pd.isna(x):
+                return no_club_id
+            return club_id_map.get(x, no_club_id)
+        df['club_id'] = df['club_team_raw'].apply(map_club_id)
 
         # --- NEW CONVERSION STEP FOR club_id ---
         if 'club_id' in df.columns and df['club_id'].isnull().any():
@@ -226,60 +223,28 @@ def import_data():
             'club_number'
         ]
 
-        # Select only the columns that are in our SQL insert list (unbackticked), and in that order
-        df_to_insert = df[sql_insert_columns_unbackticked]
-
-        # --- IMPORTANT: REMOVED df_to_insert.fillna(value=None) ---
-        # The conversion to None will now happen explicitly in the loop below.
-
-        # SQL INSERT statement for players
-        column_names_for_sql = ', '.join([f"`{col}`" for col in sql_insert_columns_unbackticked])
-        placeholders = ', '.join(['%s'] * len(sql_insert_columns_unbackticked))
-        insert_player_sql = f"INSERT INTO players ({column_names_for_sql}) VALUES ({placeholders})"
-
-        # --- DEBUG LINE ---
-        print("--- DEBUG: Generated INSERT SQL ---")
-        print(insert_player_sql)
-        print("-----------------------------------")
-        # --- END DEBUG LINE ---
-
-        print(f"Inserting {len(df_to_insert)} players into 'players' table...")
-
-        # Convert DataFrame rows to a list of tuples for executemany
-        # This explicit conversion ensures all values are pure Python types (None for missing)
+        # Prepare the data for insertion
+        # Convert all pd.NA/nan to None for SQLite compatibility
         data_to_insert = []
-        for index, row in df_to_insert.iterrows():
-            processed_row = []
-            for item in row.values:
-                # Check for any form of pandas/numpy NA and replace with None
-                if pd.isna(item):
-                    processed_row.append(None)
-                else:
-                    processed_row.append(item)
-            data_to_insert.append(tuple(processed_row))
+        for row in df[sql_insert_columns_unbackticked].itertuples(index=False, name=None):
+            processed_row = [None if pd.isna(x) else x for x in row]
+            data_to_insert.append(processed_row)
 
-        # --- FINAL DEBUG OF data_to_insert ---
-        if data_to_insert:
-            print("\n--- DEBUG: First tuple in data_to_insert (after final processing) ---")
-            print(data_to_insert[0])
-            print("-----------------------------------------------------------------------")
-        # --- END FINAL DEBUG ---
+        print(f"Inserting {len(data_to_insert)} players into 'players' table...")
+        try:
+            cursor.executemany(
+                f"INSERT OR REPLACE INTO players ({', '.join(sql_insert_columns_unbackticked)}) VALUES ({', '.join(['?' for _ in sql_insert_columns_unbackticked])})",
+                data_to_insert
+            )
+            conn.commit()
+            print("Players table populated.")
+        except Exception as e:
+            print(f"Error inserting players: {e}")
 
-        cursor.executemany(insert_player_sql, data_to_insert)
-        conn.commit()
-        print("Players data imported successfully!")
-
-    except mysql.connector.Error as err:
-        print(f"Database Error: {err}")
-    except FileNotFoundError:
-        print(f"Error: CSV file '{CSV_FILE}' not found.")
+        cursor.close()
+        conn.close()
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            cursor.close()
-            conn.close()
-            print("MySQL connection closed.")
+        print(f"An error occurred during import: {e}")
 
 if __name__ == "__main__":
     import_data()

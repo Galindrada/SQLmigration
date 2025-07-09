@@ -197,3 +197,214 @@ th {
 .player-list li button:hover {
     background-color: #c82333;
 }
+
+/* Deal Confirmation Modal Styles */
+.deal-summary {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.deal-summary h6 {
+    color: #495057;
+    font-weight: bold;
+    margin-bottom: 15px;
+    border-bottom: 2px solid #dee2e6;
+    padding-bottom: 8px;
+}
+
+.deal-summary .row {
+    margin-bottom: 15px;
+}
+
+.deal-summary ul {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 0;
+}
+
+.deal-summary li {
+    padding: 8px 12px;
+    margin-bottom: 5px;
+    border-radius: 4px;
+    background-color: #fff;
+    border-left: 4px solid #28a745;
+    font-weight: 500;
+}
+
+.deal-summary .col-md-6:last-child ul li {
+    border-left-color: #dc3545;
+}
+
+/* Button Styles */
+.btn {
+    display: inline-block;
+    padding: 8px 16px;
+    margin: 2px;
+    border: none;
+    border-radius: 4px;
+    text-decoration: none;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.btn-sm {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.btn-success {
+    background-color: #28a745;
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: #218838;
+    color: white;
+}
+
+.btn-danger {
+    background-color: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #c82333;
+    color: white;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #5a6268;
+    color: white;
+}
+
+/* Modal Enhancements */
+.modal-content {
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+}
+
+.modal-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    border-radius: 8px 8px 0 0;
+}
+
+.modal-footer {
+    background-color: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    border-radius: 0 0 8px 8px;
+}
+
+/* Badge Styles */
+.badge {
+    display: inline-block;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.badge-success {
+    background-color: #28a745;
+    color: white;
+}
+
+.badge-danger {
+    background-color: #dc3545;
+    color: white;
+}
+
+/* Table Enhancements */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+table, th, td {
+    border: 1px solid #dee2e6;
+}
+
+th, td {
+    padding: 12px 8px;
+    text-align: left;
+    vertical-align: middle;
+}
+
+th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #495057;
+}
+
+tr:hover {
+    background-color: #f8f9fa;
+}
+
+/* Loading Spinner */
+.spinner-border {
+    display: inline-block;
+    width: 2rem;
+    height: 2rem;
+    vertical-align: text-bottom;
+    border: 0.25em solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spinner-border 0.75s linear infinite;
+}
+
+@keyframes spinner-border {
+    to { transform: rotate(360deg); }
+}
+
+/* Alert Styles */
+.alert {
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+}
+
+.alert-success {
+    color: #155724;
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+}
+
+.alert-danger {
+    color: #721c24;
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+}
+
+.alert-warning {
+    color: #856404;
+    background-color: #fff3cd;
+    border-color: #ffeaa7;
+}
+
+/* Asset Changes List */
+.asset-changes ul {
+    list-style: none;
+    padding-left: 0;
+}
+
+.asset-changes li {
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.asset-changes li:last-child {
+    border-bottom: none;
+}
