@@ -122,31 +122,41 @@ def register():
             db_helper.commit()
             new_user_id = cur.lastrowid # Get the ID of the newly created user
 
-            pes6_team_id = int(selected_team_ids[0])
-            # Get the name of the selected PES6 team
-            cur.execute("SELECT club_name FROM teams WHERE id = ?", (pes6_team_id,))
-            pes6_team_name_result = cur.fetchone()
-            if not pes6_team_name_result:
-                raise Exception(f"Selected PES6 team with ID {pes6_team_id} not found.")
-            pes6_team_name = pes6_team_name_result[0]
+            # Process all selected teams
+            for pes6_team_id_str in selected_team_ids:
+                pes6_team_id = int(pes6_team_id_str)
+                # Get the name of the selected PES6 team
+                cur.execute("SELECT club_name FROM teams WHERE id = ?", (pes6_team_id,))
+                pes6_team_name_result = cur.fetchone()
+                if not pes6_team_name_result:
+                    raise Exception(f"Selected PES6 team with ID {pes6_team_id} not found.")
+                pes6_team_name = pes6_team_name_result[0]
 
-            # Always ensure the user gets a team in league_teams and the roster is populated
-            cur.execute("SELECT id FROM league_teams WHERE team_name = ?", (pes6_team_name,))
-            league_team = cur.fetchone()
-            if league_team:
-                league_team_id = league_team[0]
-                cur.execute("UPDATE league_teams SET user_id = ? WHERE id = ?", (new_user_id, league_team_id))
-            else:
-                cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (?, ?)", (new_user_id, pes6_team_name))
-                db_helper.commit()
-                league_team_id = cur.lastrowid
-            # Repopulate team_players for this team
-            cur.execute("DELETE FROM team_players WHERE team_id = ?", (league_team_id,))
-            cur.execute("SELECT id FROM players WHERE club_id = ?", (pes6_team_id,))
-            players_in_pes6_team = cur.fetchall()
-            if players_in_pes6_team:
-                player_team_data = [(league_team_id, player[0]) for player in players_in_pes6_team]
-                cur.executemany("INSERT INTO team_players (team_id, player_id) VALUES (?, ?)", player_team_data)
+                # Check if this team is already managed by another human user (not CPU)
+                cur.execute("SELECT user_id FROM league_teams WHERE team_name = ? AND user_id IS NOT NULL AND user_id != 1", (pes6_team_name,))
+                existing_team = cur.fetchone()
+                if existing_team:
+                    raise Exception(f"Team '{pes6_team_name}' is already managed by another user.")
+
+                # Create or update league team for this user
+                cur.execute("SELECT id FROM league_teams WHERE team_name = ?", (pes6_team_name,))
+                league_team = cur.fetchone()
+                if league_team:
+                    league_team_id = league_team[0]
+                    cur.execute("UPDATE league_teams SET user_id = ? WHERE id = ?", (new_user_id, league_team_id))
+                else:
+                    cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (?, ?)", (new_user_id, pes6_team_name))
+                    db_helper.commit()
+                    league_team_id = cur.lastrowid
+                
+                # Repopulate team_players for this team
+                cur.execute("DELETE FROM team_players WHERE team_id = ?", (league_team_id,))
+                cur.execute("SELECT id FROM players WHERE club_id = ?", (pes6_team_id,))
+                players_in_pes6_team = cur.fetchall()
+                if players_in_pes6_team:
+                    player_team_data = [(league_team_id, player[0]) for player in players_in_pes6_team]
+                    cur.executemany("INSERT INTO team_players (team_id, player_id) VALUES (?, ?)", player_team_data)
+            
             db_helper.commit()
 
             flash('Registration successful! Please log in.', 'success')
@@ -337,6 +347,15 @@ def team_management():
     user_teams_meta = cur.fetchall() # Fetch all teams this user manages
     cur.close()
 
+    # Get active team from session, or default to first team
+    active_team_id = session.get('active_team_id')
+    if not active_team_id:
+        if user_teams_meta:
+            active_team_id = user_teams_meta[0]['id']
+            session['active_team_id'] = active_team_id
+        else:
+            active_team_id = None
+
     managed_teams_data = []
     total_salaries_user_teams = 0 # Initialize total salaries for financial summary
     user_total_budget = 0
@@ -368,15 +387,16 @@ def team_management():
             'id': team_id,
             'name': team_name,
             'players': team_players_roster,
-            'team_salary_sum': team_salary_sum # Optionally pass per-team salary sum
+            'team_salary_sum': team_salary_sum, # Optionally pass per-team salary sum
+            'is_active': team_id == active_team_id
         })
     
     # Calculate financial summary for the user's managed teams
     TOTAL_LEAGUE_BUDGET = 450000000 # Define your total budget (same as admin page)
     free_cap_user_teams = TOTAL_LEAGUE_BUDGET - total_salaries_user_teams
 
-    # Check if user can create more teams
-    can_create_team = len(user_teams_meta) < 1
+    # Check if user can create more teams (removed limit for multiple teams)
+    can_create_team = True
 
     return render_template('team_management.html', 
                            managed_teams=managed_teams_data, 
@@ -384,22 +404,24 @@ def team_management():
                            coach_username=current_user.username,
                            total_budget_display=user_total_budget,
                            total_salaries_user_teams=total_salaries_user_teams,
-                           free_cap_user_teams=free_cap_user_teams)
+                           free_cap_user_teams=free_cap_user_teams,
+                           active_team_id=active_team_id)
 
 @app.route('/team_management/create', methods=['POST'])
 @login_required
 def create_team():
-    cur = db_helper.get_cursor()
-    cur.execute("SELECT COUNT(id) FROM league_teams WHERE user_id = ?", (current_user.id,))
-    team_count = cur.fetchone()[0]
-    cur.close()
-
-    if team_count >= 2:
-        flash('You can only manage a maximum of 1 team.', 'danger')
-        return redirect(url_for('team_management'))
-
     team_name = request.form['team_name']
     user_id = current_user.id
+
+    # Check if team name already exists
+    cur = db_helper.get_cursor()
+    cur.execute("SELECT id FROM league_teams WHERE team_name = ?", (team_name,))
+    existing_team = cur.fetchone()
+    cur.close()
+
+    if existing_team:
+        flash(f'Team "{team_name}" already exists.', 'danger')
+        return redirect(url_for('team_management'))
 
     cur = db_helper.get_cursor()
     try:
@@ -412,6 +434,26 @@ def create_team():
         flash(f'Error creating team: {e}', 'danger')
     finally:
         cur.close()
+    return redirect(url_for('team_management'))
+
+@app.route('/team_management/switch_team/<int:team_id>', methods=['POST'])
+@login_required
+def switch_active_team(team_id):
+    """Switch the active team for the current user."""
+    cur = db_helper.get_cursor()
+    
+    # Verify the team belongs to the current user
+    cur.execute("SELECT id FROM league_teams WHERE id = ? AND user_id = ?", (team_id, current_user.id))
+    team = cur.fetchone()
+    cur.close()
+    
+    if not team:
+        flash('Invalid team selected.', 'danger')
+        return redirect(url_for('team_management'))
+    
+    # Set the active team in session
+    session['active_team_id'] = team_id
+    flash('Active team switched successfully!', 'success')
     return redirect(url_for('team_management'))
 
 @app.route('/team_management/add_player', methods=['POST'])

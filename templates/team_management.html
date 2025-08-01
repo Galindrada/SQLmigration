@@ -3,8 +3,8 @@
 {% block title %}My Teams{% endblock %}
 
 {% block content %}
-    <h2>My Managed Team</h2>
-    <p>You can manage only 1 team for the league.</p>
+    <h2>My Managed Teams</h2>
+    <p>You can manage multiple teams for the league.</p>
 
     <div class="financial-summary-section">
         <h3>Your Financial Overview</h3>
@@ -15,6 +15,23 @@
             <p><strong>Free Cap:</strong> {{ free_cap_user_teams | int | format_currency }}</p>
         </div>
     </div>
+
+    <!-- Team Selector -->
+    {% if managed_teams|length > 1 %}
+        <div class="team-selector-section">
+            <h3>Active Team</h3>
+            <div class="team-selector">
+                {% for team in managed_teams %}
+                    <form method="POST" action="{{ url_for('switch_active_team', team_id=team.id) }}" style="display: inline;">
+                        <button type="submit" class="btn {% if team.is_active %}btn-primary{% else %}btn-secondary{% endif %} team-selector-btn">
+                            {{ team.name }}
+                            {% if team.is_active %}<span class="active-indicator">✓</span>{% endif %}
+                        </button>
+                    </form>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
 
     {% if not managed_teams %}
         <div class="team-section" style="text-align:center;">
@@ -39,8 +56,8 @@
 
     {% if managed_teams %}
         {% for team in managed_teams %}
-            <div class="team-section">
-                <h3>Team: {{ team.name }} (ID: {{ team.id }})</h3>
+            <div class="team-section {% if team.is_active %}active-team{% else %}inactive-team{% endif %}">
+                <h3>Team: {{ team.name }} (ID: {{ team.id }}) {% if team.is_active %}<span class="active-badge">ACTIVE</span>{% endif %}</h3>
                 <h4>Current Roster</h4>
                 {% if team.players %}
                     <table>
@@ -198,6 +215,63 @@
             .financial-grid {
                 grid-template-columns: 1fr;
             }
+        }
+
+        /* Team Selector Styles */
+        .team-selector-section {
+            background: linear-gradient(145deg, #2a2a2a, #1f1f1f);
+            border: 1px solid #444;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            color: #e0e0e0;
+        }
+        .team-selector-section h3 {
+            color: #ffd700;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            margin-top: 0;
+            text-align: center;
+        }
+        .team-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        .team-selector-btn {
+            position: relative;
+            min-width: 120px;
+        }
+        .active-indicator {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #28a745;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .active-badge {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .active-team {
+            border: 2px solid #ffd700;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+        }
+        .inactive-team {
+            opacity: 0.7;
         }
     </style>
 {% endblock %}
