@@ -155,6 +155,13 @@ CREATE TABLE IF NOT EXISTS players (
     contract_years_remaining INTEGER DEFAULT 0,
     market_value INTEGER DEFAULT 0,
     yearly_wage_rise INTEGER DEFAULT 0,
+    -- Bundled skill areas for better player display
+    attack_rating INTEGER DEFAULT 0,
+    defense_rating INTEGER DEFAULT 0,
+    physical_rating INTEGER DEFAULT 0,
+    power_rating INTEGER DEFAULT 0,
+    technique_rating INTEGER DEFAULT 0,
+    goalkeeping_rating INTEGER DEFAULT 0,
     FOREIGN KEY (club_id) REFERENCES teams(id)
 );
 
