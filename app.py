@@ -596,6 +596,16 @@ def pes6_player_details(player_id):
         'Yearly Wage Rise': player_data['yearly_wage_rise']
     }
 
+    # Bundled skill ratings for better visualization
+    bundled_skills = {
+        'Attack': player_data['attack_rating'],
+        'Defense': player_data['defense_rating'],
+        'Physical': player_data['physical_rating'],
+        'Power': player_data['power_rating'],
+        'Technique': player_data['technique_rating'],
+        'Goalkeeping': player_data['goalkeeping_rating']
+    }
+
     skills_numeric = {
         'Attack': player_data['attack'],
         'Defense': player_data['defense'],
@@ -665,6 +675,7 @@ def pes6_player_details(player_id):
                            player=player_data,
                            basic_info=basic_info,
                            financial_info=financial_info, # Pass new financial_info dictionary
+                           bundled_skills=bundled_skills,
                            skills_numeric=skills_numeric,
                            positional_skills=positional_skills,
                            special_skills=special_skills)
