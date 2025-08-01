@@ -161,8 +161,9 @@ CREATE TABLE IF NOT EXISTS players (
     physical_rating INTEGER DEFAULT 0,
     power_rating INTEGER DEFAULT 0,
     technique_rating INTEGER DEFAULT 0,
-    goalkeeping_rating INTEGER DEFAULT 0,
-    FOREIGN KEY (club_id) REFERENCES teams(id)
+                goalkeeping_rating INTEGER DEFAULT 0,
+            game_position TEXT DEFAULT '',
+            FOREIGN KEY (club_id) REFERENCES teams(id)
 );
 
 -- Table for Player Season Performance
@@ -228,6 +229,20 @@ CREATE TABLE IF NOT EXISTS blacklist (
     PRIMARY KEY (user_id, player_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+);
+
+-- Table for free agent offers
+CREATE TABLE IF NOT EXISTS free_agent_offers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    offered_salary INTEGER NOT NULL,
+    offered_contract_years INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    status TEXT DEFAULT 'active',
+    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Example queries (remove or comment out if not needed)

@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>Free Agency Market</h1>
+    
+    <!-- Current Offers Section -->
+    <div class="section">
+        <h2>Current Offers</h2>
+        {% if current_offers %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Player</th>
+                        <th>Current Salary</th>
+                        <th>Offered By</th>
+                        <th>Offered Salary</th>
+                        <th>Contract Years</th>
+                        <th>Time Remaining</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for offer in current_offers %}
+                        <tr>
+                            <td>{{ offer.player_name }}</td>
+                            <td>{{ offer.salary | int | format_currency }}</td>
+                            <td>{{ offer.username }}</td>
+                            <td>{{ offer.offered_salary | int | format_currency }}</td>
+                            <td>{{ offer.offered_contract_years }}</td>
+                            <td class="timer" data-expires="{{ offer.expires_at }}">--:--</td>
+                            <td>
+                                {% if offer.user_id != current_user.id %}
+                                    <form method="POST" action="{{ url_for('raise_free_agent_offer', offer_id=offer.id) }}" style="display: inline;">
+                                        <button type="submit" class="btn btn-warning btn-sm">Raise Offer</button>
+                                    </form>
+                                {% else %}
+                                    <span class="text-muted">Your offer</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No active offers at the moment.</p>
+        {% endif %}
+    </div>
+
+    <!-- Filter Section -->
+    <div class="section">
+        <h2>Filter Free Agents</h2>
+        <form method="GET" action="{{ url_for('free_agency') }}" class="filter-form">
+            <div class="row">
+                <div class="col-md-3">
+                    <label for="min_salary">Min Salary (€):</label>
+                    <input type="number" class="form-control" id="min_salary" name="min_salary" value="{{ request.args.get('min_salary', '') }}">
+                </div>
+                <div class="col-md-3">
+                    <label for="max_salary">Max Salary (€):</label>
+                    <input type="number" class="form-control" id="max_salary" name="max_salary" value="{{ request.args.get('max_salary', '') }}">
+                </div>
+                <div class="col-md-3">
+                    <label for="position">Position:</label>
+                    <select class="form-control" id="position" name="position">
+                        <option value="">All Positions</option>
+                        <option value="Goal-Keeper" {% if request.args.get('position') == 'Goal-Keeper' %}selected{% endif %}>Goal-Keeper</option>
+                        <option value="Sweeper" {% if request.args.get('position') == 'Sweeper' %}selected{% endif %}>Sweeper</option>
+                        <option value="Centre-Back" {% if request.args.get('position') == 'Centre-Back' %}selected{% endif %}>Centre-Back</option>
+                        <option value="Side-Back" {% if request.args.get('position') == 'Side-Back' %}selected{% endif %}>Side-Back</option>
+                        <option value="Defensive Midfielder" {% if request.args.get('position') == 'Defensive Midfielder' %}selected{% endif %}>Defensive Midfielder</option>
+                        <option value="Wing-Back" {% if request.args.get('position') == 'Wing-Back' %}selected{% endif %}>Wing-Back</option>
+                        <option value="Center-Midfielder" {% if request.args.get('position') == 'Center-Midfielder' %}selected{% endif %}>Center-Midfielder</option>
+                        <option value="Side-Midfielder" {% if request.args.get('position') == 'Side-Midfielder' %}selected{% endif %}>Side-Midfielder</option>
+                        <option value="Attacking Midfielder" {% if request.args.get('position') == 'Attacking Midfielder' %}selected{% endif %}>Attacking Midfielder</option>
+                        <option value="Winger" {% if request.args.get('position') == 'Winger' %}selected{% endif %}>Winger</option>
+                        <option value="Shadow Striker" {% if request.args.get('position') == 'Shadow Striker' %}selected{% endif %}>Shadow Striker</option>
+                        <option value="Striker" {% if request.args.get('position') == 'Striker' %}selected{% endif %}>Striker</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>&nbsp;</label><br>
+                    <button type="submit" class="btn btn-primary">Filter</button>
+                    <a href="{{ url_for('free_agency') }}" class="btn btn-secondary">Clear</a>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Free Agents Section -->
+    <div class="section">
+        <h2>Available Free Agents</h2>
+        {% if free_agents %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Age</th>
+                        <th>Position</th>
+                        <th>Side</th>
+                        <th>Salary Demand</th>
+                        <th>Contract Years</th>
+                        <th>Attack</th>
+                        <th>Defense</th>
+                        <th>Physical</th>
+                        <th>Power</th>
+                        <th>Technique</th>
+                        <th>GK</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for player in free_agents %}
+                        <tr>
+                            <td><a href="{{ url_for('pes6_player_details', player_id=player.id) }}" style="color: #f39c12; text-decoration: none;">{{ player.player_name }}</a></td>
+                            <td>{{ player.age }}</td>
+                            <td>{{ player.game_position }}</td>
+                            <td>{{ player.strong_foot }}</td>
+                            <td>{{ player.salary | int | format_currency }}</td>
+                            <td>{{ player.contract_years_remaining }}</td>
+                            <td>{{ player.attack_rating }}</td>
+                            <td>{{ player.defense_rating }}</td>
+                            <td>{{ player.physical_rating }}</td>
+                            <td>{{ player.power_rating }}</td>
+                            <td>{{ player.technique_rating }}</td>
+                            <td>{{ player.goalkeeping_rating }}</td>
+                            <td>
+                                <button type="button" class="btn btn-primary btn-sm" 
+                                        onclick="showOfferModal({{ player.id }}, '{{ player.player_name }}', {{ player.salary }}, {{ player.contract_years_remaining }})">
+                                    Make Offer
+                                </button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No free agents available at the moment.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Offer Modal -->
+<div class="modal fade" id="offerModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Make Offer to <span id="modalPlayerName"></span></h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form method="POST" action="{{ url_for('make_free_agent_offer') }}">
+                <div class="modal-body">
+                    <input type="hidden" name="player_id" id="modalPlayerId">
+                    
+                    <div class="form-group">
+                        <label>Current Salary: <span id="modalCurrentSalary"></span></label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="offered_salary">Offered Salary (€):</label>
+                        <input type="number" class="form-control" id="offered_salary" name="offered_salary" required readonly>
+                        <small class="form-text text-muted">You must offer the player's demanded salary for the initial offer.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="offered_contract_years">Contract Years:</label>
+                        <input type="number" class="form-control" id="offered_contract_years" name="offered_contract_years" min="1" max="5" required readonly>
+                        <small class="form-text text-muted">You must offer the player's demanded contract years for the initial offer.</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Make Offer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    border-radius: 10px;
+    color: white;
+}
+
+.section h2 {
+    color: #f39c12;
+    margin-bottom: 20px;
+}
+
+.table {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table th {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    color: white;
+    border: none;
+}
+
+.table td {
+    border-color: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+.timer {
+    font-weight: bold;
+    color: #e74c3c;
+}
+
+.btn {
+    border-radius: 20px;
+    font-weight: bold;
+}
+
+.btn-primary {
+    background: linear-gradient(145deg, #3498db, #2980b9);
+    border: none;
+}
+
+.btn-warning {
+    background: linear-gradient(145deg, #f39c12, #e67e22);
+    border: none;
+}
+
+.modal-content {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    color: white;
+}
+
+.modal-header {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    border-bottom: 2px solid #d35400;
+}
+
+.modal-title {
+    color: white;
+}
+
+.form-control {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+.form-control:focus {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #f39c12;
+    color: white;
+    box-shadow: 0 0 0 0.2rem rgba(243, 156, 18, 0.25);
+}
+
+.form-control::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.filter-form {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.filter-form label {
+    color: #f39c12;
+    font-weight: bold;
+}
+
+.filter-form .form-control {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+.filter-form .form-control:focus {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #f39c12;
+    color: white;
+    box-shadow: 0 0 0 0.2rem rgba(243, 156, 18, 0.25);
+}
+
+.filter-form .btn {
+    margin-top: 5px;
+}
+</style>
+
+<script>
+function showOfferModal(playerId, playerName, currentSalary, currentContractYears) {
+    document.getElementById('modalPlayerId').value = playerId;
+    document.getElementById('modalPlayerName').textContent = playerName;
+    document.getElementById('modalCurrentSalary').textContent = '€' + currentSalary.toLocaleString();
+    document.getElementById('offered_salary').value = currentSalary;
+    document.getElementById('offered_contract_years').value = currentContractYears;
+    
+    // Set readonly fields to player's demands
+    document.getElementById('offered_salary').readOnly = true;
+    document.getElementById('offered_contract_years').readOnly = true;
+    
+    $('#offerModal').modal('show');
+}
+
+// Timer functionality
+function updateTimers() {
+    const timers = document.querySelectorAll('.timer');
+    timers.forEach(timer => {
+        const expiresAt = new Date(timer.dataset.expires);
+        const now = new Date();
+        const diff = expiresAt - now;
+        
+        if (diff <= 0) {
+            timer.textContent = 'EXPIRED';
+            timer.style.color = '#e74c3c';
+        } else {
+            const hours = Math.floor(diff / 3600000);
+            const minutes = Math.floor((diff % 3600000) / 60000);
+            const seconds = Math.floor((diff % 60000) / 1000);
+            
+            if (hours > 0) {
+                timer.textContent = `${hours}h ${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+            } else {
+                timer.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
+            
+            if (hours < 1 && minutes < 10) {
+                timer.style.color = '#e74c3c';
+            } else if (hours < 1) {
+                timer.style.color = '#f39c12';
+            }
+        }
+    });
+}
+
+// Update timers every second
+setInterval(updateTimers, 1000);
+updateTimers(); // Initial call
+
+// Check for expired offers every 10 seconds (more frequent for testing)
+setInterval(() => {
+    fetch('/free_agency/check_expired_offers')
+        .then(response => response.json())
+        .then(data => {
+            if (data.processed > 0) {
+                console.log(`Processed ${data.processed} expired offers`);
+                location.reload(); // Reload page if offers were processed
+            }
+        })
+        .catch(error => console.error('Error checking expired offers:', error));
+}, 10000); // Check every 10 seconds for testing
+</script>
+{% endblock %} 

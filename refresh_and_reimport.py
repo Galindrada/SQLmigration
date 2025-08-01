@@ -102,6 +102,139 @@ def clear_blacklist():
     conn.close()
     print('Blacklist cleared.')
 
+def update_player_positions():
+    print('Updating player game positions...')
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
+    cursor = conn.cursor()
+    
+    # Position mapping (as strings since registered_position is stored as text)
+    position_mapping = {
+        '0': 'Goal-Keeper',
+        '2': 'Sweeper',
+        '3': 'Centre-Back',
+        '4': 'Side-Back',
+        '5': 'Defensive Midfielder',
+        '6': 'Wing-Back',
+        '7': 'Center-Midfielder',
+        '8': 'Side-Midfielder',
+        '9': 'Attacking Midfielder',
+        '10': 'Winger',
+        '11': 'Shadow Striker',
+        '12': 'Striker',
+        '13': 'Unknown'  # Handle position 13
+    }
+    
+    # Update game_position based on registered_position
+    cursor.execute("SELECT id, registered_position FROM players")
+    players = cursor.fetchall()
+    
+    updated_count = 0
+    for player_id, registered_position in players:
+        if registered_position in position_mapping:
+            game_position = position_mapping[registered_position]
+            cursor.execute("UPDATE players SET game_position = ? WHERE id = ?", (game_position, player_id))
+            updated_count += 1
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f'Player game positions updated for {updated_count} players.')
+
+def calculate_skill_ratings():
+    print('Calculating bundled skill ratings...')
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
+    cursor = conn.cursor()
+    
+    # Add bundled skill columns if they don't exist
+    try:
+        cursor.execute("ALTER TABLE players ADD COLUMN attack_rating INTEGER DEFAULT 0")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding attack_rating column: {e}")
+    
+    try:
+        cursor.execute("ALTER TABLE players ADD COLUMN defense_rating INTEGER DEFAULT 0")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding defense_rating column: {e}")
+    
+    try:
+        cursor.execute("ALTER TABLE players ADD COLUMN physical_rating INTEGER DEFAULT 0")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding physical_rating column: {e}")
+    
+    try:
+        cursor.execute("ALTER TABLE players ADD COLUMN power_rating INTEGER DEFAULT 0")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding power_rating column: {e}")
+    
+    try:
+        cursor.execute("ALTER TABLE players ADD COLUMN technique_rating INTEGER DEFAULT 0")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding technique_rating column: {e}")
+    
+    try:
+        cursor.execute("ALTER TABLE players ADD COLUMN goalkeeping_rating INTEGER DEFAULT 0")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding goalkeeping_rating column: {e}")
+    
+    try:
+        cursor.execute("ALTER TABLE players ADD COLUMN game_position TEXT DEFAULT ''")
+    except Exception as e:
+        if 'duplicate column name' not in str(e):
+            print(f"Error adding game_position column: {e}")
+    
+    # Fetch all players
+    cursor.execute("SELECT * FROM players")
+    players = cursor.fetchall()
+    
+    # Get column names
+    column_names = [description[0] for description in cursor.description]
+    
+    for player in players:
+        player_data = dict(zip(column_names, player))
+        
+        # Calculate bundled skill ratings
+        attack_rating = player_data['attack']
+        
+        defense_rating = (player_data['defense'] + player_data['aggression']) // 2
+        
+        physical_rating = (player_data['stamina'] + player_data['top_speed'] + 
+                          player_data['acceleration'] + player_data['response'] + 
+                          player_data['agility'] + player_data['jump']) // 6
+        
+        power_rating = (player_data['shot_power'] + player_data['balance'] + 
+                       player_data['mentality']) // 3
+        
+        technique_rating = (player_data['technique'] + player_data['swerve'] + 
+                           player_data['free_kick_accuracy'] + player_data['dribble_accuracy'] + 
+                           player_data['dribble_speed'] + player_data['short_pass_accuracy'] + 
+                           player_data['short_pass_speed'] + player_data['long_pass_accuracy'] + 
+                           player_data['long_pass_speed']) // 9
+        
+        goalkeeping_rating = (player_data['defense'] + player_data['goal_keeping'] + 
+                             player_data['response'] + player_data['agility']) // 4
+        
+        # Update player with calculated ratings
+        cursor.execute("""
+            UPDATE players 
+            SET attack_rating = ?, defense_rating = ?, physical_rating = ?, 
+                power_rating = ?, technique_rating = ?, goalkeeping_rating = ?
+            WHERE id = ?
+        """, (attack_rating, defense_rating, physical_rating, power_rating, 
+              technique_rating, goalkeeping_rating, player_data['id']))
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print('Bundled skill ratings calculated and updated.')
+
 def populate_team_players_for_cpu():
     print('Populating team_players for all CPU teams...')
     conn = sqlite3.connect(DB_PATH)
@@ -131,7 +264,9 @@ def main():
     print("2. Create a fresh database with the schema")
     print("3. Import PES6 player and team data")
     print("4. Update player finances")
-    print("5. Clear blacklist")
+    print("5. Update player game positions")
+    print("6. Calculate bundled skill ratings")
+    print("7. Clear blacklist")
     
     refresh_database()
     print('Importing PES6 player and team data...')
@@ -153,6 +288,8 @@ def main():
     populate_team_players_for_cpu()
     print('Updating player finances...')
     update_player_finances.update_player_finances()
+    update_player_positions()
+    calculate_skill_ratings()
     clear_blacklist()
     print('All done!')
 

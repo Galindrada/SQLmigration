@@ -370,7 +370,7 @@ def team_management():
         # Fetch players for this specific team, including financial info
         cur.execute("""
             SELECT
-                p.id, p.player_name, p.registered_position, p.salary, p.contract_years_remaining, p.market_value
+                p.id, p.player_name, p.age, p.game_position, p.strong_foot, p.salary, p.contract_years_remaining, p.market_value
             FROM players p
             JOIN team_players tp ON p.id = tp.player_id
             WHERE tp.team_id = ?
@@ -544,7 +544,9 @@ def pes6_team_details(team_id):
     team_name = team_name[0]
 
     cur.execute("""
-        SELECT id, player_name, registered_position, age, height, strong_foot, attack
+        SELECT id, player_name, registered_position, age, height, strong_foot, attack,
+               attack_rating, defense_rating, physical_rating, power_rating, technique_rating, goalkeeping_rating,
+               game_position, salary, contract_years_remaining, market_value
         FROM players
         WHERE club_id = ?
         ORDER BY player_name ASC
@@ -574,6 +576,7 @@ def pes6_player_details(player_id):
         'Strong Foot': player_data['strong_foot'],
         'Favoured Side': player_data['favoured_side'],
         'Registered Position': player_data['registered_position'],
+        'Game Position': player_data['game_position'],
         'Games': 0,    # Added empty field
         'Assists': 0,  # Added empty field
         'Goals': 0     # Added empty field
@@ -1538,6 +1541,40 @@ def get_team_players_full(user_id):
     cur.close()
     return jsonify([dict(row) for row in players])
 
+@app.route('/get_player_details/<int:player_id>')
+@login_required
+def get_player_details(player_id):
+    """Get player details for hover functionality."""
+    cur = db_helper.get_cursor()
+    cur.execute("""
+        SELECT id, player_name, age, salary, contract_years_remaining,
+               attack_rating, defense_rating, physical_rating, power_rating, technique_rating, goalkeeping_rating,
+               game_position
+        FROM players WHERE id = ?
+    """, (player_id,))
+    player = cur.fetchone()
+    cur.close()
+    
+    if not player:
+        return jsonify({'error': 'Player not found'}), 404
+    
+    return jsonify({
+        'id': player['id'],
+        'name': player['player_name'],
+        'age': player['age'],
+        'salary': player['salary'],
+        'contract_years': player['contract_years_remaining'],
+        'game_position': player['game_position'],
+        'bundled_skills': {
+            'Attack': player['attack_rating'],
+            'Defense': player['defense_rating'],
+            'Physical': player['physical_rating'],
+            'Power': player['power_rating'],
+            'Technique': player['technique_rating'],
+            'Goalkeeping': player['goalkeeping_rating']
+        }
+    })
+
 @app.route('/select_team', methods=['GET', 'POST'])
 @login_required
 def select_team():
@@ -2439,6 +2476,222 @@ def get_offer_details(offer_id):
         'requested_players': requested_players,
         'is_cpu_offer': offer['offer_type'] == 'cpu'
     })
+
+@app.route('/free_agency')
+@login_required
+def free_agency():
+    cur = db_helper.get_cursor()
+    
+    # Get filter parameters
+    min_salary = request.args.get('min_salary')
+    max_salary = request.args.get('max_salary')
+    position = request.args.get('position')
+    
+    # Build the query with filters
+    query = """
+        SELECT id, player_name, age, game_position, strong_foot, salary, contract_years_remaining, market_value,
+               attack_rating, defense_rating, physical_rating, power_rating, technique_rating, goalkeeping_rating
+        FROM players 
+        WHERE club_id = 141
+    """
+    params = []
+    
+    if min_salary:
+        query += " AND salary >= ?"
+        params.append(int(min_salary))
+    
+    if max_salary:
+        query += " AND salary <= ?"
+        params.append(int(max_salary))
+    
+    if position:
+        query += " AND game_position = ?"
+        params.append(position)
+    
+    query += " ORDER BY salary DESC"
+    
+    cur.execute(query, params)
+    free_agents = cur.fetchall()
+    
+    # Get current offers
+    cur.execute("""
+        SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
+               fao.created_at, fao.expires_at, fao.status,
+               p.player_name, p.salary, p.contract_years_remaining,
+               u.username
+        FROM free_agent_offers fao
+        JOIN players p ON fao.player_id = p.id
+        JOIN users u ON fao.user_id = u.id
+        WHERE fao.status = 'active'
+        ORDER BY fao.expires_at ASC
+    """)
+    current_offers = cur.fetchall()
+    
+    cur.close()
+    
+    return render_template('free_agency.html', 
+                         free_agents=free_agents, 
+                         current_offers=current_offers)
+
+@app.route('/free_agency/make_offer', methods=['POST'])
+@login_required
+def make_free_agent_offer():
+    player_id = request.form.get('player_id')
+    offered_salary = int(request.form.get('offered_salary'))
+    offered_contract_years = int(request.form.get('offered_contract_years'))
+    
+    # Check if user has an active team
+    active_team_id = session.get('active_team_id')
+    if not active_team_id:
+        flash('You need an active team to make offers.', 'danger')
+        return redirect(url_for('free_agency'))
+    
+    cur = db_helper.get_cursor()
+    
+    # Check if player is still a free agent
+    cur.execute("SELECT id FROM players WHERE id = ? AND club_id = 141", (player_id,))
+    if not cur.fetchone():
+        flash('Player is no longer available.', 'danger')
+        cur.close()
+        return redirect(url_for('free_agency'))
+    
+    # Check if there's already an active offer for this player
+    cur.execute("SELECT id FROM free_agent_offers WHERE player_id = ? AND status = 'active'", (player_id,))
+    existing_offer = cur.fetchone()
+    
+    if existing_offer:
+        flash('This player already has an active offer.', 'danger')
+        cur.close()
+        return redirect(url_for('free_agency'))
+    
+    # Create new offer (24 hours)
+    from datetime import datetime, timedelta
+    expires_at = datetime.now() + timedelta(hours=24)
+    
+    try:
+        cur.execute("""
+            INSERT INTO free_agent_offers (player_id, user_id, offered_salary, offered_contract_years, expires_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (player_id, current_user.id, offered_salary, offered_contract_years, expires_at.isoformat()))
+        db_helper.commit()
+        flash('Offer made successfully!', 'success')
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        flash(f'Error making offer: {e}', 'danger')
+    finally:
+        cur.close()
+    
+    return redirect(url_for('free_agency'))
+
+@app.route('/free_agency/raise_offer/<int:offer_id>', methods=['POST'])
+@login_required
+def raise_free_agent_offer(offer_id):
+    cur = db_helper.get_cursor()
+    
+    # Get current offer
+    cur.execute("""
+        SELECT id, player_id, user_id, offered_salary, offered_contract_years, expires_at
+        FROM free_agent_offers WHERE id = ? AND status = 'active'
+    """, (offer_id,))
+    offer = cur.fetchone()
+    
+    if not offer:
+        flash('Offer not found or already expired.', 'danger')
+        cur.close()
+        return redirect(url_for('free_agency'))
+    
+    # Check if user has an active team
+    active_team_id = session.get('active_team_id')
+    if not active_team_id:
+        flash('You need an active team to make offers.', 'danger')
+        cur.close()
+        return redirect(url_for('free_agency'))
+    
+    # Raise offer by 250,000€ and reset timer
+    new_salary = offer['offered_salary'] + 250000
+    from datetime import datetime, timedelta
+    new_expires_at = datetime.now() + timedelta(hours=24)
+    
+    try:
+        cur.execute("""
+            UPDATE free_agent_offers 
+            SET user_id = ?, offered_salary = ?, expires_at = ?
+            WHERE id = ?
+        """, (current_user.id, new_salary, new_expires_at.isoformat(), offer_id))
+        db_helper.commit()
+        flash('Offer raised successfully!', 'success')
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        flash(f'Error raising offer: {e}', 'danger')
+    finally:
+        cur.close()
+    
+    return redirect(url_for('free_agency'))
+
+@app.route('/free_agency/check_expired_offers')
+def check_expired_offers():
+    """Background task to check and process expired offers"""
+    cur = db_helper.get_cursor()
+    
+    # Get expired offers using proper datetime comparison
+    from datetime import datetime
+    current_time = datetime.now().isoformat()
+    
+    cur.execute("""
+        SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
+               p.player_name, u.username
+        FROM free_agent_offers fao
+        JOIN players p ON fao.player_id = p.id
+        JOIN users u ON fao.user_id = u.id
+        WHERE fao.status = 'active' AND fao.expires_at <= ?
+    """, (current_time,))
+    expired_offers = cur.fetchall()
+    
+    processed_count = 0
+    for offer in expired_offers:
+        try:
+            # Mark offer as completed
+            cur.execute("UPDATE free_agent_offers SET status = 'completed' WHERE id = ?", (offer['id'],))
+            
+            # Get user's active team
+            cur.execute("SELECT id FROM league_teams WHERE user_id = ?", (offer['user_id'],))
+            user_teams = cur.fetchall()
+            
+            if user_teams:
+                active_team_id = user_teams[0]['id']  # Use first team as active
+                
+                # Add player to team
+                cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)", 
+                           (active_team_id, offer['player_id']))
+                
+                # Update player's salary, contract, and assign to the user's team
+                cur.execute("""
+                    UPDATE players 
+                    SET salary = ?, contract_years_remaining = ?, club_id = ?
+                    WHERE id = ?
+                """, (offer['offered_salary'], offer['offered_contract_years'], active_team_id, offer['player_id']))
+                
+                # Post transfer news to blog
+                title = f"Free Agent Transfer: {offer['player_name']}"
+                content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years."
+                post_transfer_news(title, content, offer['user_id'])
+                
+                processed_count += 1
+                app.logger.info(f"Processed expired offer: {offer['player_name']} -> {offer['username']}")
+        except Exception as e:
+            app.logger.error(f"Error processing expired offer {offer['id']}: {e}")
+    
+    db_helper.commit()
+    cur.close()
+    
+    return jsonify({'processed': processed_count})
+
+@app.route('/free_agency/force_check_expired')
+@login_required
+def force_check_expired():
+    """Manual trigger to check expired offers (for testing)"""
+    result = check_expired_offers()
+    return result
 
 if __name__ == '__main__':
     # For local development

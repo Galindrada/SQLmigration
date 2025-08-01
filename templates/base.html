@@ -26,6 +26,7 @@
                 {% if current_user.is_authenticated %}
                     <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
                     <li><a href="{{ url_for('team_management') }}">My Teams</a></li> {# Updated text #}
+                    <li><a href="{{ url_for('free_agency') }}">Free Agency</a></li>
                     <li>
                         <a href="{{ url_for('inbox') }}" class="inbox-link">
                             Inbox

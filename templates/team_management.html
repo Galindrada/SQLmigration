@@ -63,10 +63,11 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Player Name</th>
-                                <th>Position</th>
+                                <th>Name</th>
+                                <th>Age</th>
+                                <th>Game Position</th>
+                                <th>Side</th>
                                 <th>Salary</th>
-                                <th>Contract Years</th>
                                 <th>Market Value</th>
                                 <th>Action</th>
                             </tr>
@@ -74,10 +75,11 @@
                         <tbody>
                             {% for player in team.players %}
                                 <tr>
-                                    <td><a href="{{ url_for('pes6_player_details', player_id=player.id) }}">{{ player.player_name }}</a></td>
-                                    <td>{{ player.registered_position }}</td>
+                                    <td><a href="{{ url_for('pes6_player_details', player_id=player.id) }}" class="player-name-hover" data-player-id="{{ player.id }}">{{ player.player_name }}</a></td>
+                                    <td>{{ player.age }}</td>
+                                    <td>{{ player.game_position }}</td>
+                                    <td>{{ player.strong_foot }}</td>
                                     <td>{{ player.salary | int | format_currency }}</td>
-                                    <td>{{ player.contract_years_remaining }}</td>
                                     <td>{{ player.market_value | int | format_currency }}</td>
                                     <td>
                                         <button type="button" class="btn btn-warning sell-player-btn" data-player-id="{{ player.id }}" data-player-name="{{ player.player_name }}">Sell</button>
@@ -181,6 +183,119 @@
             margin-bottom: 20px;
         }
 
+        /* Modal styling for better contrast */
+        .modal-content {
+            background: linear-gradient(145deg, #ffd700, #ffed4e);
+            border: 2px solid #d4af37;
+            color: #1a1a1a;
+        }
+
+        .modal-header {
+            background: linear-gradient(145deg, #d4af37, #ffd700);
+            border-bottom: 2px solid #d4af37;
+            color: #1a1a1a;
+        }
+
+        .modal-title {
+            color: #1a1a1a;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
+        }
+
+        .modal-body {
+            color: #1a1a1a;
+            font-weight: 500;
+        }
+
+        .modal-body strong {
+            color: #000000;
+            font-weight: bold;
+        }
+
+        /* Player hover tooltip */
+        .player-hover {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .player-tooltip {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(145deg, #2a2a2a, #1f1f1f);
+            border: 2px solid #ffd700;
+            border-radius: 10px;
+            padding: 15px;
+            color: #e0e0e0;
+            z-index: 1000;
+            min-width: 300px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.8);
+            display: none;
+        }
+
+        .player-tooltip h4 {
+            color: #ffd700;
+            margin: 0 0 10px 0;
+            text-align: center;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .player-tooltip .player-info {
+            margin-bottom: 15px;
+        }
+
+        .player-tooltip .player-info p {
+            margin: 5px 0;
+            color: #e0e0e0;
+        }
+
+        .player-tooltip .player-info strong {
+            color: #ffd700;
+        }
+
+        .player-tooltip .skills-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .player-tooltip .skill-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .player-tooltip .skill-label {
+            min-width: 80px;
+            font-size: 0.9em;
+            color: #ffd700;
+        }
+
+        .player-tooltip .skill-bar {
+            flex: 1;
+            height: 15px;
+            background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
+            border: 1px solid #444;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .player-tooltip .skill-fill {
+            height: 100%;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
+            box-shadow: 0 0 5px rgba(255, 215, 0, 0.3);
+        }
+
+        .player-tooltip .skill-value {
+            min-width: 30px;
+            text-align: center;
+            font-size: 0.8em;
+            color: #ffd700;
+            font-weight: bold;
+        }
+
         /* Styles for the new financial summary at the top */
         .financial-summary-section {
             background-color: #e6f7ff; /* Light blue background */
@@ -273,5 +388,338 @@
         .inactive-team {
             opacity: 0.7;
         }
+
+        /* Player hover tooltip */
+        .player-hover {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .player-tooltip {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(145deg, #2a2a2a, #1f1f1f);
+            border: 2px solid #ffd700;
+            border-radius: 10px;
+            padding: 15px;
+            color: #e0e0e0;
+            z-index: 1000;
+            min-width: 300px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.8);
+            display: none;
+        }
+
+        .player-tooltip h4 {
+            color: #ffd700;
+            margin: 0 0 10px 0;
+            text-align: center;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .player-tooltip .player-info {
+            margin-bottom: 15px;
+        }
+
+        .player-tooltip .player-info p {
+            margin: 5px 0;
+            color: #e0e0e0;
+        }
+
+        .player-tooltip .player-info strong {
+            color: #ffd700;
+        }
+
+        .player-tooltip .skills-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .player-tooltip .skill-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .player-tooltip .skill-label {
+            min-width: 80px;
+            font-size: 0.9em;
+            color: #ffd700;
+        }
+
+        .player-tooltip .skill-bar {
+            flex: 1;
+            height: 15px;
+            background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
+            border: 1px solid #444;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .player-tooltip .skill-fill {
+            height: 100%;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
+            box-shadow: 0 0 5px rgba(255, 215, 0, 0.3);
+        }
+
+        .player-tooltip .skill-value {
+            min-width: 30px;
+            text-align: center;
+            font-size: 0.8em;
+            color: #ffd700;
+            font-weight: bold;
+        }
     </style>
+
+    <script>
+        // Player hover tooltip functionality
+        function createPlayerTooltip(playerId, playerName) {
+            fetch(`/get_player_details/${playerId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error fetching player details:', data.error);
+                        return;
+                    }
+                    
+                    const tooltip = document.createElement('div');
+                    tooltip.className = 'player-tooltip';
+                    tooltip.innerHTML = `
+                        <h4>${data.name}</h4>
+                        <div class="player-info">
+                            <p><strong>Age:</strong> ${data.age}</p>
+                            <p><strong>Salary:</strong> €${data.salary.toLocaleString()}</p>
+                            <p><strong>Contract:</strong> ${data.contract_years} years</p>
+                        </div>
+                        <div class="skills-chart">
+                            ${Object.entries(data.bundled_skills).map(([skill, value]) => `
+                                <div class="skill-bar-container">
+                                    <div class="skill-label">${skill}</div>
+                                    <div class="skill-bar">
+                                        <div class="skill-fill" style="width: ${(value / 100) * 100}%;"></div>
+                                    </div>
+                                    <div class="skill-value">${value}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                    
+                    return tooltip;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+        }
+
+        // Add hover functionality to player names in negotiation modals
+        function addPlayerHoverFunctionality() {
+            // Find all player names in the current modal
+            const playerNames = document.querySelectorAll('.player-name-hover');
+            console.log('Found player names for hover:', playerNames.length);
+            
+            playerNames.forEach(playerName => {
+                const playerId = playerName.getAttribute('data-player-id');
+                const playerNameText = playerName.textContent;
+                console.log('Setting up hover for player:', playerNameText, 'ID:', playerId);
+                
+                playerName.addEventListener('mouseenter', function() {
+                    console.log('Mouse entered player:', playerNameText);
+                    // Remove any existing tooltips
+                    document.querySelectorAll('.player-tooltip').forEach(tooltip => tooltip.remove());
+                    
+                    // Create and show tooltip
+                    createPlayerTooltip(playerId, playerNameText).then(tooltip => {
+                        if (tooltip) {
+                            this.appendChild(tooltip);
+                            tooltip.style.display = 'block';
+                        }
+                    });
+                });
+                
+                playerName.addEventListener('mouseleave', function() {
+                    const tooltip = this.querySelector('.player-tooltip');
+                    if (tooltip) {
+                        tooltip.remove();
+                    }
+                });
+            });
+        }
+
+        // Initialize hover functionality for team management page
+        $(document).ready(function() {
+            addPlayerHoverFunctionality();
+        });
+
+        // Sell player functionality
+        $(document).on('click', '.sell-player-btn', function() {
+            const playerId = $(this).data('player-id');
+            const playerName = $(this).data('player-name');
+            
+            // Show modal
+            $('#sellPlayerModal').modal('show');
+            
+            // Fetch sell offers
+            fetch(`/sell_player/${playerId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    $('#sellNegotiationContent').html(`<div class="alert alert-danger">${data.error}</div>`);
+                    return;
+                }
+                
+                let content = `<h4>Sell ${data.player_name}</h4>`;
+                content += '<div class="proposals-list">';
+                
+                data.proposals.forEach((proposal, index) => {
+                    content += `<div class="proposal-item" style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">`;
+                    content += `<h5>Offer ${index + 1} - ${proposal.cpu_team}</h5>`;
+                    
+                    if (proposal.cash > 0) {
+                        content += `<p><strong>Cash Offer:</strong> €${proposal.cash.toLocaleString()}</p>`;
+                    } else if (proposal.cash < 0) {
+                        content += `<p><strong>You Pay:</strong> €${Math.abs(proposal.cash).toLocaleString()}</p>`;
+                    }
+                    
+                                            if (proposal.player_swap) {
+                            content += `<p><strong>Player Exchange:</strong> ${proposal.player_swap.NAME} (€${proposal.player_swap['Market Value'].toLocaleString()})</p>`;
+                        }
+                    
+                                            content += `<button class="btn btn-success btn-sm" onclick="acceptSellOffer(${playerId}, ${index})">Accept</button>`;
+                        content += `<button class="btn btn-warning btn-sm" onclick="counterSellOffer(${playerId}, ${index})">Counter</button>`;
+                        content += '</div>';
+                    });
+                    
+                    content += '</div>';
+                    
+                    $('#sellNegotiationContent').html(content);
+                    
+                    // Add player details section at the bottom
+                    fetch(`/get_player_details/${playerId}`)
+                        .then(response => response.json())
+                        .then(playerData => {
+                            if (!playerData.error) {
+                                let playerInfo = '<div class="player-details-section" style="margin-top: 20px; padding: 15px; background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 1px solid #dee2e6; border-radius: 8px;">';
+                                playerInfo += '<h5 style="color: #495057; margin-bottom: 15px;">Player Information</h5>';
+                                playerInfo += `<p><strong>Age:</strong> ${playerData.age} | <strong>Salary:</strong> €${playerData.salary.toLocaleString()} | <strong>Contract:</strong> ${playerData.contract_years} years</p>`;
+                                playerInfo += '<div class="skills-summary" style="margin-top: 10px;">';
+                                playerInfo += '<p><strong>Skill Ratings:</strong></p>';
+                                playerInfo += '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px;">';
+                                Object.entries(playerData.bundled_skills).forEach(([skill, value]) => {
+                                    playerInfo += `<div style="text-align: center; padding: 5px; background: linear-gradient(145deg, #ffd700, #ffed4e); border-radius: 5px; border: 1px solid #d4af37;">`;
+                                    playerInfo += `<div style="font-size: 0.8em; color: #1a1a1a; font-weight: bold;">${skill}</div>`;
+                                    playerInfo += `<div style="font-size: 1.1em; color: #1a1a1a; font-weight: bold;">${value}</div>`;
+                                    playerInfo += '</div>';
+                                });
+                                playerInfo += '</div>';
+                                playerInfo += '</div>';
+                                playerInfo += '</div>';
+                                
+                                // Update the modal content with player info
+                                $('#sellNegotiationContent').append(playerInfo);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching player details:', error);
+                        });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                $('#sellNegotiationContent').html('<div class="alert alert-danger">Error loading sell offers.</div>');
+            });
+        });
+
+        function acceptSellOffer(playerId, proposalIndex) {
+            // Implementation for accepting sell offer
+            alert('Accept functionality to be implemented');
+        }
+
+        function counterSellOffer(playerId, proposalIndex) {
+            // Implementation for countering sell offer
+            alert('Counter functionality to be implemented');
+        }
+
+        // Player hover tooltip functionality
+        function createPlayerTooltip(playerId, playerName) {
+            return fetch(`/get_player_details/${playerId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error fetching player details:', data.error);
+                        return null;
+                    }
+                    
+                    const tooltip = document.createElement('div');
+                    tooltip.className = 'player-tooltip';
+                    tooltip.innerHTML = `
+                        <h4>${data.name}</h4>
+                        <div class="player-info">
+                            <p><strong>Age:</strong> ${data.age}</p>
+                            <p><strong>Salary:</strong> €${data.salary.toLocaleString()}</p>
+                            <p><strong>Contract:</strong> ${data.contract_years} years</p>
+                        </div>
+                        <div class="skills-chart">
+                            ${Object.entries(data.bundled_skills).map(([skill, value]) => `
+                                <div class="skill-bar-container">
+                                    <div class="skill-label">${skill}</div>
+                                    <div class="skill-bar">
+                                        <div class="skill-fill" style="width: ${(value / 100) * 100}%;"></div>
+                                    </div>
+                                    <div class="skill-value">${value}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                    
+                    return tooltip;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    return null;
+                });
+        }
+
+        // Add hover functionality to player names
+        function addPlayerHoverFunctionality() {
+            const playerNames = document.querySelectorAll('.player-name-hover');
+            console.log('Found player names for hover:', playerNames.length);
+            
+            playerNames.forEach(playerName => {
+                const playerId = playerName.getAttribute('data-player-id');
+                const playerNameText = playerName.textContent;
+                console.log('Setting up hover for player:', playerNameText, 'ID:', playerId);
+                
+                playerName.addEventListener('mouseenter', function() {
+                    console.log('Mouse entered player:', playerNameText);
+                    document.querySelectorAll('.player-tooltip').forEach(tooltip => tooltip.remove());
+                    
+                    createPlayerTooltip(playerId, playerNameText).then(tooltip => {
+                        if (tooltip) {
+                            this.appendChild(tooltip);
+                            tooltip.style.display = 'block';
+                        }
+                    });
+                });
+                
+                playerName.addEventListener('mouseleave', function() {
+                    const tooltip = this.querySelector('.player-tooltip');
+                    if (tooltip) {
+                        tooltip.remove();
+                    }
+                });
+            });
+        }
+
+        // Initialize hover functionality for team management page
+        $(document).ready(function() {
+            addPlayerHoverFunctionality();
+        });
+    </script>
 {% endblock %}

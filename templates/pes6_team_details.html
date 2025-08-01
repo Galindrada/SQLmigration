@@ -10,12 +10,18 @@
         <table>
             <thead>
                 <tr>
-                    <th>Player Name</th>
-                    <th>Position</th>
+                    <th>Name</th>
                     <th>Age</th>
-                    <th>Height (cm)</th>
-                    <th>Strong Foot</th>
+                    <th>Game Position</th>
+                    <th>Side</th>
+                    <th>Salary</th>
+                    <th>Market Value</th>
                     <th>Attack</th>
+                    <th>Defense</th>
+                    <th>Physical</th>
+                    <th>Power</th>
+                    <th>Technique</th>
+                    <th>GK</th>
                     <th>Details</th>
                 </tr>
             </thead>
@@ -23,13 +29,18 @@
                 {% for player in players_in_team %}
                     <tr>
                         <td><a href="{{ url_for('pes6_player_details', player_id=player[0]) }}">{{ player[1] }}</a></td> {# player_name #}
-                        <td>{{ player[2] }}</td> {# registered_position #}
                         <td>{{ player[3] }}</td> {# age #}
-                        <td>{{ player[4] }}</td> {# height #}
+                        <td>{{ player[13] }}</td> {# game_position #}
                         <td>{{ player[5] }}</td> {# strong_foot #}
-                        <td>{{ player[6] }}</td> {# attack #}
+                        <td>{{ player[16] | int | format_currency if player[16] else 'N/A' }}</td> {# salary #}
+                        <td>{{ player[18] | int | format_currency if player[18] else 'N/A' }}</td> {# market_value #}
+                        <td>{{ player[7] }}</td> {# attack_rating #}
+                        <td>{{ player[8] }}</td> {# defense_rating #}
+                        <td>{{ player[9] }}</td> {# physical_rating #}
+                        <td>{{ player[10] }}</td> {# power_rating #}
+                        <td>{{ player[11] }}</td> {# technique_rating #}
+                        <td>{{ player[12] }}</td> {# goalkeeping_rating #}
                         <td>
-                            <a href="{{ url_for('pes6_player_details', player_id=player[0]) }}">View Full Skills</a>
                             <button type="button" class="btn btn-primary btn-sm negotiate-btn" data-player-id="{{ player[0] }}" data-player-name="{{ player[1] }}" data-toggle="modal" data-target="#negotiateModal">Negotiate</button>
                         </td>
                     </tr>
@@ -83,5 +94,292 @@
         tr:hover {
             background-color: #f1f1f1;
         }
+
+        /* Modal styling for better contrast */
+        .modal-content {
+            background: linear-gradient(145deg, #ffd700, #ffed4e);
+            border: 2px solid #d4af37;
+            color: #1a1a1a;
+        }
+
+        .modal-header {
+            background: linear-gradient(145deg, #d4af37, #ffd700);
+            border-bottom: 2px solid #d4af37;
+            color: #1a1a1a;
+        }
+
+        .modal-title {
+            color: #1a1a1a;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
+        }
+
+        .modal-body {
+            color: #1a1a1a;
+            font-weight: 500;
+        }
+
+        .modal-body strong {
+            color: #000000;
+            font-weight: bold;
+        }
+
+        /* Player hover tooltip */
+        .player-hover {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .player-tooltip {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(145deg, #2a2a2a, #1f1f1f);
+            border: 2px solid #ffd700;
+            border-radius: 10px;
+            padding: 15px;
+            color: #e0e0e0;
+            z-index: 1000;
+            min-width: 300px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.8);
+            display: none;
+        }
+
+        .player-tooltip h4 {
+            color: #ffd700;
+            margin: 0 0 10px 0;
+            text-align: center;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .player-tooltip .player-info {
+            margin-bottom: 15px;
+        }
+
+        .player-tooltip .player-info p {
+            margin: 5px 0;
+            color: #e0e0e0;
+        }
+
+        .player-tooltip .player-info strong {
+            color: #ffd700;
+        }
+
+        .player-tooltip .skills-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .player-tooltip .skill-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .player-tooltip .skill-label {
+            min-width: 80px;
+            font-size: 0.9em;
+            color: #ffd700;
+        }
+
+        .player-tooltip .skill-bar {
+            flex: 1;
+            height: 15px;
+            background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
+            border: 1px solid #444;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .player-tooltip .skill-fill {
+            height: 100%;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
+            box-shadow: 0 0 5px rgba(255, 215, 0, 0.3);
+        }
+
+        .player-tooltip .skill-value {
+            min-width: 30px;
+            text-align: center;
+            font-size: 0.8em;
+            color: #ffd700;
+            font-weight: bold;
+        }
     </style>
+
+    <script>
+        // Player hover tooltip functionality
+        function createPlayerTooltip(playerId, playerName) {
+            return fetch(`/get_player_details/${playerId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error fetching player details:', data.error);
+                        return null;
+                    }
+                    
+                    const tooltip = document.createElement('div');
+                    tooltip.className = 'player-tooltip';
+                    tooltip.innerHTML = `
+                        <h4>${data.name}</h4>
+                        <div class="player-info">
+                            <p><strong>Age:</strong> ${data.age}</p>
+                            <p><strong>Salary:</strong> €${data.salary.toLocaleString()}</p>
+                            <p><strong>Contract:</strong> ${data.contract_years} years</p>
+                        </div>
+                        <div class="skills-chart">
+                            ${Object.entries(data.bundled_skills).map(([skill, value]) => `
+                                <div class="skill-bar-container">
+                                    <div class="skill-label">${skill}</div>
+                                    <div class="skill-bar">
+                                        <div class="skill-fill" style="width: ${(value / 100) * 100}%;"></div>
+                                    </div>
+                                    <div class="skill-value">${value}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                    
+                    return tooltip;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    return null;
+                });
+        }
+
+        // Add hover functionality to player names in negotiation modals
+        function addPlayerHoverFunctionality() {
+            // Find all player names in the current modal
+            const playerNames = document.querySelectorAll('.player-name-hover');
+            
+            playerNames.forEach(playerName => {
+                const playerId = playerName.getAttribute('data-player-id');
+                const playerNameText = playerName.textContent;
+                
+                playerName.addEventListener('mouseenter', function() {
+                    // Remove any existing tooltips
+                    document.querySelectorAll('.player-tooltip').forEach(tooltip => tooltip.remove());
+                    
+                    // Create and show tooltip
+                    createPlayerTooltip(playerId, playerNameText).then(tooltip => {
+                        if (tooltip) {
+                            this.appendChild(tooltip);
+                            tooltip.style.display = 'block';
+                        }
+                    });
+                });
+                
+                playerName.addEventListener('mouseleave', function() {
+                    const tooltip = this.querySelector('.player-tooltip');
+                    if (tooltip) {
+                        tooltip.remove();
+                    }
+                });
+            });
+        }
+
+        // Initialize hover functionality when modals are shown
+        $(document).on('shown.bs.modal', function() {
+            setTimeout(addPlayerHoverFunctionality, 100);
+        });
+
+        // Negotiate button functionality
+        $(document).on('click', '.negotiate-btn', function() {
+            const playerId = $(this).data('player-id');
+            const playerName = $(this).data('player-name');
+            
+            // Show modal
+            $('#negotiateModal').modal('show');
+            $('#modalPlayerName').text(playerName);
+            
+            // Fetch user's team players for negotiation
+            fetch(`/get_team_players_full/{{ current_user.id }}`)
+                .then(response => response.json())
+                .then(userTeamPlayers => {
+                    // Start negotiation
+                    fetch(`/negotiate_with_cpu/${playerId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            action: 'start',
+                            current_deal: null,
+                            user_team_players: userTeamPlayers
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            $('#negotiationContent').html(`<div class="alert alert-danger">${data.error}</div>`);
+                            return;
+                        }
+                        
+                        let content = `<h4>Initial Offer from ${data.club_name}</h4>`;
+                        content += `<p><strong>Cash Required:</strong> €${data.deal.cash_paid.toLocaleString()}</p>`;
+                        
+                        if (data.deal.player_given) {
+                            content += `<p><strong>Player Requested:</strong> ${data.deal.player_given.NAME} (€${data.deal.player_given['Market Value'].toLocaleString()})</p>`;
+                        }
+                        
+                        content += `<button class="btn btn-success" onclick="acceptDeal(${playerId})">Accept</button>`;
+                        content += `<button class="btn btn-warning" onclick="counterDeal(${playerId})">Counter</button>`;
+                        
+                        // Add player details section at the bottom
+                        content += '<div class="player-details-section" style="margin-top: 20px; padding: 15px; background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 1px solid #dee2e6; border-radius: 8px;">';
+                        content += '<h5 style="color: #495057; margin-bottom: 15px;">Player Information</h5>';
+                        
+                        $('#negotiationContent').html(content);
+                        
+                        // Fetch and display player details
+                        fetch(`/get_player_details/${playerId}`)
+                            .then(response => response.json())
+                            .then(playerData => {
+                                if (!playerData.error) {
+                                    let playerInfo = `<p><strong>Age:</strong> ${playerData.age} | <strong>Salary:</strong> €${playerData.salary.toLocaleString()} | <strong>Contract:</strong> ${playerData.contract_years} years</p>`;
+                                    playerInfo += '<div class="skills-summary" style="margin-top: 10px;">';
+                                    playerInfo += '<p><strong>Skill Ratings:</strong></p>';
+                                    playerInfo += '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px;">';
+                                    Object.entries(playerData.bundled_skills).forEach(([skill, value]) => {
+                                        playerInfo += `<div style="text-align: center; padding: 5px; background: linear-gradient(145deg, #ffd700, #ffed4e); border-radius: 5px; border: 1px solid #d4af37;">`;
+                                        playerInfo += `<div style="font-size: 0.8em; color: #1a1a1a; font-weight: bold;">${skill}</div>`;
+                                        playerInfo += `<div style="font-size: 1.1em; color: #1a1a1a; font-weight: bold;">${value}</div>`;
+                                        playerInfo += '</div>';
+                                    });
+                                    playerInfo += '</div>';
+                                    playerInfo += '</div>';
+                                    playerInfo += '</div>';
+                                    
+                                    // Update the modal content with player info
+                                    $('#negotiationContent').append(playerInfo);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error fetching player details:', error);
+                            });
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        $('#negotiationContent').html('<div class="alert alert-danger">Error starting negotiation.</div>');
+                    });
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    $('#negotiationContent').html('<div class="alert alert-danger">Error loading team players.</div>');
+                });
+        });
+
+        function acceptDeal(playerId) {
+            // Implementation for accepting deal
+            alert('Accept functionality to be implemented');
+        }
+
+        function counterDeal(playerId) {
+            // Implementation for countering deal
+            alert('Counter functionality to be implemented');
+        }
+    </script>
 {% endblock %}
