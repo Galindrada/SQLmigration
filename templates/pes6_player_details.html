@@ -37,7 +37,22 @@
             <div class="skills-chart">
                 {% for skill_name, skill_value in bundled_skills.items() %}
                     <div class="skill-bar-container">
-                        <div class="skill-label">{{ skill_name }}</div>
+                        <div class="skill-label">
+                            {% if skill_name == 'Attack' %}
+                                <span class="skill-icon">⚽</span>
+                            {% elif skill_name == 'Defense' %}
+                                <span class="skill-icon">🛡️</span>
+                            {% elif skill_name == 'Physical' %}
+                                <span class="skill-icon">💪</span>
+                            {% elif skill_name == 'Power' %}
+                                <span class="skill-icon">⚡</span>
+                            {% elif skill_name == 'Technique' %}
+                                <span class="skill-icon">🎨</span>
+                            {% elif skill_name == 'Goalkeeping' %}
+                                <span class="skill-icon">🧤</span>
+                            {% endif %}
+                            {{ skill_name }}
+                        </div>
                         <div class="skill-bar">
                             <div class="skill-fill" style="width: {{ (skill_value / 100) * 100 }}%; background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);"></div>
                         </div>
@@ -113,10 +128,28 @@
         }
 
         .skill-label {
-            min-width: 100px;
+            min-width: 120px;
             font-weight: bold;
             color: #ffd700;
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .skill-icon {
+            font-size: 1.2em;
+            filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.5));
+            animation: iconGlow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes iconGlow {
+            from {
+                filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 5px rgba(255, 215, 0, 0.3));
+            }
+            to {
+                filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 10px rgba(255, 215, 0, 0.6));
+            }
         }
 
         .skill-bar {
