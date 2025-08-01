@@ -4,14 +4,46 @@
 
 {% block content %}
     <h2>{{ message.subject }}</h2>
-    <p><strong>From:</strong> {% if message.type == 'league' %}League News{% else %}{{ sender_username }}{% endif %}</p>
-    <p><strong>Date:</strong> {{ message.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
-    <p><strong>Type:</strong> {{ message.type.capitalize() }}</p>
+    <p><strong>From:</strong> {{ sender_username or 'Unknown' }}</p>
+    <p><strong>Date:</strong> 
+        {% if message.created_at is string %}
+            {{ message.created_at }}
+        {% else %}
+            {{ message.created_at.strftime('%Y-%m-%d %H:%M') }}
+        {% endif %}
+    </p>
     <hr>
-    <p>{{ message.body }}</p>
+    <p>{{ message.content }}</p>
     <hr>
-    <a href="{{ url_for('inbox') }}">Back to Inbox</a>
-    {% if message.type == 'user' %}
-        <a href="{{ url_for('send_message', reply_to=message.id) }}">Reply</a>
-    {% endif %}
+    <div class="message-actions">
+        <a href="{{ url_for('inbox') }}" class="btn btn-secondary">Back to Inbox</a>
+        <a href="{{ url_for('send_message', reply_to=message.id) }}" class="btn btn-primary">Reply</a>
+        <button class="btn btn-danger" onclick="deleteMessage({{ message.id }})">Delete Message</button>
+    </div>
+    
+    <script>
+        function deleteMessage(messageId) {
+            if (confirm('Are you sure you want to delete this message? This action cannot be undone.')) {
+                fetch(`/inbox/${messageId}/delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Message deleted successfully!');
+                        window.location.href = '{{ url_for("inbox") }}';
+                    } else {
+                        alert('Error deleting message: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error deleting message');
+                });
+            }
+        }
+    </script>
 {% endblock %} 

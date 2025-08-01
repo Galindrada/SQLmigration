@@ -48,13 +48,7 @@ def refresh_database():
             print('CPU user already exists.')
     except Exception as e:
         print(f"Error ensuring CPU user: {e}")
-    # Erase all users except CPU user (id=1)
-    try:
-        cursor.execute("DELETE FROM users WHERE id != 1")
-        conn.commit()
-        print('All users (except CPU) erased.')
-    except Exception as e:
-        print(f"Error erasing users: {e}")
+    
     # After schema creation, ensure offers table has new columns for richer deals
     try:
         # Add offered_players
@@ -131,6 +125,14 @@ def populate_team_players_for_cpu():
     print('team_players table populated for all CPU teams.')
 
 def main():
+    print("=== Database Refresh and Reimport Script ===")
+    print("This script will:")
+    print("1. Delete the existing database file")
+    print("2. Create a fresh database with the schema")
+    print("3. Import PES6 player and team data")
+    print("4. Update player finances")
+    print("5. Clear blacklist")
+    
     refresh_database()
     print('Importing PES6 player and team data...')
     # Delete player_performance and players to avoid FK constraint errors

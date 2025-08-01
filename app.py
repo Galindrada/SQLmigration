@@ -108,8 +108,8 @@ def register():
         
         selected_team_ids = request.form.getlist('selected_teams') # Get list of selected team IDs
 
-        if len(selected_team_ids) != 1:
-            flash('Please select exactly 1 team to manage.', 'danger')
+        if len(selected_team_ids) == 0:
+            flash('Please select at least 1 team to manage.', 'danger')
             return render_template('register.html', teams=pes6_teams_for_selection, 
                                    old_username=username, old_email=email) # Pass back data
 
@@ -642,46 +642,63 @@ def tools():
 @login_required # Often good to require login for tools/downloads
 def download_updated_csv():
     try:
+        # Read the original CSV file to get header and data
+        original_csv_path = os.path.join(app.root_path, 'pe6_player_data.csv')
+        if not os.path.exists(original_csv_path):
+            flash("Original CSV file not found.", "danger")
+            return redirect(url_for('tools'))
+        
+        # Read the original CSV to get header and preserve original data for missing columns
+        df_original = pd.read_csv(original_csv_path, encoding='utf-8')
+        original_header = df_original.columns.tolist()
+        
+        # Fetch all player data from the current database
         cur = db_helper.get_cursor()
-        # Fetch all player data, including financial info
         cur.execute("""
             SELECT
-                p.id, p.player_name, p.shirt_name, t.club_name AS club_team_raw,
-                p.registered_position, p.age, p.height, p.weight, p.nationality,
-                p.strong_foot, p.favoured_side, p.gk, p.cwp, p.cbt, p.sb, p.dmf, p.wb,
-                p.cmf, p.smf, p.amf, p.wf, p.ss, p.cf, p.attack, p.defense, p.balance,
-                p.stamina, p.top_speed, p.acceleration, p.response, p.agility,
-                p.dribble_accuracy, p.dribble_speed, p.short_pass_accuracy,
-                p.short_pass_speed, p.long_pass_accuracy, p.long_pass_speed,
-                p.shot_accuracy, p.shot_power, p.shot_technique,
-                p.free_kick_accuracy, p.swerve, p.heading, p.jump, p.technique,
-                p.aggression, p.mentality, p.goal_keeping, p.team_work, p.consistency,
-                p.condition_fitness, p.dribbling_skill, p.tactical_dribble, p.positioning,
-                p.reaction, p.playmaking, p.passing, p.scoring, p.one_one_scoring,
+                p.id, p.player_name, p.shirt_name, p.gk, p.cwp, p.cbt, p.sb, p.dmf, p.wb,
+                p.cmf, p.smf, p.amf, p.wf, p.ss, p.cf, p.registered_position, p.height,
+                p.strong_foot, p.favoured_side,
+                p.attack, p.defense, p.balance, p.stamina, p.top_speed, p.acceleration,
+                p.response, p.agility, p.dribble_accuracy, p.dribble_speed, p.short_pass_accuracy,
+                p.short_pass_speed, p.long_pass_accuracy, p.long_pass_speed, p.shot_accuracy,
+                p.shot_power, p.shot_technique, p.free_kick_accuracy, p.swerve, p.heading,
+                p.jump, p.technique, p.aggression, p.mentality, p.goal_keeping, p.team_work,
+                p.consistency, p.condition_fitness, p.dribbling_skill, p.tactical_dribble,
+                p.positioning, p.reaction, p.playmaking, p.passing, p.scoring, p.one_one_scoring,
                 p.post_player, p.lines, p.middle_shooting, p.side, p.centre, p.penalties,
-                p.one_touch_pass, p.outside, p.marking, p.sliding, p.covering,
-                p.d_line_control, p.penalty_stopper, p.one_on_one_stopper, p.long_throw,
-                p.injury_tolerance, p.dribble_style, p.free_kick_style, p.pk_style,
-                p.drop_kick_style, p.skin_color, p.face_type, p.preset_face_number,
-                p.head_width, p.neck_length, p.neck_width, p.shoulder_height,
-                p.shoulder_width, p.chest_measurement, p.waist_circumference,
-                p.arm_circumference, p.leg_circumference, p.calf_circumference,
-                p.leg_length, p.wristband, p.wristband_color, p.international_number,
-                p.classic_number, p.club_number,
+                p.one_touch_pass, p.outside, p.marking, p.sliding, p.covering, p.d_line_control,
+                p.penalty_stopper, p.one_on_one_stopper, p.long_throw, p.injury_tolerance,
+                p.dribble_style, p.free_kick_style, p.pk_style, p.drop_kick_style, p.age,
+                p.weight, p.nationality, p.skin_color, p.face_type, p.preset_face_number,
+                p.head_width, p.neck_length, p.neck_width, p.shoulder_height, p.shoulder_width,
+                p.chest_measurement, p.waist_circumference, p.arm_circumference, p.leg_circumference,
+                p.calf_circumference, p.leg_length, p.wristband, p.wristband_color,
+                p.international_number, p.classic_number, p.club_number,
+                CASE 
+                    WHEN t.club_name IS NULL OR t.club_name = 'No Club' THEN ''
+                    ELSE t.club_name 
+                END AS club_team_raw,
                 p.salary, p.contract_years_remaining, p.market_value, p.yearly_wage_rise
             FROM players p
             LEFT JOIN teams t ON p.club_id = t.id
             ORDER BY p.id
         """)
         players_data = cur.fetchall()
+        
+        # Get column names from the cursor description BEFORE closing
+        column_names = [description[0] for description in cur.description]
         cur.close()
 
         if not players_data:
             flash("No player data available to export.", "warning")
             return redirect(url_for('tools'))
 
-        # Define the desired column order and original CSV headers
-        csv_header_map = {
+        # Create DataFrame from database data with proper column names
+        df_players = pd.DataFrame(players_data, columns=column_names)
+        
+        # Map database columns to original CSV headers
+        db_to_csv_map = {
             'id': 'ID',
             'player_name': 'NAME',
             'shirt_name': 'SHIRT_NAME',
@@ -701,74 +718,165 @@ def download_updated_csv():
             'height': 'HEIGHT',
             'strong_foot': 'STRONG FOOT',
             'favoured_side': 'FAVOURED SIDE',
-            'weak_foot_accuracy': 'WEAK FOOT ACCURACY',
-            'weak_foot_frequency': 'WEAK FOOT FREQUENCY',
-            'attack': 'ATTACK', 'defense': 'DEFENSE', 'balance': 'BALANCE',
-            'stamina': 'STAMINA', 'top_speed': 'TOP SPEED', 'acceleration': 'ACCELERATION',
-            'response': 'RESPONSE', 'agility': 'AGILITY', 'dribble_accuracy': 'DRIBBLE ACCURACY',
-            'dribble_speed': 'DRIBBLE SPEED', 'short_pass_accuracy': 'SHORT PASS ACCURACY',
-            'short_pass_speed': 'SHORT PASS SPEED', 'long_pass_accuracy': 'LONG PASS ACCURACY',
-            'long_pass_speed': 'LONG PASS SPEED', 'shot_accuracy': 'SHOT ACCURACY',
-            'shot_power': 'SHOT POWER', 'shot_technique': 'SHOT TECHNIQUE',
-            'free_kick_accuracy': 'FREE KICK ACCURACY', 'swerve': 'SWERVE', 'heading': 'HEADING',
-            'jump': 'JUMP', 'technique': 'TECHNIQUE', 'aggression': 'AGGRESSION',
-            'mentality': 'MENTALITY', 'goal_keeping': 'GOAL KEEPING', 'team_work': 'TEAM WORK',
-            'consistency': 'CONSISTENCY', 'condition_fitness': 'CONDITION / FITNESS',
-            'dribbling_skill': 'DRIBBLING', 'tactical_dribble': 'TACTIAL DRIBBLE',
-            'positioning': 'POSITIONING', 'reaction': 'REACTION', 'playmaking': 'PLAYMAKING',
-            'passing': 'PASSING', 'scoring': 'SCORING', 'one_one_scoring': '1-1 SCORING',
-            'post_player': 'POST PLAYER', 'lines': 'LINES', 'middle_shooting': 'MIDDLE SHOOTING',
-            'side': 'SIDE', 'centre': 'CENTRE', 'penalties': 'PENALTIES',
-            'one_touch_pass': '1-TOUCH PASS', 'outside': 'OUTSIDE', 'marking': 'MARKING',
-            'sliding': 'SLIDING', 'covering': 'COVERING', 'd_line_control': 'D-LINE CONTROL',
-            'penalty_stopper': 'PENALTY STOPPER', 'one_on_one_stopper': '1-ON-1 STOPPER',
-            'long_throw': 'LONG THROW', 'injury_tolerance': 'INJURY TOLERANCE',
-            'dribble_style': 'DRIBBLE STYLE', 'free_kick_style': 'FREE KICK STYLE',
-            'pk_style': 'PK STYLE', 'drop_kick_style': 'DROP KICK STYLE',
-            'age': 'AGE', 'weight': 'WEIGHT', 'nationality': 'NATIONALITY',
-            'skin_color': 'SKIN COLOR', 'face_type': 'FACE TYPE', 'preset_face_number': 'PRESET FACE NUMBER',
-            'head_width': 'HEAD WIDTH', 'neck_length': 'NECK LENGTH', 'neck_width': 'NECK WIDTH',
-            'shoulder_height': 'SHOULDER HEIGHT', 'shoulder_width': 'SHOULDER WIDTH',
-            'chest_measurement': 'CHEST MEASUREMENT', 'waist_circumference': 'WAIST CIRCUMFERENCE',
-            'arm_circumference': 'ARM CIRCUMFERENCE', 'leg_circumference': 'LEG CIRCUMFERENCE',
-            'calf_circumference': 'CALF CIRCUMFERENCE', 'leg_length': 'LEG LENGTH',
-            'wristband': 'WRISTBAND', 'wristband_color': 'WRISTBAND COLOR',
-            'international_number': 'INTERNATIONAL NUMBER', 'classic_number': 'CLASSIC NUMBER',
+            'attack': 'ATTACK',
+            'defense': 'DEFENSE',
+            'balance': 'BALANCE',
+            'stamina': 'STAMINA',
+            'top_speed': 'TOP SPEED',
+            'acceleration': 'ACCELERATION',
+            'response': 'RESPONSE',
+            'agility': 'AGILITY',
+            'dribble_accuracy': 'DRIBBLE ACCURACY',
+            'dribble_speed': 'DRIBBLE SPEED',
+            'short_pass_accuracy': 'SHORT PASS ACCURACY',
+            'short_pass_speed': 'SHORT PASS SPEED',
+            'long_pass_accuracy': 'LONG PASS ACCURACY',
+            'long_pass_speed': 'LONG PASS SPEED',
+            'shot_accuracy': 'SHOT ACCURACY',
+            'shot_power': 'SHOT POWER',
+            'shot_technique': 'SHOT TECHNIQUE',
+            'free_kick_accuracy': 'FREE KICK ACCURACY',
+            'swerve': 'SWERVE',
+            'heading': 'HEADING',
+            'jump': 'JUMP',
+            'technique': 'TECHNIQUE',
+            'aggression': 'AGGRESSION',
+            'mentality': 'MENTALITY',
+            'goal_keeping': 'GOAL KEEPING',
+            'team_work': 'TEAM WORK',
+            'consistency': 'CONSISTENCY',
+            'condition_fitness': 'CONDITION / FITNESS',
+            'dribbling_skill': 'DRIBBLING',
+            'tactical_dribble': 'TACTIAL DRIBBLE',
+            'positioning': 'POSITIONING',
+            'reaction': 'REACTION',
+            'playmaking': 'PLAYMAKING',
+            'passing': 'PASSING',
+            'scoring': 'SCORING',
+            'one_one_scoring': '1-1 SCORING',
+            'post_player': 'POST PLAYER',
+            'lines': 'LINES',
+            'middle_shooting': 'MIDDLE SHOOTING',
+            'side': 'SIDE',
+            'centre': 'CENTRE',
+            'penalties': 'PENALTIES',
+            'one_touch_pass': '1-TOUCH PASS',
+            'outside': 'OUTSIDE',
+            'marking': 'MARKING',
+            'sliding': 'SLIDING',
+            'covering': 'COVERING',
+            'd_line_control': 'D-LINE CONTROL',
+            'penalty_stopper': 'PENALTY STOPPER',
+            'one_on_one_stopper': '1-ON-1 STOPPER',
+            'long_throw': 'LONG THROW',
+            'injury_tolerance': 'INJURY TOLERANCE',
+            'dribble_style': 'DRIBBLE STYLE',
+            'free_kick_style': 'FREE KICK STYLE',
+            'pk_style': 'PK STYLE',
+            'drop_kick_style': 'DROP KICK STYLE',
+            'age': 'AGE',
+            'weight': 'WEIGHT',
+            'nationality': 'NATIONALITY',
+            'skin_color': 'SKIN COLOR',
+            'face_type': 'FACE TYPE',
+            'preset_face_number': 'PRESET FACE NUMBER',
+            'head_width': 'HEAD WIDTH',
+            'neck_length': 'NECK LENGTH',
+            'neck_width': 'NECK WIDTH',
+            'shoulder_height': 'SHOULDER HEIGHT',
+            'shoulder_width': 'SHOULDER WIDTH',
+            'chest_measurement': 'CHEST MEASUREMENT',
+            'waist_circumference': 'WAIST CIRCUMFERENCE',
+            'arm_circumference': 'ARM CIRCUMFERENCE',
+            'leg_circumference': 'LEG CIRCUMFERENCE',
+            'calf_circumference': 'CALF CIRCUMFERENCE',
+            'leg_length': 'LEG LENGTH',
+            'wristband': 'WRISTBAND',
+            'wristband_color': 'WRISTBAND COLOR',
+            'international_number': 'INTERNATIONAL NUMBER',
+            'classic_number': 'CLASSIC NUMBER',
             'club_number': 'CLUB NUMBER',
-            'club_team_raw': 'CLUB TEAM', # Ensure this maps back to original 'CLUB TEAM'
-            # New financial fields
+            'club_team_raw': 'CLUB TEAM',
             'salary': 'SALARY',
             'contract_years_remaining': 'CONTRACT YEARS REMAINING',
             'market_value': 'MARKET VALUE',
             'yearly_wage_rise': 'YEARLY WAGE RISE'
         }
 
-        df_players = pd.DataFrame(players_data)
+        # Rename columns to match original CSV headers
+        df_players = df_players.rename(columns=db_to_csv_map)
 
-        current_to_desired_map = {sql_col: csv_header_map[sql_col] for sql_col in csv_header_map if sql_col in df_players.columns}
-        df_players_output = df_players.rename(columns=current_to_desired_map)
-
-        # Correct the list of original CSV headers provided (100 headers)
-        original_csv_headers_exact = [
-            'ID', 'NAME', 'SHIRT_NAME', 'GK  0', 'CWP  2', 'CBT  3', 'SB  4', 'DMF  5', 'WB  6', 'CMF  7', 'SMF  8', 'AMF  9', 'WF 10', 'SS  11', 'CF  12', 'REGISTERED POSITION', 'HEIGHT', 'STRONG FOOT', 'FAVOURED SIDE', 'WEAK FOOT ACCURACY', 'WEAK FOOT FREQUENCY', 'ATTACK', 'DEFENSE', 'BALANCE', 'STAMINA', 'TOP SPEED', 'ACCELERATION', 'RESPONSE', 'AGILITY', 'DRIBBLE ACCURACY', 'DRIBBLE SPEED', 'SHORT PASS ACCURACY', 'SHORT PASS SPEED', 'LONG PASS ACCURACY', 'LONG PASS SPEED', 'SHOT ACCURACY', 'SHOT POWER', 'SHOT TECHNIQUE', 'FREE KICK ACCURACY', 'SWERVE', 'HEADING', 'JUMP', 'TECHNIQUE', 'AGGRESSION', 'MENTALITY', 'GOAL KEEPING', 'TEAM WORK', 'CONSISTENCY', 'CONDITION / FITNESS', 'DRIBBLING', 'TACTIAL DRIBBLE', 'POSITIONING', 'REACTION', 'PLAYMAKING', 'PASSING', 'SCORING', '1-1 SCORING', 'POST PLAYER', 'LINES', 'MIDDLE SHOOTING', 'SIDE', 'CENTRE', 'PENALTIES', '1-TOUCH PASS', 'OUTSIDE', 'MARKING', 'SLIDING', 'COVERING', 'D-LINE CONTROL', 'PENALTY STOPPER', '1-ON-1 STOPPER', 'LONG THROW', 'INJURY TOLERANCE', 'DRIBBLE STYLE', 'FREE KICK STYLE', 'PK STYLE', 'DROP KICK STYLE', 'AGE', 'WEIGHT', 'NATIONALITY', 'SKIN COLOR', 'FACE TYPE', 'PRESET FACE NUMBER', 'HEAD WIDTH', 'NECK LENGTH', 'NECK WIDTH', 'SHOULDER HEIGHT', 'SHOULDER WIDTH', 'CHEST MEASUREMENT', 'WAIST CIRCUMFERENCE', 'ARM CIRCUMFERENCE', 'LEG CIRCUMFERENCE', 'CALF CIRCUMFERENCE', 'LEG LENGTH', 'WRISTBAND', 'WRISTBAND COLOR', 'INTERNATIONAL NUMBER', 'CLASSIC NUMBER', 'CLUB TEAM', 'CLUB NUMBER'
-        ]
+        # Create a new DataFrame with the exact original header order
+        df_output = pd.DataFrame()
         
-        # Append new financial headers to the exact original list
-        financial_headers = ['SALARY', 'CONTRACT YEARS REMAINING', 'MARKET VALUE', 'YEARLY WAGE RISE']
-        final_column_order = original_csv_headers_exact + financial_headers
-
-        df_players_output = df_players_output.reindex(columns=final_column_order)
-
-        for col in df_players_output.columns:
-            if df_players_output[col].dtype == 'object':
-                df_players_output[col] = df_players_output[col].fillna('')
+        # Use only the original header (no financial columns added)
+        original_header_only = original_header
+        
+        # Populate the DataFrame with data in the original header order
+        for col in original_header_only:
+            if col in df_players.columns:
+                if col == 'CLUB TEAM':
+                    # Special handling for club team - use the database value
+                    df_output[col] = df_players[col]
+                else:
+                    df_output[col] = df_players[col]
             else:
-                df_players_output[col] = df_players_output[col].fillna(0)
+                # For missing columns, copy from original CSV data
+                if col in df_original.columns:
+                    df_output[col] = df_original[col]
+                else:
+                    # Fill missing columns with empty string
+                    df_output[col] = ''
 
+        # Fill NaN values appropriately and ensure proper data types
+        for col in df_output.columns:
+            if col in ['NAME', 'SHIRT_NAME', 'NATIONALITY', 'STRONG FOOT', 'FAVOURED SIDE', 'INJURY TOLERANCE', 'WRISTBAND', 'WRISTBAND COLOR', 'CLUB TEAM']:
+                # Text columns - fill with empty string
+                df_output[col] = df_output[col].fillna('').astype(str)
+            elif col in ['AGE', 'HEIGHT', 'WEIGHT', 'GK  0', 'CWP  2', 'CBT  3', 'SB  4', 'DMF  5', 'WB  6', 'CMF  7', 'SMF  8', 'AMF  9', 'WF 10', 'SS  11', 'CF  12', 'REGISTERED POSITION', 'WEAK FOOT ACCURACY', 'WEAK FOOT FREQUENCY', 'ATTACK', 'DEFENSE', 'BALANCE', 'STAMINA', 'TOP SPEED', 'ACCELERATION', 'RESPONSE', 'AGILITY', 'DRIBBLE ACCURACY', 'DRIBBLE SPEED', 'SHORT PASS ACCURACY', 'SHORT PASS SPEED', 'LONG PASS ACCURACY', 'LONG PASS SPEED', 'SHOT ACCURACY', 'SHOT POWER', 'SHOT TECHNIQUE', 'FREE KICK ACCURACY', 'SWERVE', 'HEADING', 'JUMP', 'TECHNIQUE', 'AGGRESSION', 'MENTALITY', 'GOAL KEEPING', 'TEAM WORK', 'CONSISTENCY', 'CONDITION / FITNESS', 'DRIBBLING', 'TACTIAL DRIBBLE', 'POSITIONING', 'REACTION', 'PLAYMAKING', 'PASSING', 'SCORING', '1-1 SCORING', 'POST PLAYER', 'LINES', 'MIDDLE SHOOTING', 'SIDE', 'CENTRE', 'PENALTIES', '1-TOUCH PASS', 'OUTSIDE', 'MARKING', 'SLIDING', 'COVERING', 'D-LINE CONTROL', 'PENALTY STOPPER', '1-ON-1 STOPPER', 'LONG THROW', 'DRIBBLE STYLE', 'FREE KICK STYLE', 'PK STYLE', 'DROP KICK STYLE', 'SKIN COLOR', 'FACE TYPE', 'PRESET FACE NUMBER', 'HEAD WIDTH', 'NECK LENGTH', 'NECK WIDTH', 'SHOULDER HEIGHT', 'SHOULDER WIDTH', 'CHEST MEASUREMENT', 'WAIST CIRCUMFERENCE', 'ARM CIRCUMFERENCE', 'LEG CIRCUMFERENCE', 'CALF CIRCUMFERENCE', 'LEG LENGTH', 'INTERNATIONAL NUMBER', 'CLASSIC NUMBER', 'CLUB NUMBER']:
+                # Numeric columns - fill with 0
+                df_output[col] = df_output[col].fillna(0).astype(int)
+            else:
+                # Other columns - fill with empty string
+                df_output[col] = df_output[col].fillna('').astype(str)
+        
+        # Fix character encoding issues in player names
+        def fix_encoding(text):
+            if pd.isna(text) or text == '':
+                return text
+            # Common encoding fixes
+            text = str(text)
+            text = text.replace('ï¿½', 'ã')  # Fix ã
+            text = text.replace('ï¿½', 'ç')  # Fix ç
+            text = text.replace('ï¿½', 'õ')  # Fix õ
+            text = text.replace('ï¿½', 'á')  # Fix á
+            text = text.replace('ï¿½', 'é')  # Fix é
+            text = text.replace('ï¿½', 'í')  # Fix í
+            text = text.replace('ï¿½', 'ó')  # Fix ó
+            text = text.replace('ï¿½', 'ú')  # Fix ú
+            text = text.replace('ï¿½', 'à')  # Fix à
+            text = text.replace('ï¿½', 'è')  # Fix è
+            text = text.replace('ï¿½', 'ì')  # Fix ì
+            text = text.replace('ï¿½', 'ò')  # Fix ò
+            text = text.replace('ï¿½', 'ù')  # Fix ù
+            text = text.replace('ï¿½', 'â')  # Fix â
+            text = text.replace('ï¿½', 'ê')  # Fix ê
+            text = text.replace('ï¿½', 'î')  # Fix î
+            text = text.replace('ï¿½', 'ô')  # Fix ô
+            text = text.replace('ï¿½', 'û')  # Fix û
+            return text
+        
+        # Apply encoding fixes to text columns
+        for col in ['NAME', 'SHIRT_NAME', 'NATIONALITY']:
+            if col in df_output.columns:
+                df_output[col] = df_output[col].apply(fix_encoding)
+
+        # Export with the original header
         output_filename = 'pe6_player_data_updated.csv'
         output_filepath = os.path.join(DOWNLOAD_FOLDER, output_filename)
-
-        df_players_output.to_csv(output_filepath, index=False, encoding='utf-8')
+        
+        # Write the CSV with the original header
+        df_output.to_csv(output_filepath, index=False, encoding='utf-8')
 
         return send_from_directory(DOWNLOAD_FOLDER, output_filename, as_attachment=True)
 
@@ -809,6 +917,19 @@ def inbox():
         ORDER BY m.created_at DESC
     """, (current_user.id,))
     messages = cur.fetchall()
+    
+    # Convert messages to dict and handle datetime
+    messages = [dict(msg) for msg in messages]
+    for msg in messages:
+        # Convert created_at string to datetime object for template
+        if msg['created_at']:
+            from datetime import datetime
+            try:
+                msg['created_at'] = datetime.fromisoformat(msg['created_at'].replace('Z', '+00:00'))
+            except:
+                # If parsing fails, keep as string
+                pass
+    
     # Fetch offers for this user
     cur.execute("""
         SELECT o.*, u.username AS sender_username
@@ -925,20 +1046,51 @@ def view_message(msg_id):
     if not message:
         cur.close()
         abort(404)
-    # Mark as read if not already
-    if not message['is_read']:
-        cur2 = db_helper.get_cursor()
-        cur2.execute("UPDATE messages SET is_read = TRUE WHERE id = ?", (msg_id,))
-        db_helper.commit()
-        cur2.close()
+    
+    # Convert message to dict and handle datetime
+    message = dict(message)
+    if message['created_at']:
+        from datetime import datetime
+        try:
+            message['created_at'] = datetime.fromisoformat(message['created_at'].replace('Z', '+00:00'))
+        except:
+            # If parsing fails, keep as string
+            pass
+    
     sender_username = None
-    if message['type'] == 'user' and message['sender_id']:
+    if message['sender_id']:
         cur.execute("SELECT username FROM users WHERE id = ?", (message['sender_id'],))
         sender = cur.fetchone()
         if sender:
             sender_username = sender['username']
     cur.close()
     return render_template('view_message.html', message=message, sender_username=sender_username)
+
+@app.route('/inbox/<int:msg_id>/delete', methods=['POST'])
+@login_required
+def delete_message(msg_id):
+    """Delete a message."""
+    cur = db_helper.get_cursor()
+    
+    # First, verify the message belongs to the current user
+    cur.execute("SELECT id FROM messages WHERE id = ? AND receiver_id = ?", (msg_id, current_user.id))
+    message = cur.fetchone()
+    
+    if not message:
+        cur.close()
+        return jsonify({'success': False, 'error': 'Message not found or you do not have permission to delete it.'}), 404
+    
+    try:
+        # Delete the message
+        cur.execute("DELETE FROM messages WHERE id = ? AND receiver_id = ?", (msg_id, current_user.id))
+        db_helper.commit()
+        cur.close()
+        return jsonify({'success': True, 'message': 'Message deleted successfully.'})
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        cur.close()
+        app.logger.error(f"Error deleting message {msg_id}: {e}")
+        return jsonify({'success': False, 'error': 'Database error occurred while deleting message.'}), 500
 
 @app.route('/inbox/send', methods=['GET', 'POST'])
 @login_required
@@ -949,7 +1101,7 @@ def send_message():
     cur.close()
     subject = ''
     body = ''
-    selected_receiver_id = None
+    selected_recipient_id = None
     reply_to = request.args.get('reply_to')
     # If replying, pre-fill subject/body
     if reply_to:
@@ -959,22 +1111,22 @@ def send_message():
         cur.close()
         if orig:
             subject = 'Re: ' + orig['subject']
-            selected_receiver_id = orig['sender_id']
+            selected_recipient_id = orig['sender_id']
     if request.method == 'POST':
-        receiver_id = request.form['receiver_id']
+        receiver_id = request.form['recipient_id']
         subject = request.form['subject']
         body = request.form['body']
         if not receiver_id or not subject or not body:
             flash('All fields are required.', 'danger')
         else:
             cur = db_helper.get_cursor()
-            cur.execute("INSERT INTO messages (sender_id, receiver_id, subject, body, type) VALUES (?, ?, ?, ?, 'user')",
+            cur.execute("INSERT INTO messages (sender_id, receiver_id, subject, content) VALUES (?, ?, ?, ?)",
                         (current_user.id, receiver_id, subject, body))
             db_helper.commit()
             cur.close()
             flash('Message sent!', 'success')
             return redirect(url_for('inbox'))
-    return render_template('send_message.html', users=users, subject=subject, body=body, selected_receiver_id=selected_receiver_id)
+    return render_template('send_message.html', users=users, subject=subject, body=body, selected_recipient_id=selected_recipient_id)
 
 @app.route('/send_offer', methods=['GET', 'POST'])
 @login_required
@@ -1481,6 +1633,20 @@ def confirm_transfer_with_cpu(player_id):
             summary += f" {requested_names} joined {cpu_team_name}."
         if cash_paid > 0:
             summary += f" €{cash_paid:,} transferred."
+        
+        # Post transfer news to blog
+        news_title = f"Transfer News: {offered_names} → {user_team_name}"
+        news_content = f"""
+        <h3>Transfer News</h3>
+        <p><strong>{offered_names}</strong> has been transferred to <strong>{user_team_name}</strong>.</p>
+        """
+        if requested_players:
+            news_content += f"<p><strong>{user_team_name}</strong> sends <strong>{requested_names}</strong> to <strong>{cpu_team_name}</strong> in exchange.</p>"
+        if cash_paid > 0:
+            news_content += f"<p><strong>{user_team_name}</strong> pays <strong>€{cash_paid:,}</strong> to <strong>{cpu_team_name}</strong>.</p>"
+        news_content += "<p>The transfer has been completed.</p>"
+        
+        post_transfer_news(news_title, news_content)
         
         db_helper.commit()
         cur.close()
@@ -2117,6 +2283,34 @@ def clear_blacklist():
     cur.execute("DELETE FROM blacklist")
     db_helper.commit()
     cur.close()
+
+def get_unread_count(user_id):
+    """
+    Get the count of unread messages and pending offers for a user.
+    """
+    cur = db_helper.get_cursor()
+    try:
+        # Count all messages (since there's no read status column)
+        cur.execute("SELECT COUNT(*) as count FROM messages WHERE receiver_id = ?", (user_id,))
+        message_count = cur.fetchone()['count']
+        
+        # Count pending offers
+        cur.execute("SELECT COUNT(*) as count FROM offers WHERE receiver_id = ? AND status = 'pending'", (user_id,))
+        offer_count = cur.fetchone()['count']
+        
+        return message_count + offer_count
+    except Exception as e:
+        app.logger.error(f"Error getting unread count: {e}")
+        return 0
+    finally:
+        cur.close()
+
+@app.context_processor
+def inject_unread_count():
+    """Make unread count available to all templates."""
+    if current_user.is_authenticated:
+        return {'get_unread_count': get_unread_count}
+    return {'get_unread_count': lambda x: 0}
 
 def post_transfer_news(title, content, user_id=1):
     """

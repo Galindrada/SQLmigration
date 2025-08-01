@@ -9,8 +9,11 @@
 </head>
 <body>
     <header>
-        <div class="container">
-            <h1><a href="{{ url_for('index') }}" style="color: white; text-decoration: none;">PES6 League Hub</a></h1>
+        <div class="banner-placeholder">
+            <div class="banner-content">
+                <h1><a href="{{ url_for('index') }}" style="color: #ffffff; text-decoration: none;">PES6 League Hub</a></h1>
+                <p style="color: #ffffff; margin: 0; font-size: 18px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);">Pro Evolution Soccer 6 League Management</p>
+            </div>
         </div>
     </header>
     <nav>
@@ -23,7 +26,15 @@
                 {% if current_user.is_authenticated %}
                     <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
                     <li><a href="{{ url_for('team_management') }}">My Teams</a></li> {# Updated text #}
-                    <li><a href="{{ url_for('inbox') }}">Inbox</a></li>
+                    <li>
+                        <a href="{{ url_for('inbox') }}" class="inbox-link">
+                            Inbox
+                            {% set unread_count = get_unread_count(current_user.id) %}
+                            {% if unread_count > 0 %}
+                                <span class="badge badge-danger">{{ unread_count }}</span>
+                            {% endif %}
+                        </a>
+                    </li>
                     {# Removed link to Admin Summary Page #}
                     <li><a href="{{ url_for('logout') }}">Logout</a></li>
                 {% else %}
