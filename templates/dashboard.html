@@ -3,11 +3,123 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-    <h2>Welcome, {{ user.username }}!</h2>
-    <p>This is your personalized dashboard. From here you can:</p>
-    <ul>
-        <li><a href="{{ url_for('team_management') }}">Manage Your Team</a></li>
-        <li><a href="{{ url_for('create_post') }}">Create a New Blog Post</a></li>
-        <li>View your recent activity (coming soon!)</li>
-    </ul>
+<div class="container">
+    <div class="row">
+        <div class="col-12">
+            <h2 style="color: white;">Welcome, {{ user.username }}!</h2>
+            <p style="color: white;">This is your personalized dashboard. From here you can manage your teams and interact with other users.</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-users"></i> Team Management
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p style="color: black;">Manage your teams, view players, and handle transfers.</p>
+                    <a href="{{ url_for('team_management') }}" class="btn btn-primary">
+                        <i class="fas fa-cog"></i> Manage Teams
+                    </a>
+                    <a href="{{ url_for('finances') }}" class="btn btn-info">
+                        <i class="fas fa-wallet"></i> Finances
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-handshake"></i> User Deals Market
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p style="color: black;">Negotiate transfers with other users in the league.</p>
+                    <a href="{{ url_for('dashboard_user_deals') }}" class="btn btn-success">
+                        <i class="fas fa-exchange-alt"></i> Start Negotiating
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-newspaper"></i> Blog & News
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p style="color: black;">Create blog posts and stay updated with league news.</p>
+                    <a href="{{ url_for('create_post') }}" class="btn btn-info">
+                        <i class="fas fa-edit"></i> Create Post
+                    </a>
+                    <a href="{{ url_for('blog') }}" class="btn btn-secondary">
+                        <i class="fas fa-rss"></i> View Blog
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-inbox"></i> Communication
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p style="color: black;">Check your inbox for messages and transfer offers.</p>
+                    <a href="{{ url_for('inbox') }}" class="btn btn-warning">
+                        <i class="fas fa-envelope"></i> Check Inbox
+                        {% if unread_count > 0 %}
+                            <span class="badge badge-light">{{ unread_count }}</span>
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-user-friends"></i> Free Agency
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p style="color: black;">Bid on free agents and sign players to your team.</p>
+                    <a href="{{ url_for('free_agency') }}" class="btn btn-danger">
+                        <i class="fas fa-gavel"></i> Free Agency Market
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-tools"></i> Tools & Utilities
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p style="color: black;">Access various tools and utilities for league management.</p>
+                    <a href="{{ url_for('tools') }}" class="btn btn-dark">
+                        <i class="fas fa-wrench"></i> Tools
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

@@ -6,16 +6,6 @@
     <h2>My Managed Teams</h2>
     <p>You can manage multiple teams for the league.</p>
 
-    <div class="financial-summary-section">
-        <h3>Your Financial Overview</h3>
-        <div class="financial-grid">
-            <p><strong>Coach:</strong> {{ coach_username }}</p>
-            <p><strong>Total Budget:</strong> <span id="user-budget">{{ total_budget_display | int | format_currency }}</span></p>
-            <p><strong>Total Salaries:</strong> {{ total_salaries_user_teams | int | format_currency }}</p>
-            <p><strong>Free Cap:</strong> {{ free_cap_user_teams | int | format_currency }}</p>
-        </div>
-    </div>
-
     <!-- Team Selector -->
     {% if managed_teams|length > 1 %}
         <div class="team-selector-section">
@@ -296,41 +286,7 @@
             font-weight: bold;
         }
 
-        /* Styles for the new financial summary at the top */
-        .financial-summary-section {
-            background-color: #e6f7ff; /* Light blue background */
-            border: 1px solid #91d5ff; /* Blue border */
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-            text-align: left;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        .financial-summary-section h3 {
-            color: #1890ff; /* Darker blue for header */
-            margin-top: 0;
-            margin-bottom: 15px;
-            text-align: center;
-        }
-        .financial-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px 20px; /* Row gap, column gap */
-            padding: 0 10px;
-        }
-        .financial-grid p {
-            margin: 5px 0;
-            font-size: 1.1em;
-        }
-        .financial-grid strong {
-            color: #096dd9; /* A shade of blue for labels */
-        }
-        /* Media query for smaller screens to stack grid items */
-        @media (max-width: 600px) {
-            .financial-grid {
-                grid-template-columns: 1fr;
-            }
-        }
+
 
         /* Team Selector Styles */
         .team-selector-section {

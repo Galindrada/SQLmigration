@@ -11,27 +11,6 @@
         <li>Stay updated with league news, fixtures, and standings (coming soon!).</li>
     </ul>
 
-    <h3>Latest Blog Posts</h3>
-    {% if recent_posts %}
-        {% for post in recent_posts %}
-            <div class="post-item">
-                <h3><a href="{{ url_for('view_post', post_id=post['id']) }}">{{ post['title'] }}</a></h3>
-                <p class="post-meta">By {{ post['username'] }} on {{ post['created_at'] }}</p>
 
-                {# Display thumbnail if image is available #}
-                {% if post['media_type'] == 'image' and post['media_path'] %}
-                    <p><img src="{{ url_for('static', filename='uploads/' + post['media_path']) }}" alt="Post image" style="max-width: 150px; height: auto; float: left; margin-right: 15px;"></p>
-                {% elif post['media_type'] == 'video' and post['media_path'] %}
-                    <p style="float: left; margin-right: 15px;">[Video attached]</p>
-                {% endif %}
-
-                <p>{{ post['content'][:200] }}...</p> {# Display first 200 chars #}
-                <p><a href="{{ url_for('view_post', post_id=post['id']) }}">Read More</a></p>
-                <div style="clear: both;"></div> {# Clear float #}
-            </div>
-        {% endfor %}
-    {% else %}
-        <p>No recent posts yet. Be the first to create one!</p>
-    {% endif %}
 
 {% endblock %}

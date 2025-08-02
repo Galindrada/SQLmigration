@@ -48,6 +48,47 @@
         <a href="{{ url_for('download_updated_csv') }}" class="button">Download Updated Player CSV</a>
     </div>
 
+    {# --- Season Management Tools --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>Season Management</h3>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <h5>Divide All Salaries by 2</h5>
+                <p>This will divide every player's salary by 2 in the database. This reduces the salary costs for all teams.</p>
+                <form method="post" action="{{ url_for('divide_salaries_by_2') }}" onsubmit="return confirm('Are you sure you want to divide all player salaries by 2?\n\nThis will:\n- Divide all player salaries by 2\n- Reduce salary costs for all teams\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #5bc0de;">Divide All Salaries by 2</button>
+                </form>
+            </div>
+            
+                           <div class="col-md-6">
+                    <h5>Process Salary Bills (All Users)</h5>
+                    <p>Directly deduct salary bills from all users' budgets and create blog posts about the payments.</p>
+                    <form method="post" action="{{ url_for('pay_current_salary_bill') }}" onsubmit="return confirm('Process salary bills for all users?\n\nThis will:\n- Calculate each user\'s salary bill\n- Directly deduct from their budgets\n- Create blog posts for each payment\n- No transfers to accept\n\nThis action cannot be undone!')">
+                        <button type="submit" class="button" style="background-color: #d9534f;">🏦 Process Salary Bills</button>
+                    </form>
+                </div>
+        </div>
+        
+                   <div class="mt-3">
+                <p><strong>Usage:</strong></p>
+                <ul>
+                    <li><strong>Step 1:</strong> Use "Divide All Salaries by 2" to reduce salary costs</li>
+                    <li><strong>Step 2:</strong> Use "Process Salary Bills" to directly deduct from all users' budgets</li>
+                    <li><strong>Result:</strong> Users' budgets are updated and blog posts are created automatically</li>
+                </ul>
+            </div>
+           
+
+    </div>
+
+    {# --- Money Allocator Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>Money Allocator</h3>
+        <p>Add or subtract money from user budgets. All transactions will be recorded in the user's financial movements.</p>
+        <a href="{{ url_for('money_allocator') }}" class="button" style="background-color: #5bc0de;">Open Money Allocator</a>
+    </div>
+
     {# You can add more tool sections here as you develop them #}
 
     <style>
@@ -60,13 +101,25 @@
             text-align: center;
         }
         .tool-section h3 {
-            color: #337ab7;
+            color: #000000;
             margin-top: 0;
             margin-bottom: 15px;
+        }
+        .tool-section h5 {
+            color: #000000;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        .tool-section ul {
+            color: #000000;
+        }
+        .tool-section li {
+            color: #000000;
         }
         .tool-section p {
             margin-bottom: 20px;
             line-height: 1.5;
+            color: #000000;
         }
         .button {
             display: inline-block;

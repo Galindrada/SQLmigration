@@ -14,8 +14,6 @@
                     <th>Age</th>
                     <th>Game Position</th>
                     <th>Side</th>
-                    <th>Salary</th>
-                    <th>Market Value</th>
                     <th>Attack</th>
                     <th>Defense</th>
                     <th>Physical</th>
@@ -32,8 +30,6 @@
                         <td>{{ player[3] }}</td> {# age #}
                         <td>{{ player[13] }}</td> {# game_position #}
                         <td>{{ player[5] }}</td> {# strong_foot #}
-                        <td>{{ player[16] | int | format_currency if player[16] else 'N/A' }}</td> {# salary #}
-                        <td>{{ player[18] | int | format_currency if player[18] else 'N/A' }}</td> {# market_value #}
                         <td>{{ player[7] }}</td> {# attack_rating #}
                         <td>{{ player[8] }}</td> {# defense_rating #}
                         <td>{{ player[9] }}</td> {# physical_rating #}

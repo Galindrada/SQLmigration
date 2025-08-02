@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}My Finances{% endblock %}
+
+{% block content %}
+<div class="container finances-page">
+    <div class="row">
+        <div class="col-12">
+            <h2 style="color: white;">My Finances</h2>
+            <p style="color: white;">Manage your unified budget across all teams</p>
+            
+            <div class="mb-3">
+                <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Financial Overview -->
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-wallet"></i> Current Budget
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <h3 class="text-primary">€{{ current_budget|format_currency }}</h3>
+                    <p class="text-muted">Your total available budget</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-money-bill-wave"></i> Total Salaries
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <h3 class="text-warning">€{{ total_salaries|format_currency }}</h3>
+                    <p class="text-muted">Combined salaries of all your teams</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header {% if available_cap >= 0 %}bg-success{% else %}bg-danger{% endif %} text-white">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-chart-line"></i> Available Cap
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <h3 class="{% if available_cap >= 0 %}text-success{% else %}text-danger{% endif %}">
+                        €{{ available_cap|format_currency }}
+                    </h3>
+                    <p class="text-muted">
+                        {% if available_cap >= 0 %}
+                            Budget remaining for transfers
+                        {% else %}
+                            Over budget! Need to reduce salaries
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transaction Movements -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-history"></i> Transaction History
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if movements %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Description</th>
+                                        <th>Amount</th>
+                                        <th>Balance</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for movement in movements %}
+                                        <tr>
+                                            <td>{{ movement.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                            <td>
+                                                <span class="badge badge-{{ movement.type_color }}">
+                                                    {{ movement.type }}
+                                                </span>
+                                            </td>
+                                            <td>{{ movement.description }}</td>
+                                            <td class="{% if movement.amount > 0 %}text-success{% else %}text-danger{% endif %}">
+                                                {% if movement.amount > 0 %}+{% endif %}€{{ movement.amount|format_currency }}
+                                            </td>
+                                            <td>€{{ movement.balance_after|format_currency }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted text-center">No transactions yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Budget Information -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="card-title mb-0">
+                        <i class="fas fa-info-circle"></i> Budget Information
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li><strong>Initial Budget:</strong> €450,000,000 (unified across all teams)</li>
+                        <li><strong>Salary Costs:</strong> Automatically calculated from all your teams</li>
+                        <li><strong>Available Cap:</strong> Budget minus total salaries</li>
+                        <li><strong>Transactions:</strong> All money movements are tracked here</li>
+                        <li><strong>Transfer Costs:</strong> Player transfers, CPU negotiations, and user deals affect your budget</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

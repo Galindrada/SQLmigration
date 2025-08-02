@@ -9,10 +9,9 @@
 </head>
 <body>
     <header>
-        <div class="banner-placeholder">
-            <div class="banner-content">
-                <h1><a href="{{ url_for('index') }}" style="color: #ffffff; text-decoration: none;">PES6 League Hub</a></h1>
-                <p style="color: #ffffff; margin: 0; font-size: 18px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);">Pro Evolution Soccer 6 League Management</p>
+        <div class="banner-container">
+            <div class="banner-image">
+                <img src="{{ url_for('static', filename='images/banner.png') }}" alt="COLADOS DO CHEIRETE - PES6 League" class="banner-img">
             </div>
         </div>
     </header>
@@ -20,6 +19,7 @@
         <div class="container">
             <ul>
                 <li><a href="{{ url_for('index') }}">Home</a></li>
+<!DOCTYPE html>
                 <li><a href="{{ url_for('blog') }}">Blog</a></li>
                 <li><a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a></li>
                 <li><a href="{{ url_for('tools') }}">Tools</a></li>

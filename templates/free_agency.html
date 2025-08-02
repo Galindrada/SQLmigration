@@ -125,8 +125,7 @@
                             <td>{{ player.technique_rating }}</td>
                             <td>{{ player.goalkeeping_rating }}</td>
                             <td>
-                                <button type="button" class="btn btn-primary btn-sm" 
-                                        onclick="showOfferModal({{ player.id }}, '{{ player.player_name }}', {{ player.salary }}, {{ player.contract_years_remaining }})">
+                                <button type="button" class="btn btn-primary btn-sm" onclick="showOfferModal({{ player.id }}, &quot;{{ player.player_name }}&quot;, {{ player.salary }}, {{ player.contract_years_remaining }})">
                                     Make Offer
                                 </button>
                             </td>
@@ -289,6 +288,39 @@
 .filter-form .btn {
     margin-top: 5px;
 }
+
+/* Free agency modal styling for better readability */
+#offerModal .form-control {
+    color: #000000 !important;
+    background: #ffffff !important;
+}
+
+#offerModal .form-control:focus {
+    color: #000000 !important;
+    background: #ffffff !important;
+}
+
+#offerModal label {
+    color: #000000 !important;
+}
+
+#offerModal .form-text {
+    color: #000000 !important;
+}
+
+#offerModal .modal-body {
+    background: #ffffff !important;
+    color: #000000 !important;
+}
+
+#offerModal .modal-title {
+    color: #000000 !important;
+}
+
+#offerModal .modal-header {
+    background: #ffffff !important;
+    color: #000000 !important;
+}
 </style>
 
 <script>
@@ -341,7 +373,7 @@ function updateTimers() {
 setInterval(updateTimers, 1000);
 updateTimers(); // Initial call
 
-// Check for expired offers every 10 seconds (more frequent for testing)
+// Check for expired offers every 30 seconds
 setInterval(() => {
     fetch('/free_agency/check_expired_offers')
         .then(response => response.json())
@@ -352,6 +384,6 @@ setInterval(() => {
             }
         })
         .catch(error => console.error('Error checking expired offers:', error));
-}, 10000); // Check every 10 seconds for testing
+}, 30000); // Check every 30 seconds
 </script>
 {% endblock %} 

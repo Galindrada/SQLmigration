@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Money Allocator{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-12">
+            <h2 style="color: white;">Money Allocator</h2>
+            <p style="color: white;">Add or subtract money from user budgets. All transactions will be recorded in the user's financial movements.</p>
+            
+            <div class="mb-3">
+                <a href="{{ url_for('tools') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Tools
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-8 mx-auto">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-money-bill-wave"></i> Budget Allocation
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="user_id"><strong>Select User:</strong></label>
+                                    <select name="user_id" id="user_id" class="form-control" required>
+                                        <option value="" disabled selected>Choose a user</option>
+                                        {% for user in users %}
+                                            <option value="{{ user.id }}">{{ user.username }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="amount"><strong>Amount (€):</strong></label>
+                                    <input type="number" name="amount" id="amount" class="form-control" 
+                                           min="1" step="1" required placeholder="Enter amount">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label><strong>Operation:</strong></label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="operation" 
+                                               id="add" value="add" checked>
+                                        <label class="form-check-label" for="add">
+                                            <i class="fas fa-plus text-success"></i> Add Money
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="operation" 
+                                               id="subtract" value="subtract">
+                                        <label class="form-check-label" for="subtract">
+                                            <i class="fas fa-minus text-danger"></i> Subtract Money
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="description"><strong>Description (Optional):</strong></label>
+                                    <input type="text" name="description" id="description" class="form-control" 
+                                           placeholder="e.g., Prize money, Fine, Bonus" maxlength="100">
+                                    <small class="form-text text-muted">This will appear in the user's financial movements</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row mt-4">
+                            <div class="col-12 text-center">
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="fas fa-check"></i> Execute Allocation
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Information Card -->
+    <div class="row mt-4">
+        <div class="col-md-8 mx-auto">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h6 class="card-title mb-0">
+                        <i class="fas fa-info-circle"></i> How it Works
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li><strong>Add Money:</strong> Increases the user's budget (positive transaction)</li>
+                        <li><strong>Subtract Money:</strong> Decreases the user's budget (negative transaction)</li>
+                        <li><strong>Financial Movements:</strong> All allocations are recorded in the user's finances page</li>
+                        <li><strong>Description:</strong> Optional note that appears in the transaction history</li>
+                        <li><strong>Security:</strong> Only logged-in users can access this tool</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .form-check {
+        margin-bottom: 10px;
+    }
+    .form-check-input:checked + .form-check-label {
+        font-weight: bold;
+    }
+    .card {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        border: none;
+        border-radius: 10px;
+    }
+    .card-header {
+        border-radius: 10px 10px 0 0 !important;
+    }
+    .btn-lg {
+        padding: 12px 30px;
+        font-size: 18px;
+    }
+</style>
+{% endblock %} 
