@@ -215,11 +215,19 @@ CREATE TABLE IF NOT EXISTS offers (
     receiver_id INTEGER NOT NULL,
     player_id INTEGER NOT NULL,
     offer_amount INTEGER NOT NULL,
+    offered_players TEXT,
+    offered_money INTEGER DEFAULT 0,
+    requested_players TEXT,
+    requested_money INTEGER DEFAULT 0,
+    sender_team_id INTEGER,
+    receiver_team_id INTEGER,
     status TEXT DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_team_id) REFERENCES league_teams(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_team_id) REFERENCES league_teams(id) ON DELETE CASCADE
 );
 
 -- Table for blacklist
@@ -242,6 +250,27 @@ CREATE TABLE IF NOT EXISTS free_agent_offers (
     expires_at TIMESTAMP NOT NULL,
     status TEXT DEFAULT 'active',
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- User budgets table (unified budget per user)
+CREATE TABLE IF NOT EXISTS user_budgets (
+    user_id INTEGER PRIMARY KEY,
+    budget INTEGER DEFAULT 450000000,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- User movements table (transaction history)
+CREATE TABLE IF NOT EXISTS user_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
