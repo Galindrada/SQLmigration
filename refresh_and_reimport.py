@@ -2,6 +2,7 @@ import os
 import sqlite3
 import import_pes6_data
 import update_player_finances
+from datetime import datetime
 from config import Config
 
 SQL_SCHEMA_FILE = 'database.sql'
@@ -257,6 +258,32 @@ def populate_team_players_for_cpu():
     conn.close()
     print('team_players table populated for all CPU teams.')
 
+def initialize_budget_system():
+    print('Initializing budget system for all users...')
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
+    cursor = conn.cursor()
+    
+    # Get all users except CPU (user_id = 1)
+    cursor.execute("SELECT id, username FROM users WHERE id != 1")
+    users = cursor.fetchall()
+    
+    for user in users:
+        # Check if user already has a budget record
+        cursor.execute("SELECT user_id FROM user_budgets WHERE user_id = ?", (user['id'],))
+        if not cursor.fetchone():
+            # Create budget record with initial €450M
+            cursor.execute("""
+                INSERT INTO user_budgets (user_id, budget, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, (user['id'], 450000000, datetime.now().isoformat(), datetime.now().isoformat()))
+            print(f"  - Initialized budget for {user['username']}")
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print('Budget system initialized for all users.')
+
 def main():
     print("=== Database Refresh and Reimport Script ===")
     print("This script will:")
@@ -267,6 +294,7 @@ def main():
     print("5. Update player game positions")
     print("6. Calculate bundled skill ratings")
     print("7. Clear blacklist")
+    print("8. Initialize budget system for all users")
     
     refresh_database()
     print('Importing PES6 player and team data...')
@@ -291,6 +319,7 @@ def main():
     update_player_positions()
     calculate_skill_ratings()
     clear_blacklist()
+    initialize_budget_system()
     print('All done!')
 
 if __name__ == '__main__':
