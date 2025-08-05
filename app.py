@@ -592,13 +592,13 @@ def team_management():
         team_name = team_meta['team_name']
 
         cur = db_helper.get_cursor()
-        # Fetch players for this specific team, including financial info
+        # Fetch players for this specific team using club_id to ensure consistency with PES6 teams view
         cur.execute("""
             SELECT
                 p.id, p.player_name, p.age, p.game_position, p.strong_foot, p.salary, p.contract_years_remaining, p.market_value
             FROM players p
-            JOIN team_players tp ON p.id = tp.player_id
-            WHERE tp.team_id = ?
+            JOIN teams t ON p.club_id = t.id
+            WHERE t.club_name = ?
             ORDER BY 
                 CASE p.game_position
                     WHEN 'Goal-Keeper' THEN 1
@@ -615,7 +615,7 @@ def team_management():
                     WHEN 'Striker' THEN 12
                     ELSE 13
                 END ASC
-        """, (team_id,))
+        """, (team_name,))
         team_players_roster = cur.fetchall()
         cur.close()
 
@@ -724,6 +724,19 @@ def add_player_to_team():
         # Insert player into the specified team
         cur.execute("INSERT INTO team_players (team_id, player_id) VALUES (?, ?)",
                     (team_id, player_id))
+        
+        # Update the player's club_id to match the corresponding PES6 team
+        cur.execute("SELECT team_name FROM league_teams WHERE id = ?", (team_id,))
+        team_name = cur.fetchone()[0]
+        
+        # Find the corresponding PES6 team ID
+        cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+        pes6_team_result = cur.fetchone()
+        if pes6_team_result:
+            pes6_team_id = pes6_team_result[0]
+            # Update the player's club_id
+            cur.execute("UPDATE players SET club_id = ? WHERE id = ?", (pes6_team_id, player_id))
+        
         db_helper.commit()
         flash('Player added to your team!', 'success')
     except Exception as e:
@@ -750,6 +763,10 @@ def remove_player_from_team(team_id, player_id): # Team ID added to parameters
     try:
         cur.execute("DELETE FROM team_players WHERE team_id = ? AND player_id = ?",
                     (team_id, player_id))
+        
+        # Clear the player's club_id since they're no longer assigned to any team
+        cur.execute("UPDATE players SET club_id = NULL WHERE id = ?", (player_id,))
+        
         db_helper.commit()
         flash('Player removed from your team!', 'success')
     except Exception as e:
@@ -1697,6 +1714,9 @@ def accept_offer(offer_id):
         receiver_club = cur.fetchone()
         if receiver_club:
             cur.execute("UPDATE players SET club_id = ? WHERE id = ?", (receiver_club['id'], pid))
+            app.logger.info(f"Updated player {pid} club_id to {receiver_club['id']} for receiver team {receiver_team_id}")
+        else:
+            app.logger.warning(f"Could not find PES6 team for league team {receiver_team_id}")
     
     # Transfer requested_players from receiver to sender
     for pid in requested_players:
@@ -1710,6 +1730,9 @@ def accept_offer(offer_id):
         sender_club = cur.fetchone()
         if sender_club:
             cur.execute("UPDATE players SET club_id = ? WHERE id = ?", (sender_club['id'], pid))
+            app.logger.info(f"Updated player {pid} club_id to {sender_club['id']} for sender team {sender_team_id}")
+        else:
+            app.logger.warning(f"Could not find PES6 team for league team {sender_team_id}")
     # Get usernames for news post
     cur.execute("SELECT username FROM users WHERE id = ?", (offer['sender_id'],))
     sender_user = cur.fetchone()
@@ -2215,7 +2238,7 @@ def sell_player(player_id):
     user_team_id = user_team['id']
     user_team_name = user_team['team_name']
     # Get all possible CPU clubs (not user-managed)
-    cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = 1 AND team_name != ?", (user_team_name,))
+    cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = 1 AND team_name != ? AND id != 141", (user_team_name,))
     cpu_clubs = cur.fetchall()
     if not cpu_clubs:
         cur.close()
@@ -2786,6 +2809,28 @@ def change_player_team():
     # Render tools.html with extra context for the form
     return render_template('tools.html', players=players, teams=teams, message=message)
 
+@app.route('/change_player_salary', methods=['GET', 'POST'])
+def change_player_salary():
+    cur = db_helper.get_cursor()
+    message = None
+    if request.method == 'POST':
+        player_id = request.form.get('player_id')
+        new_salary = request.form.get('salary')
+        if player_id and new_salary:
+            try:
+                new_salary = int(new_salary)
+                cur.execute("UPDATE players SET salary = ? WHERE id = ?", (new_salary, player_id))
+                db_helper.commit()
+                message = 'Player salary updated!'
+            except ValueError:
+                message = 'Invalid salary value. Please enter a valid number.'
+    # Fetch all players for the dropdown
+    cur.execute("SELECT id, player_name, salary FROM players ORDER BY player_name ASC")
+    players = cur.fetchall()
+    cur.close()
+    # Render tools.html with extra context for the form
+    return render_template('tools.html', players=players, salary_message=message)
+
 # --- Clear Blacklist Tool ---
 @app.route('/clear_blacklist', methods=['POST'])
 def clear_blacklist_route():
@@ -2886,6 +2931,8 @@ def add_user_movement(user_id, movement_type, description, amount):
     """, (user_id, movement_type, description, amount, new_budget))
     db_helper.commit()
     cur.close()
+
+
 
 def post_transfer_news(title, content, user_id=1):
     """
@@ -3056,7 +3103,7 @@ def make_free_agent_offer():
     
     # Create new offer (2 minutes for testing)
     from datetime import datetime, timedelta
-    expires_at = datetime.now() + timedelta(minutes=2)
+    expires_at = datetime.now() + timedelta(minutes=1500)
     
     try:
         cur.execute("""
@@ -3104,7 +3151,7 @@ def raise_free_agent_offer(offer_id):
     # Raise offer by 250,000€ and reset timer
     new_salary = offer['offered_salary'] + 250000
     from datetime import datetime, timedelta
-    new_expires_at = datetime.now() + timedelta(minutes=2)
+    new_expires_at = datetime.now() + timedelta(minutes=1500)
     
     try:
         cur.execute("""
@@ -3358,6 +3405,8 @@ def pay_current_salary_bill():
         cur.close()
     
     return redirect(url_for('tools'))
+
+
 
 @app.route('/tools/money_allocator', methods=['GET', 'POST'])
 @login_required

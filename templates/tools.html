@@ -33,6 +33,28 @@
     </div>
     {% endif %}
 
+    {# --- Change Player Salary Tool --- #}
+    {% if players %}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>Change Player's Salary</h3>
+        <form method="post" action="{{ url_for('change_player_salary') }}">
+            <label for="salary_player_id">Player:</label>
+            <select name="player_id" id="salary_player_id" required>
+                <option value="" disabled selected>Select player</option>
+                {% for player in players %}
+                    <option value="{{ player[0] }}">{{ player[1] }}</option>
+                {% endfor %}
+            </select>
+            <label for="salary" style="margin-left: 20px;">New Salary:</label>
+            <input type="number" name="salary" id="salary" placeholder="Enter new salary" required style="margin-left: 10px; padding: 5px;">
+            <button type="submit" class="button" style="margin-left: 20px;">Change Salary</button>
+        </form>
+        {% if salary_message %}
+            <div style="color: green; margin-top: 10px;">{{ salary_message }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {# --- Clear Blacklist Tool --- #}
     <div class="tool-section" style="margin-bottom: 30px;">
         <h3>Clear Blacklist</h3>
@@ -88,6 +110,8 @@
         <p>Add or subtract money from user budgets. All transactions will be recorded in the user's financial movements.</p>
         <a href="{{ url_for('money_allocator') }}" class="button" style="background-color: #5bc0de;">Open Money Allocator</a>
     </div>
+
+
 
     {# You can add more tool sections here as you develop them #}
 
