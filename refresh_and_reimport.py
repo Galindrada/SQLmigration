@@ -8,35 +8,201 @@ from config import Config
 SQL_SCHEMA_FILE = 'database.sql'
 DB_PATH = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
 
-# Always start with a clean database file
-if os.path.exists(DB_PATH):
-    print(f"Deleting old database file: {DB_PATH}")
-    os.remove(DB_PATH)
-
-def refresh_database():
-    print('Refreshing database schema...')
-    print('Reading schema from:', os.path.abspath(SQL_SCHEMA_FILE))
-    with open(SQL_SCHEMA_FILE, 'r') as f:
-        sql_script = f.read()
-    print('Schema script length:', len(sql_script))
-    print('--- First 40 lines of schema script ---')
-    for i, line in enumerate(sql_script.splitlines()):
-        if i > 40: break
-        print(line)
-    print('--- End of preview ---')
+def safe_refresh_database():
+    """Safely refresh database schema without erasing existing data"""
+    print('🔧 Safely refreshing database schema...')
+    print('📖 Reading schema from:', os.path.abspath(SQL_SCHEMA_FILE))
+    
+    # Check if database exists
+    if not os.path.exists(DB_PATH):
+        print(f"❌ Database {DB_PATH} does not exist. Creating new database...")
+        create_new_database()
+        return
+    
+    print(f"✅ Database {DB_PATH} exists. Adding new features safely...")
+    
+    # Connect to existing database
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
+    
+    try:
+        # Add new columns to teams table for financial data
+        print("\n💰 Adding financial data columns to teams table...")
+        
+        try:
+            cursor.execute("ALTER TABLE teams ADD COLUMN total_salaries INTEGER DEFAULT 0")
+            print("  ✅ Added total_salaries column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding total_salaries column: {e}")
+            else:
+                print("  ℹ️  total_salaries column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE teams ADD COLUMN budget INTEGER DEFAULT 0")
+            print("  ✅ Added budget column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding budget column: {e}")
+            else:
+                print("  ℹ️  budget column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE teams ADD COLUMN available_cap INTEGER DEFAULT 0")
+            print("  ✅ Added available_cap column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding available_cap column: {e}")
+            else:
+                print("  ℹ️  available_cap column already exists")
+        
+        # Add other missing columns that might be needed
+        print("\n📋 Adding missing columns to offers table...")
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN offered_players TEXT")
+            print("  ✅ Added offered_players column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding offered_players column: {e}")
+            else:
+                print("  ℹ️  offered_players column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN offered_money INTEGER DEFAULT 0")
+            print("  ✅ Added offered_money column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding offered_money column: {e}")
+            else:
+                print("  ℹ️  offered_money column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN requested_players TEXT")
+            print("  ✅ Added requested_players column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding requested_players column: {e}")
+            else:
+                print("  ℹ️  requested_players column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN requested_money INTEGER DEFAULT 0")
+            print("  ✅ Added requested_money column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding requested_money column: {e}")
+            else:
+                print("  ℹ️  requested_money column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN sender_team_id INTEGER")
+            print("  ✅ Added sender_team_id column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding sender_team_id column: {e}")
+            else:
+                print("  ℹ️  sender_team_id column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN receiver_team_id INTEGER")
+            print("  ✅ Added receiver_team_id column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding receiver_team_id column: {e}")
+            else:
+                print("  ℹ️  receiver_team_id column already exists")
+        
+        # Ensure CPU user exists
+        print("\n🤖 Ensuring CPU user exists...")
+        try:
+            cursor.execute("SELECT id FROM users WHERE id = 1")
+            result = cursor.fetchone()
+            if not result:
+                cursor.execute("INSERT INTO users (id, username, password, email) VALUES (?, ?, ?, ?)", (1, 'CPU', '', 'cpu@localhost'))
+                print('  ✅ CPU user created.')
+            else:
+                print('  ℹ️  CPU user already exists.')
+        except Exception as e:
+            print(f"  ❌ Error ensuring CPU user: {e}")
+        
+        conn.commit()
+        print("\n✅ Schema updates completed successfully.")
+        
+    except Exception as e:
+        print(f"❌ Error updating schema: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
+def calculate_cpu_team_finances():
+    """Calculate and populate financial data for CPU teams only"""
+    print("\n💰 Calculating financial data for CPU teams only...")
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
+    cursor = conn.cursor()
+    
+    try:
+        # Get only CPU teams (teams managed by user_id = 1 in league_teams)
+        cursor.execute("""
+            SELECT t.id, t.club_name 
+            FROM teams t
+            JOIN league_teams lt ON t.club_name = lt.team_name
+            WHERE lt.user_id = 1
+        """)
+        cpu_teams = cursor.fetchall()
+        
+        updated_count = 0
+        for team_id, club_name in cpu_teams:
+            # Calculate total salaries for this team
+            cursor.execute("SELECT COALESCE(SUM(salary), 0) as total_salaries FROM players WHERE club_id = ?", (team_id,))
+            result = cursor.fetchone()
+            total_salaries = result[0] if result else 0
+            
+            # Set budget equal to total salaries initially
+            budget = total_salaries
+            
+            # Calculate available cap
+            available_cap = budget - total_salaries
+            
+            # Update team financial data
+            cursor.execute("""
+                UPDATE teams 
+                SET total_salaries = ?, budget = ?, available_cap = ?
+                WHERE id = ?
+            """, (total_salaries, budget, available_cap, team_id))
+            
+            updated_count += 1
+            print(f"  ✅ {club_name}: €{total_salaries:,} salaries, €{budget:,} budget, €{available_cap:,} available cap")
+        
+        conn.commit()
+        print(f"\n✅ Financial data calculated for {updated_count} CPU teams.")
+        
+    except Exception as e:
+        print(f"❌ Error calculating CPU team finances: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
+def create_new_database():
+    """Create a completely new database from scratch"""
+    print('🆕 Creating new database from scratch...')
+    with open(SQL_SCHEMA_FILE, 'r') as f:
+        sql_script = f.read()
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = ON;')
+    cursor = conn.cursor()
+    
     try:
         cursor.executescript(sql_script)
         print('Schema script executed.')
         conn.commit()
         print('Schema committed.')
-    except Exception as e:
-        print(f"Error executing schema script:\n{e}")
-        cursor.close()
-        conn.close()
-        return  # Stop further execution if schema fails
+        
     # Ensure CPU user exists
     try:
         cursor.execute("SELECT id FROM users WHERE id = 1")
@@ -50,35 +216,28 @@ def refresh_database():
     except Exception as e:
         print(f"Error ensuring CPU user: {e}")
     
-    # After schema creation, ensure offers table has new columns for richer deals
-    try:
-        # Add offered_players
-        cursor.execute("ALTER TABLE offers ADD COLUMN offered_players TEXT")
+        # Add new columns for financial data
+        try:
+            cursor.execute("ALTER TABLE teams ADD COLUMN total_salaries INTEGER DEFAULT 0")
+            cursor.execute("ALTER TABLE teams ADD COLUMN budget INTEGER DEFAULT 0")
+            cursor.execute("ALTER TABLE teams ADD COLUMN available_cap INTEGER DEFAULT 0")
+            print("Financial columns added to teams table.")
     except Exception as e:
-        if 'duplicate column name' not in str(e):
-            print(f"Error adding offered_players column: {e}")
-    try:
-        cursor.execute("ALTER TABLE offers ADD COLUMN offered_money INTEGER DEFAULT 0")
+            print(f"Error adding financial columns: {e}")
+        
+        conn.commit()
+        
     except Exception as e:
-        if 'duplicate column name' not in str(e):
-            print(f"Error adding offered_money column: {e}")
-    try:
-        cursor.execute("ALTER TABLE offers ADD COLUMN requested_players TEXT")
-    except Exception as e:
-        if 'duplicate column name' not in str(e):
-            print(f"Error adding requested_players column: {e}")
-    try:
-        cursor.execute("ALTER TABLE offers ADD COLUMN requested_money INTEGER DEFAULT 0")
-    except Exception as e:
-        if 'duplicate column name' not in str(e):
-            print(f"Error adding requested_money column: {e}")
-    conn.commit()
+        print(f"Error executing schema script:\n{e}")
+        conn.rollback()
+    finally:
     cursor.close()
     conn.close()
-    print('Database schema refreshed.')
+    
+    print('New database created.')
 
 def assign_teams_to_cpu():
-    print('Assigning all teams to CPU in league_teams...')
+    print('🤖 Assigning all teams to CPU in league_teams...')
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
@@ -93,7 +252,7 @@ def assign_teams_to_cpu():
     print('All teams assigned to CPU.')
 
 def clear_blacklist():
-    print('Clearing blacklist...')
+    print('🗑️  Clearing blacklist...')
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
@@ -104,7 +263,7 @@ def clear_blacklist():
     print('Blacklist cleared.')
 
 def update_player_positions():
-    print('Updating player game positions...')
+    print('⚽ Updating player game positions...')
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
@@ -143,7 +302,7 @@ def update_player_positions():
     print(f'Player game positions updated for {updated_count} players.')
 
 def calculate_skill_ratings():
-    print('Calculating bundled skill ratings...')
+    print('📊 Calculating bundled skill ratings...')
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
@@ -237,7 +396,7 @@ def calculate_skill_ratings():
     print('Bundled skill ratings calculated and updated.')
 
 def populate_team_players_for_cpu():
-    print('Populating team_players for all CPU teams...')
+    print('👥 Populating team_players for all CPU teams...')
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
@@ -259,7 +418,7 @@ def populate_team_players_for_cpu():
     print('team_players table populated for all CPU teams.')
 
 def initialize_budget_system():
-    print('Initializing budget system for all users...')
+    print('💰 Initializing budget system for all users...')
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
@@ -268,35 +427,71 @@ def initialize_budget_system():
     cursor.execute("SELECT id, username FROM users WHERE id != 1")
     users = cursor.fetchall()
     
-    for user in users:
+    for user_id, username in users:
         # Check if user already has a budget record
-        cursor.execute("SELECT user_id FROM user_budgets WHERE user_id = ?", (user['id'],))
+        cursor.execute("SELECT user_id FROM user_budgets WHERE user_id = ?", (user_id,))
         if not cursor.fetchone():
             # Create budget record with initial €450M
             cursor.execute("""
                 INSERT INTO user_budgets (user_id, budget, created_at, updated_at)
                 VALUES (?, ?, ?, ?)
-            """, (user['id'], 450000000, datetime.now().isoformat(), datetime.now().isoformat()))
-            print(f"  - Initialized budget for {user['username']}")
+            """, (user_id, 450000000, datetime.now().isoformat(), datetime.now().isoformat()))
+            print(f"  - Initialized budget for {username}")
     
     conn.commit()
     cursor.close()
     conn.close()
     print('Budget system initialized for all users.')
 
-def main():
-    print("=== Database Refresh and Reimport Script ===")
-    print("This script will:")
-    print("1. Delete the existing database file")
-    print("2. Create a fresh database with the schema")
-    print("3. Import PES6 player and team data")
-    print("4. Update player finances")
-    print("5. Update player game positions")
-    print("6. Calculate bundled skill ratings")
-    print("7. Clear blacklist")
-    print("8. Initialize budget system for all users")
+def safe_main():
+    """Safe main function that only adds new features without erasing data"""
+    print("=== SAFE Database Refresh Script ===")
+    print("🔒 This script will SAFELY add new features without erasing existing data:")
+    print("1. ✅ Add new database columns safely")
+    print("2. ✅ Calculate CPU team financial data")
+    print("3. ✅ Update player positions and skill ratings")
+    print("4. ✅ Initialize budget system for new users")
+    print("5. ✅ Ensure CPU user exists")
+    print("6. ✅ Populate team_players for CPU teams")
+    print("\n⚠️  EXISTING USER DATA WILL BE PRESERVED!")
     
-    refresh_database()
+    # Safe operations that don't erase data
+    safe_refresh_database()
+    calculate_cpu_team_finances()
+    update_player_positions()
+    calculate_skill_ratings()
+    populate_team_players_for_cpu()
+    initialize_budget_system()
+    
+    print("\n✅ All safe operations completed successfully!")
+    print("🎉 Your existing data is safe and new features have been added!")
+
+def destructive_main():
+    """Original destructive main function - USE WITH CAUTION"""
+    print("=== DESTRUCTIVE Database Refresh Script ===")
+    print("⚠️  WARNING: This will DELETE ALL EXISTING DATA!")
+    print("This script will:")
+    print("1. ❌ Delete the existing database file")
+    print("2. ❌ Create a fresh database with the schema")
+    print("3. ❌ Import PES6 player and team data")
+    print("4. ❌ Update player finances")
+    print("5. ❌ Update player game positions")
+    print("6. ❌ Calculate bundled skill ratings")
+    print("7. ❌ Clear blacklist")
+    print("8. ❌ Initialize budget system for all users")
+    
+    # Ask for confirmation
+    response = input("\n⚠️  Are you sure you want to DELETE ALL DATA? (yes/no): ")
+    if response.lower() != 'yes':
+        print("❌ Operation cancelled. Your data is safe.")
+        return
+    
+    # Delete database file
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+        print(f"🗑️  Deleted {DB_PATH}")
+    
+    create_new_database()
     print('Importing PES6 player and team data...')
     # Delete player_performance and players to avoid FK constraint errors
     conn = sqlite3.connect(DB_PATH)
@@ -323,4 +518,5 @@ def main():
     print('All done!')
 
 if __name__ == '__main__':
-    main() 
+    # Use safe main by default
+    safe_main() 

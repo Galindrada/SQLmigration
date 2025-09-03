@@ -27,7 +27,7 @@
                     <p><strong>Salary:</strong> {{ financial_info['Salary'] | int | format_currency }}</p>
                     <p><strong>Contract Years:</strong> {{ financial_info['Contract Years'] }}</p>
                     <p><strong>Market Value:</strong> {{ financial_info['Market Value'] | int | format_currency }}</p>
-                    <p><strong>Yearly Wage Rise:</strong> {{ financial_info['Yearly Wage Rise'] | int | format_currency }}</p>
+                    <p><strong>Yearly Wage Rise:</strong> {{ (financial_info['Yearly Wage Rise'] * 100) | round(1) }}%</p>
                 </div>
             </div>
         </div>

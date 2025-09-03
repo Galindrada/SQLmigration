@@ -10,6 +10,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import pandas as pd
 import db_helper
+import game_mechanics  # Import the new game mechanics module
 
 from config import Config
 import db_helper  # New helper module for SQLite access
@@ -115,12 +116,12 @@ def register():
         email = request.form['email']
         password = request.form['password']
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-        
+
         selected_team_ids = request.form.getlist('selected_teams') # Get list of selected team IDs
 
         if len(selected_team_ids) == 0:
             flash('Please select at least 1 team to manage.', 'danger')
-            return render_template('register.html', teams=pes6_teams_for_selection, 
+            return render_template('register.html', teams=pes6_teams_for_selection,
                                    old_username=username, old_email=email) # Pass back data
 
         new_user_id = None
@@ -157,7 +158,7 @@ def register():
                 else:
                     cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (?, ?)", (new_user_id, pes6_team_name))
                     league_team_id = cur.lastrowid
-                    
+
                 # Repopulate team_players for this team
                 cur.execute("DELETE FROM team_players WHERE team_id = ?", (league_team_id,))
                 cur.execute("SELECT id FROM players WHERE club_id = ?", (pes6_team_id,))
@@ -165,7 +166,7 @@ def register():
                 if players_in_pes6_team:
                     player_team_data = [(league_team_id, player[0]) for player in players_in_pes6_team]
                     cur.executemany("INSERT INTO team_players (team_id, player_id) VALUES (?, ?)", player_team_data)
-            
+
             db_helper.commit()
 
             flash('Registration successful! Please log in.', 'success')
@@ -184,12 +185,12 @@ def register():
             else:
                 flash(f'Registration failed: {e}', 'danger')
             app.logger.error(f"Registration Error: {e}", exc_info=True)
-            return render_template('register.html', teams=pes6_teams_for_selection, 
+            return render_template('register.html', teams=pes6_teams_for_selection,
                                    old_username=username, old_email=email) # Pass back data
 
         finally:
             cur.close()
-            
+
     return render_template('register.html', teams=pes6_teams_for_selection)
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -232,7 +233,7 @@ def dashboard():
 @login_required
 def dashboard_user_deals():
     cur = db_helper.get_cursor()
-    
+
     # Ensure user has an active team
     active_team_id = session.get('active_team_id')
     if not active_team_id:
@@ -242,51 +243,51 @@ def dashboard_user_deals():
         if first_team:
             active_team_id = first_team['id']
             session['active_team_id'] = active_team_id
-    
+
     # Get user's teams for selection
     cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = ? ORDER BY team_name", (current_user.id,))
     my_teams = cur.fetchall()
-    
+
     # Exclude CPU users (user_id = 1) and current user from the list
     cur.execute("SELECT id, username FROM users WHERE id != ? AND id != 1 ORDER BY username ASC", (current_user.id,))
     users = cur.fetchall()
-    
+
     # Get current user's team players (from all teams)
     cur.execute("""
-        SELECT p.id, p.player_name, p.registered_position, p.market_value, lt.team_name 
+        SELECT p.id, p.player_name, p.registered_position, p.market_value, lt.team_name
         FROM players p
-        JOIN team_players tp ON p.id = tp.player_id
-        JOIN league_teams lt ON tp.team_id = lt.id
+        JOIN teams t ON p.club_id = t.id
+        JOIN league_teams lt ON t.club_name = lt.team_name
         WHERE lt.user_id = ?
         ORDER BY lt.team_name, p.player_name ASC
     """, (current_user.id,))
     my_players = cur.fetchall()
-    
+
     recipient_players = []
     selected_receiver_id = request.form.get('receiver_id') if request.method == 'POST' else request.args.get('receiver_id')
     selected_my_team_id = request.form.get('my_team_id') if request.method == 'POST' else request.args.get('my_team_id', active_team_id)
     selected_their_team_id = request.form.get('their_team_id') if request.method == 'POST' else request.args.get('their_team_id')
-    
+
     if selected_receiver_id:
         try:
             selected_receiver_id_int = int(selected_receiver_id)
             # Get recipient's teams
             cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = ? ORDER BY team_name", (selected_receiver_id_int,))
             recipient_teams = cur.fetchall()
-            
+
             # Get recipient's team players (from all teams)
             cur.execute("""
-                SELECT p.id, p.player_name, p.registered_position, p.market_value, lt.team_name 
+                SELECT p.id, p.player_name, p.registered_position, p.market_value, lt.team_name
                 FROM players p
-                JOIN team_players tp ON p.id = tp.player_id
-                JOIN league_teams lt ON tp.team_id = lt.id
+                JOIN teams t ON p.club_id = t.id
+                JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE lt.user_id = ?
                 ORDER BY lt.team_name, p.player_name ASC
             """, (selected_receiver_id_int,))
             recipient_players = cur.fetchall()
         except ValueError:
             recipient_players = []
-    
+
     cur.close()
 
     if request.method == 'POST':
@@ -297,24 +298,24 @@ def dashboard_user_deals():
         offered_money = int(request.form.get('offered_money', 0) or 0)
         requested_players = request.form.getlist('requested_players')
         requested_money = int(request.form.get('requested_money', 0) or 0)
-        
+
         # Validate that at least one side has something to offer
         if not offered_players and offered_money == 0 and not requested_players and requested_money == 0:
             flash('You must offer something or request something!', 'danger')
-            return render_template('dashboard_user_deals.html', 
-                                users=users, 
-                                my_players=my_players, 
-                                recipient_players=recipient_players, 
+            return render_template('dashboard_user_deals.html',
+                                users=users,
+                                my_players=my_players,
+                                recipient_players=recipient_players,
                                 selected_receiver_id=selected_receiver_id,
                                 my_teams=my_teams,
                                 recipient_teams=recipient_teams if 'recipient_teams' in locals() else [],
                                 selected_my_team_id=selected_my_team_id,
                                 selected_their_team_id=selected_their_team_id)
-        
+
         cur = db_helper.get_cursor()
         # For user-to-user offers, we need to provide a player_id (use the first offered player or a default)
         default_player_id = offered_players[0] if offered_players else requested_players[0] if requested_players else None
-        
+
         if default_player_id:
             cur.execute("""
                 INSERT INTO offers (sender_id, receiver_id, player_id, offer_amount, offered_players, offered_money, requested_players, requested_money, sender_team_id, receiver_team_id, status)
@@ -323,10 +324,10 @@ def dashboard_user_deals():
         else:
             # If no players involved, we can't create an offer with the current schema
             flash('You must include at least one player in the offer!', 'danger')
-            return render_template('dashboard_user_deals.html', 
-                                users=users, 
-                                my_players=my_players, 
-                                recipient_players=recipient_players, 
+            return render_template('dashboard_user_deals.html',
+                                users=users,
+                                my_players=my_players,
+                                recipient_players=recipient_players,
                                 selected_receiver_id=selected_receiver_id,
                                 my_teams=my_teams,
                                 recipient_teams=recipient_teams if 'recipient_teams' in locals() else [],
@@ -336,7 +337,7 @@ def dashboard_user_deals():
         cur.close()
         flash('Offer sent!', 'success')
         return redirect(url_for('dashboard'))
-    
+
     # Get current user's pending offers (sent and received)
     cur = db_helper.get_cursor()
     cur.execute("""
@@ -351,11 +352,11 @@ def dashboard_user_deals():
     """, (current_user.id, current_user.id))
     current_deals = cur.fetchall()
     cur.close()
-    
-    return render_template('dashboard_user_deals.html', 
-                         users=users, 
-                         my_players=my_players, 
-                         recipient_players=recipient_players, 
+
+    return render_template('dashboard_user_deals.html',
+                         users=users,
+                         my_players=my_players,
+                         recipient_players=recipient_players,
                          selected_receiver_id=selected_receiver_id,
                          my_teams=my_teams,
                          recipient_teams=recipient_teams if 'recipient_teams' in locals() else [],
@@ -368,9 +369,9 @@ def dashboard_user_deals():
 def clear_completed_offers():
     cur = db_helper.get_cursor()
     cur.execute("""
-        UPDATE offers 
-        SET status = 'deleted' 
-        WHERE (sender_id = ? OR receiver_id = ?) 
+        UPDATE offers
+        SET status = 'deleted'
+        WHERE (sender_id = ? OR receiver_id = ?)
         AND status IN ('accepted', 'rejected')
     """, (current_user.id, current_user.id))
     db_helper.commit()
@@ -383,22 +384,22 @@ def clear_completed_offers():
 def finances():
     # Get user's unified budget
     current_budget = get_user_budget(current_user.id)
-    
+
     # Calculate total salaries across all user's teams
     cur = db_helper.get_cursor()
     cur.execute("""
         SELECT COALESCE(SUM(p.salary), 0) as total_salaries
         FROM players p
-        JOIN team_players tp ON p.id = tp.player_id
-        JOIN league_teams lt ON tp.team_id = lt.id
+        JOIN teams t ON p.club_id = t.id
+        JOIN league_teams lt ON t.club_name = lt.team_name
         WHERE lt.user_id = ?
     """, (current_user.id,))
     salary_result = cur.fetchone()
     total_salaries = salary_result['total_salaries'] if salary_result else 0
-    
+
     # Calculate available cap
     available_cap = current_budget - total_salaries
-    
+
     # Get transaction movements
     cur.execute("""
         SELECT type, description, amount, balance_after, created_at
@@ -408,12 +409,12 @@ def finances():
         LIMIT 50
     """, (current_user.id,))
     movements_raw = cur.fetchall()
-    
+
     # Convert to dictionaries and add type colors for badges
     movements = []
     for movement in movements_raw:
         movement_dict = dict(movement)
-        
+
         # Convert created_at string to datetime object for template
         if movement_dict['created_at']:
             try:
@@ -421,7 +422,7 @@ def finances():
             except:
                 # If conversion fails, keep as string
                 pass
-        
+
         if movement_dict['type'] == 'Transfer Out':
             movement_dict['type_color'] = 'danger'
         elif movement_dict['type'] == 'Transfer In':
@@ -435,10 +436,10 @@ def finances():
         else:
             movement_dict['type_color'] = 'secondary'
         movements.append(movement_dict)
-    
+
     cur.close()
-    
-    return render_template('finances.html', 
+
+    return render_template('finances.html',
                          current_budget=current_budget,
                          total_salaries=total_salaries,
                          available_cap=available_cap,
@@ -454,13 +455,13 @@ def blog():
         ORDER BY p.created_at DESC
     """)
     posts = [dict(row) for row in cur.fetchall()]
-    
+
     # Convert datetime strings to datetime objects
     from datetime import datetime
     for post in posts:
         if post['created_at']:
             post['created_at'] = datetime.fromisoformat(post['created_at'].replace('Z', '+00:00'))
-    
+
     cur.close()
     return render_template('blog.html', posts=posts)
 
@@ -517,7 +518,7 @@ def view_post(post_id):
     if not post:
         flash('Post not found.', 'danger')
         return redirect(url_for('blog'))
-    
+
     # Convert post to dict and handle datetime
     post = dict(post)
     if post['created_at']:
@@ -532,13 +533,13 @@ def view_post(post_id):
         ORDER BY c.created_at ASC
     """, (post_id,))
     comments = [dict(row) for row in cur.fetchall()]
-    
+
     # Convert datetime strings to datetime objects for comments
     from datetime import datetime
     for comment in comments:
         if comment['created_at']:
             comment['created_at'] = datetime.fromisoformat(comment['created_at'].replace('Z', '+00:00'))
-    
+
     cur.close()
 
     if request.method == 'POST' and current_user.is_authenticated:
@@ -583,7 +584,7 @@ def team_management():
 
     managed_teams_data = []
     total_salaries_user_teams = 0 # Initialize total salaries for financial summary
-    
+
     # Get unified budget
     user_total_budget = get_user_budget(current_user.id)
 
@@ -599,7 +600,7 @@ def team_management():
             FROM players p
             JOIN teams t ON p.club_id = t.id
             WHERE t.club_name = ?
-            ORDER BY 
+            ORDER BY
                 CASE p.game_position
                     WHEN 'Goal-Keeper' THEN 1
                     WHEN 'Sweeper' THEN 2
@@ -630,15 +631,15 @@ def team_management():
             'team_salary_sum': team_salary_sum, # Optionally pass per-team salary sum
             'is_active': team_id == active_team_id
         })
-    
+
     # Calculate financial summary for the user's managed teams
     free_cap_user_teams = user_total_budget - total_salaries_user_teams
 
     # Check if user can create more teams (removed limit for multiple teams)
     can_create_team = True
 
-    return render_template('team_management.html', 
-                           managed_teams=managed_teams_data, 
+    return render_template('team_management.html',
+                           managed_teams=managed_teams_data,
                            can_create_team=can_create_team,
                            coach_username=current_user.username,
                            total_budget_display=user_total_budget,
@@ -680,16 +681,16 @@ def create_team():
 def switch_active_team(team_id):
     """Switch the active team for the current user."""
     cur = db_helper.get_cursor()
-    
+
     # Verify the team belongs to the current user
     cur.execute("SELECT id FROM league_teams WHERE id = ? AND user_id = ?", (team_id, current_user.id))
     team = cur.fetchone()
     cur.close()
-    
+
     if not team:
         flash('Invalid team selected.', 'danger')
         return redirect(url_for('team_management'))
-    
+
     # Set the active team in session
     session['active_team_id'] = team_id
     flash('Active team switched successfully!', 'success')
@@ -724,11 +725,11 @@ def add_player_to_team():
         # Insert player into the specified team
         cur.execute("INSERT INTO team_players (team_id, player_id) VALUES (?, ?)",
                     (team_id, player_id))
-        
+
         # Update the player's club_id to match the corresponding PES6 team
         cur.execute("SELECT team_name FROM league_teams WHERE id = ?", (team_id,))
         team_name = cur.fetchone()[0]
-        
+
         # Find the corresponding PES6 team ID
         cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
         pes6_team_result = cur.fetchone()
@@ -736,7 +737,7 @@ def add_player_to_team():
             pes6_team_id = pes6_team_result[0]
             # Update the player's club_id
             cur.execute("UPDATE players SET club_id = ? WHERE id = ?", (pes6_team_id, player_id))
-        
+
         db_helper.commit()
         flash('Player added to your team!', 'success')
     except Exception as e:
@@ -763,10 +764,10 @@ def remove_player_from_team(team_id, player_id): # Team ID added to parameters
     try:
         cur.execute("DELETE FROM team_players WHERE team_id = ? AND player_id = ?",
                     (team_id, player_id))
-        
+
         # Clear the player's club_id since they're no longer assigned to any team
         cur.execute("UPDATE players SET club_id = NULL WHERE id = ?", (player_id,))
-        
+
         db_helper.commit()
         flash('Player removed from your team!', 'success')
     except Exception as e:
@@ -792,12 +793,30 @@ def pes6_game_teams():
 @app.route('/pes6_game_teams/<int:team_id>')
 def pes6_team_details(team_id):
     cur = db_helper.get_cursor()
-    cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
-    team_name = cur.fetchone()
-    if not team_name:
+    cur.execute("SELECT club_name, total_salaries, budget, available_cap FROM teams WHERE id = ?", (team_id,))
+    team_data = cur.fetchone()
+    if not team_data:
         flash("PES6 Team not found!", "danger")
         return redirect(url_for('pes6_game_teams'))
-    team_name = team_name[0]
+    
+    team_name = team_data[0]
+    
+    # Use stored financial data from database, fallback to dynamic calculation if not available
+    total_salaries = team_data[1] if team_data[1] is not None else 0
+    budget = team_data[2] if team_data[2] is not None else 400000000
+    available_cap = team_data[3] if team_data[3] is not None else 0
+    
+    # If financial data is not stored, calculate it dynamically
+    if team_data[1] is None or team_data[2] is None or team_data[3] is None:
+        cur.execute("SELECT COALESCE(SUM(salary), 0) as total_salaries FROM players WHERE club_id = ?", (team_id,))
+        salary_result = cur.fetchone()
+        total_salaries = salary_result[0] if salary_result else 0
+        
+        # Fixed budget for all teams
+        budget = 400000000
+        
+        # Calculate available cap
+        available_cap = budget - total_salaries
 
     cur.execute("""
         SELECT id, player_name, registered_position, age, height, strong_foot, attack,
@@ -824,7 +843,12 @@ def pes6_team_details(team_id):
     """, (team_id,))
     players_in_team = cur.fetchall()
     cur.close()
-    return render_template('pes6_team_details.html', team_name=team_name, players_in_team=players_in_team)
+    return render_template('pes6_team_details.html', 
+                         team_name=team_name, 
+                         players_in_team=players_in_team,
+                         total_salaries=total_salaries,
+                         budget=budget,
+                         available_cap=available_cap)
 
 
 @app.route('/pes6_player/<int:player_id>')
@@ -974,11 +998,11 @@ def download_updated_csv():
         if not os.path.exists(original_csv_path):
             flash("Original CSV file not found.", "danger")
             return redirect(url_for('tools'))
-        
+
         # Read the original CSV to get header and preserve original data for missing columns
         df_original = pd.read_csv(original_csv_path, encoding='iso-8859-1')
         original_header = df_original.columns.tolist()
-        
+
         # Fetch all player data from the current database
         cur = db_helper.get_cursor()
         cur.execute("""
@@ -1002,9 +1026,9 @@ def download_updated_csv():
                 p.chest_measurement, p.waist_circumference, p.arm_circumference, p.leg_circumference,
                 p.calf_circumference, p.leg_length, p.wristband, p.wristband_color,
                 p.international_number, p.classic_number, p.club_number,
-                CASE 
+                CASE
                     WHEN t.club_name IS NULL OR t.club_name = 'No Club' THEN ''
-                    ELSE t.club_name 
+                    ELSE t.club_name
                 END AS club_team_raw,
                 p.salary, p.contract_years_remaining, p.market_value, p.yearly_wage_rise
             FROM players p
@@ -1012,7 +1036,7 @@ def download_updated_csv():
             ORDER BY p.id
         """)
         players_data = cur.fetchall()
-        
+
         # Get column names from the cursor description BEFORE closing
         column_names = [description[0] for description in cur.description]
         cur.close()
@@ -1023,7 +1047,7 @@ def download_updated_csv():
 
         # Create DataFrame from database data with proper column names
         df_players = pd.DataFrame(players_data, columns=column_names)
-        
+
         # Map database columns to original CSV headers
         db_to_csv_map = {
             'id': 'ID',
@@ -1135,10 +1159,10 @@ def download_updated_csv():
 
         # Create a new DataFrame with the exact original header order
         df_output = pd.DataFrame()
-        
+
         # Use only the original header (no financial columns added)
         original_header_only = original_header
-        
+
         # Populate the DataFrame with data in the original header order
         for col in original_header_only:
             if col in df_players.columns:
@@ -1166,7 +1190,7 @@ def download_updated_csv():
             else:
                 # Other columns - fill with empty string
                 df_output[col] = df_output[col].fillna('').astype(str)
-        
+
         # Fix character encoding issues in player names
         def fix_encoding(text):
             if pd.isna(text) or text == '':
@@ -1192,7 +1216,7 @@ def download_updated_csv():
             text = text.replace('ï¿½', 'ô')  # Fix ô
             text = text.replace('ï¿½', 'û')  # Fix û
             return text
-        
+
         # Apply encoding fixes to text columns
         for col in ['NAME', 'SHIRT_NAME', 'NATIONALITY']:
             if col in df_output.columns:
@@ -1201,7 +1225,7 @@ def download_updated_csv():
         # Export with the original header
         output_filename = 'pe6_player_data_updated.csv'
         output_filepath = os.path.join(DOWNLOAD_FOLDER, output_filename)
-        
+
         # Write the CSV with the original header
         df_output.to_csv(output_filepath, index=False, encoding='iso-8859-1')
 
@@ -1244,7 +1268,7 @@ def inbox():
         ORDER BY m.created_at DESC
     """, (current_user.id,))
     messages = cur.fetchall()
-    
+
     # Convert messages to dict and handle datetime
     messages = [dict(msg) for msg in messages]
     for msg in messages:
@@ -1256,7 +1280,7 @@ def inbox():
             except:
                 # If parsing fails, keep as string
                 pass
-    
+
     # Fetch offers for this user
     cur.execute("""
         SELECT o.*, u.username AS sender_username
@@ -1295,8 +1319,8 @@ def inbox():
                 if offer['requested_players'] and len(offer['requested_players']) > 0:
                     placeholders = ','.join(['?' for _ in offer['requested_players']])
                     cur.execute("""
-                        SELECT COUNT(*) as count FROM team_players tp 
-                        JOIN league_teams lt ON tp.team_id = lt.id 
+                        SELECT COUNT(*) as count FROM team_players tp
+                        JOIN league_teams lt ON tp.team_id = lt.id
                         WHERE tp.player_id IN ({}) AND lt.user_id = ?
                     """.format(placeholders), offer['requested_players'] + [current_user.id])
                     user_players_count = cur.fetchone()['count']
@@ -1373,7 +1397,7 @@ def view_message(msg_id):
     if not message:
         cur.close()
         abort(404)
-    
+
     # Convert message to dict and handle datetime
     message = dict(message)
     if message['created_at']:
@@ -1383,7 +1407,7 @@ def view_message(msg_id):
         except:
             # If parsing fails, keep as string
             pass
-    
+
     sender_username = None
     if message['sender_id']:
         cur.execute("SELECT username FROM users WHERE id = ?", (message['sender_id'],))
@@ -1398,15 +1422,15 @@ def view_message(msg_id):
 def delete_message(msg_id):
     """Delete a message."""
     cur = db_helper.get_cursor()
-    
+
     # First, verify the message belongs to the current user
     cur.execute("SELECT id FROM messages WHERE id = ? AND receiver_id = ?", (msg_id, current_user.id))
     message = cur.fetchone()
-    
+
     if not message:
         cur.close()
         return jsonify({'success': False, 'error': 'Message not found or you do not have permission to delete it.'}), 404
-    
+
     try:
         # Delete the message
         cur.execute("DELETE FROM messages WHERE id = ? AND receiver_id = ?", (msg_id, current_user.id))
@@ -1462,35 +1486,35 @@ def send_offer():
     # Exclude CPU users (user_id = 1) and current user from the list
     cur.execute("SELECT id, username FROM users WHERE id != ? AND id != 1 ORDER BY username ASC", (current_user.id,))
     users = cur.fetchall()
-    
+
     # Get current user's team players
     cur.execute("""
         SELECT p.id, p.player_name, p.registered_position, p.market_value FROM players p
-        JOIN team_players tp ON p.id = tp.player_id
-        JOIN league_teams lt ON tp.team_id = lt.id
+        JOIN teams t ON p.club_id = t.id
+        JOIN league_teams lt ON t.club_name = lt.team_name
         WHERE lt.user_id = ?
         ORDER BY p.player_name ASC
     """, (current_user.id,))
     my_players = cur.fetchall()
-    
+
     recipient_players = []
     selected_receiver_id = request.form.get('receiver_id') if request.method == 'POST' else request.args.get('receiver_id')
-    
+
     if selected_receiver_id:
         try:
             selected_receiver_id_int = int(selected_receiver_id)
             # Get recipient's team players
             cur.execute("""
                 SELECT p.id, p.player_name, p.registered_position, p.market_value FROM players p
-                JOIN team_players tp ON p.id = tp.player_id
-                JOIN league_teams lt ON tp.team_id = lt.id
+                JOIN teams t ON p.club_id = t.id
+                JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE lt.user_id = ?
                 ORDER BY p.player_name ASC
             """, (selected_receiver_id_int,))
             recipient_players = cur.fetchall()
         except ValueError:
             recipient_players = []
-    
+
     cur.close()
 
     if request.method == 'POST':
@@ -1499,16 +1523,16 @@ def send_offer():
         offered_money = int(request.form.get('offered_money', 0) or 0)
         requested_players = request.form.getlist('requested_players')
         requested_money = int(request.form.get('requested_money', 0) or 0)
-        
+
         # Validate that at least one side has something to offer
         if not offered_players and offered_money == 0 and not requested_players and requested_money == 0:
             flash('You must offer something or request something!', 'danger')
             return render_template('send_offer.html', users=users, my_players=my_players, recipient_players=recipient_players, selected_receiver_id=selected_receiver_id)
-        
+
         cur = db_helper.get_cursor()
         # For user-to-user offers, we need to provide a player_id (use the first offered player or a default)
         default_player_id = offered_players[0] if offered_players else requested_players[0] if requested_players else None
-        
+
         if default_player_id:
             cur.execute("""
                 INSERT INTO offers (sender_id, receiver_id, player_id, offer_amount, offered_players, offered_money, requested_players, requested_money, status)
@@ -1522,7 +1546,7 @@ def send_offer():
         cur.close()
         flash('Offer sent!', 'success')
         return redirect(url_for('inbox'))
-    
+
     return render_template('send_offer.html', users=users, my_players=my_players, recipient_players=recipient_players, selected_receiver_id=selected_receiver_id)
 
 @app.route('/offer/<int:offer_id>/accept', methods=['POST'])
@@ -1538,19 +1562,19 @@ def accept_offer(offer_id):
             return jsonify({'error': 'Offer not found or already handled.'}), 404
         flash('Offer not found or already handled.', 'danger')
         return redirect(url_for('inbox'))
-    
+
     # Check if this is a salary bill transfer (CPU sender with money only)
     if offer['sender_id'] == 1 and offer['offered_money'] > 0:
         # Check if this is a money-only transfer (salary bill)
         offered_players = json.loads(offer['offered_players']) if offer['offered_players'] else []
         requested_players = json.loads(offer['requested_players']) if offer['requested_players'] else []
-        
+
         if len(offered_players) == 0 and len(requested_players) == 0:
             print(f"🔍 Detected salary bill transfer for {current_user.username}")  # Debug line
             # This is a salary bill transfer - user pays the salary amount
             salary_amount = offer['offered_money']
             print(f"💰 Salary amount: €{salary_amount:,}")  # Debug line
-        
+
         # Get top 3 highest paid players for the blog post
         cur.execute("""
             SELECT p.player_name, p.salary, lt.team_name
@@ -1563,7 +1587,7 @@ def accept_offer(offer_id):
         """, (current_user.id,))
         top_players = cur.fetchall()
         print(f"📊 Found {len(top_players)} top players")  # Debug line
-        
+
         # Get total number of players
         cur.execute("""
             SELECT COUNT(*) as player_count
@@ -1574,26 +1598,26 @@ def accept_offer(offer_id):
         """, (current_user.id,))
         player_count = cur.fetchone()['player_count']
         print(f"👥 Total players: {player_count}")  # Debug line
-        
+
         # Update user's unified budget (negative amount = user pays)
-        add_user_movement(current_user.id, 'Salary Bill Payment', 
-                         f'Paid salary bill for all your players: €{salary_amount:,}', 
+        add_user_movement(current_user.id, 'Salary Bill Payment',
+                         f'Paid salary bill for all your players: €{salary_amount:,}',
                          -salary_amount)
-        
+
         # Mark offer as accepted
         cur.execute("UPDATE offers SET status = 'accepted' WHERE id = ?", (offer_id,))
-        
+
         # Create enhanced blog post about the club's finances being in order
         blog_title = f"💰 {current_user.username}'s Club Finances Settled"
         print(f"📝 Creating blog post: {blog_title}")  # Debug line
-        
+
         top_players_html = ""
         if top_players:
             top_players_html = "<p><strong>Top 3 Player Wages:</strong></p><ul>"
             for player in top_players:
                 top_players_html += f"<li>{player['player_name']} ({player['team_name']}): €{player['salary']:,}</li>"
             top_players_html += "</ul>"
-        
+
         blog_content = f"""
         <p><strong>🏦 Processing Bank Payments</strong></p>
         <p><strong>{current_user.username}</strong> has successfully processed their club's salary bill of <strong>€{salary_amount:,}</strong>.</p>
@@ -1603,26 +1627,26 @@ def accept_offer(offer_id):
         <p>This ensures continued team stability and player satisfaction in the league.</p>
         """
         post_transfer_news(blog_title, blog_content, user_id=1)
-        
+
         db_helper.commit()
         cur.close()
-        
+
         flash(f'Salary bill paid! €{salary_amount:,} deducted from your budget. Blog post created.', 'success')
         return redirect(url_for('inbox'))
-    
+
     # Check if this is a salary bill transfer (CPU sender with money only) - Alternative detection
     if offer['sender_id'] == 1 and offer['offered_money'] > 0 and offer['requested_money'] == 0:
         print(f"🔍 Alternative detection: CPU offer with money only")  # Debug line
         # This might be a salary bill transfer - check if it's a money-only transfer
         offered_players = json.loads(offer['offered_players']) if offer['offered_players'] else []
         requested_players = json.loads(offer['requested_players']) if offer['requested_players'] else []
-        
+
         if len(offered_players) == 0 and len(requested_players) == 0:
             print(f"🔍 Confirmed salary bill transfer for {current_user.username}")  # Debug line
             # This is a salary bill transfer - user pays the salary amount
             salary_amount = offer['offered_money']
             print(f"💰 Salary amount: €{salary_amount:,}")  # Debug line
-            
+
             # Get top 3 highest paid players for the blog post
             cur.execute("""
                 SELECT p.player_name, p.salary, lt.team_name
@@ -1635,7 +1659,7 @@ def accept_offer(offer_id):
             """, (current_user.id,))
             top_players = cur.fetchall()
             print(f"📊 Found {len(top_players)} top players")  # Debug line
-            
+
             # Get total number of players
             cur.execute("""
                 SELECT COUNT(*) as player_count
@@ -1646,26 +1670,26 @@ def accept_offer(offer_id):
             """, (current_user.id,))
             player_count = cur.fetchone()['player_count']
             print(f"👥 Total players: {player_count}")  # Debug line
-            
+
             # Update user's unified budget (negative amount = user pays)
-            add_user_movement(current_user.id, 'Salary Bill Payment', 
-                             f'Paid salary bill for all your players: €{salary_amount:,}', 
+            add_user_movement(current_user.id, 'Salary Bill Payment',
+                             f'Paid salary bill for all your players: €{salary_amount:,}',
                              -salary_amount)
-            
+
             # Mark offer as accepted
             cur.execute("UPDATE offers SET status = 'accepted' WHERE id = ?", (offer_id,))
-            
+
             # Create enhanced blog post about the club's finances being in order
             blog_title = f"💰 {current_user.username}'s Club Finances Settled"
             print(f"📝 Creating blog post: {blog_title}")  # Debug line
-            
+
             top_players_html = ""
             if top_players:
                 top_players_html = "<p><strong>Top 3 Player Wages:</strong></p><ul>"
                 for player in top_players:
                     top_players_html += f"<li>{player['player_name']} ({player['team_name']}): €{player['salary']:,}</li>"
                 top_players_html += "</ul>"
-            
+
             blog_content = f"""
             <p><strong>🏦 Processing Bank Payments</strong></p>
             <p><strong>{current_user.username}</strong> has successfully processed their club's salary bill of <strong>€{salary_amount:,}</strong>.</p>
@@ -1675,40 +1699,40 @@ def accept_offer(offer_id):
             <p>This ensures continued team stability and player satisfaction in the league.</p>
             """
             post_transfer_news(blog_title, blog_content, user_id=1)
-            
+
             db_helper.commit()
             cur.close()
-            
+
             flash(f'Salary bill paid! €{salary_amount:,} deducted from your budget. Blog post created.', 'success')
             return redirect(url_for('inbox'))
-    
+
     # Get team information from the offer
     sender_team_id = offer['sender_team_id']
     receiver_team_id = offer['receiver_team_id']
-    
+
     # Verify that the sender and receiver teams exist and belong to the correct users
     cur.execute("SELECT * FROM league_teams WHERE id = ? AND user_id = ?", (sender_team_id, offer['sender_id']))
     sender_team = cur.fetchone()
-    
+
     cur.execute("SELECT * FROM league_teams WHERE id = ? AND user_id = ?", (receiver_team_id, offer['receiver_id']))
     receiver_team = cur.fetchone()
-    
+
     if not sender_team or not receiver_team:
         cur.close()
         flash('Teams not found for one of the users.', 'danger')
         return redirect(url_for('inbox'))
-    
+
     # Transfer players: offered_players to recipient, requested_players to sender
     offered_players = json.loads(offer['offered_players'])
     requested_players = json.loads(offer['requested_players'])
-    
+
     # Transfer offered_players from sender to receiver
     for pid in offered_players:
         # Remove from sender team
         cur.execute("DELETE FROM team_players WHERE team_id = ? AND player_id = ?", (sender_team_id, pid))
         # Add to receiver team
         cur.execute("INSERT INTO team_players (team_id, player_id) VALUES (?, ?)", (receiver_team_id, pid))
-        
+
         # Update player's club_id to match receiver team
         cur.execute("SELECT id FROM teams WHERE club_name = (SELECT team_name FROM league_teams WHERE id = ?)", (receiver_team_id,))
         receiver_club = cur.fetchone()
@@ -1717,14 +1741,14 @@ def accept_offer(offer_id):
             app.logger.info(f"Updated player {pid} club_id to {receiver_club['id']} for receiver team {receiver_team_id}")
         else:
             app.logger.warning(f"Could not find PES6 team for league team {receiver_team_id}")
-    
+
     # Transfer requested_players from receiver to sender
     for pid in requested_players:
         # Remove from receiver team
         cur.execute("DELETE FROM team_players WHERE team_id = ? AND player_id = ?", (receiver_team_id, pid))
         # Add to sender team
         cur.execute("INSERT INTO team_players (team_id, player_id) VALUES (?, ?)", (sender_team_id, pid))
-        
+
         # Update player's club_id to match sender team
         cur.execute("SELECT id FROM teams WHERE club_name = (SELECT team_name FROM league_teams WHERE id = ?)", (sender_team_id,))
         sender_club = cur.fetchone()
@@ -1738,66 +1762,66 @@ def accept_offer(offer_id):
     sender_user = cur.fetchone()
     cur.execute("SELECT username FROM users WHERE id = ?", (offer['receiver_id'],))
     receiver_user = cur.fetchone()
-    
+
     # Get player names for news post
     offered_player_names = []
     requested_player_names = []
-    
+
     if offered_players:
         placeholders = ','.join(['?' for _ in offered_players])
         cur.execute(f"SELECT player_name FROM players WHERE id IN ({placeholders})", offered_players)
         offered_player_names = [row['player_name'] for row in cur.fetchall()]
-    
+
     if requested_players:
         placeholders = ','.join(['?' for _ in requested_players])
         cur.execute(f"SELECT player_name FROM players WHERE id IN ({placeholders})", requested_players)
         requested_player_names = [row['player_name'] for row in cur.fetchall()]
-    
+
     # Update budgets using unified budget system
-    
+
     # Update sender's unified budget
     if offer['offered_money'] > 0:
-        add_user_movement(offer['sender_id'], 'User Deal', 
-                         f'Transfer to {receiver_user["username"]}: {", ".join(offered_player_names) if offered_player_names else "Cash"}', 
+        add_user_movement(offer['sender_id'], 'User Deal',
+                         f'Transfer to {receiver_user["username"]}: {", ".join(offered_player_names) if offered_player_names else "Cash"}',
                          -offer['offered_money'])
-    
+
     if offer['requested_money'] > 0:
-        add_user_movement(offer['sender_id'], 'User Deal', 
-                         f'Transfer from {receiver_user["username"]}: {", ".join(requested_player_names) if requested_player_names else "Cash"}', 
+        add_user_movement(offer['sender_id'], 'User Deal',
+                         f'Transfer from {receiver_user["username"]}: {", ".join(requested_player_names) if requested_player_names else "Cash"}',
                          offer['requested_money'])
-    
+
     # Update recipient's unified budget
     if offer['offered_money'] > 0:
-        add_user_movement(offer['receiver_id'], 'User Deal', 
-                         f'Transfer from {sender_user["username"]}: {", ".join(offered_player_names) if offered_player_names else "Cash"}', 
+        add_user_movement(offer['receiver_id'], 'User Deal',
+                         f'Transfer from {sender_user["username"]}: {", ".join(offered_player_names) if offered_player_names else "Cash"}',
                          offer['offered_money'])
-    
+
     if offer['requested_money'] > 0:
-        add_user_movement(offer['receiver_id'], 'User Deal', 
-                         f'Transfer to {sender_user["username"]}: {", ".join(requested_player_names) if requested_player_names else "Cash"}', 
+        add_user_movement(offer['receiver_id'], 'User Deal',
+                         f'Transfer to {sender_user["username"]}: {", ".join(requested_player_names) if requested_player_names else "Cash"}',
                          -offer['requested_money'])
-    
+
     # Mark offer as accepted
     cur.execute("UPDATE offers SET status = 'accepted' WHERE id = ?", (offer_id,))
-    
+
     db_helper.commit()
     cur.close()
-    
+
     # Post news about the transfer
     if sender_user and receiver_user:
         sender_name = sender_user['username']
         receiver_name = receiver_user['username']
-        
+
         # Create news content
         news_title = f"Transfer Deal Completed: {sender_name} ↔ {receiver_name}"
         news_content = f"""
         <h3>Transfer Deal Completed!</h3>
         <p><strong>{sender_name}</strong> and <strong>{receiver_name}</strong> have completed a transfer deal.</p>
-        
+
         <h4>Deal Details:</h4>
         <ul>
         """
-        
+
         if offered_player_names:
             news_content += f"<li><strong>{sender_name}</strong> sent: {', '.join(offered_player_names)}</li>"
         if offer['offered_money'] and offer['offered_money'] > 0:
@@ -1806,11 +1830,11 @@ def accept_offer(offer_id):
             news_content += f"<li><strong>{receiver_name}</strong> sent: {', '.join(requested_player_names)}</li>"
         if offer['requested_money'] and offer['requested_money'] > 0:
             news_content += f"<li><strong>{receiver_name}</strong> paid: €{offer['requested_money']:,}</li>"
-        
+
         news_content += "</ul>"
-        
+
         post_transfer_news(news_title, news_content)
-    
+
     if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return jsonify({'success': True, 'updated_budget': get_user_budget(current_user.id), 'message': 'Offer accepted and transfer completed!'})
     flash('Offer accepted and transfer completed!', 'success')
@@ -1820,44 +1844,44 @@ def accept_offer(offer_id):
 @login_required
 def reject_offer(offer_id):
     cur = db_helper.get_cursor()
-    
+
     # Get offer details before rejecting
     cur.execute("SELECT * FROM offers WHERE id = ? AND receiver_id = ? AND status = 'pending'", (offer_id, current_user.id))
     offer = cur.fetchone()
-    
+
     if not offer:
         cur.close()
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'error': 'Offer not found or already handled.'}), 404
         flash('Offer not found or already handled.', 'danger')
         return redirect(url_for('inbox'))
-    
+
     # Get sender username for news post
     cur.execute("SELECT username FROM users WHERE id = ?", (offer['sender_id'],))
     sender_user = cur.fetchone()
-    
+
     # Update offer status
     cur.execute("UPDATE offers SET status = 'rejected' WHERE id = ? AND receiver_id = ?", (offer_id, current_user.id))
     db_helper.commit()
     cur.close()
-    
+
     # Post news about the rejected offer
     if sender_user:
         sender_name = sender_user['username']
         receiver_name = current_user.username
-        
+
         news_title = f"Transfer Offer Rejected: {sender_name} → {receiver_name}"
         news_content = f"""
         <h3>Transfer Offer Rejected</h3>
         <p><strong>{receiver_name}</strong> has rejected a transfer offer from <strong>{sender_name}</strong>.</p>
         <p>The deal has been called off and no transfers will take place.</p>
         """
-        
+
         post_transfer_news(news_title, news_content)
-    
+
     if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return jsonify({'success': True, 'message': 'Offer rejected.'})
-    
+
     flash('Offer rejected.', 'info')
     return redirect(url_for('inbox'))
 
@@ -1989,8 +2013,8 @@ def get_team_players_full(user_id):
     cur.execute("""
         SELECT p.id, p.player_name AS NAME, p.market_value AS `Market Value`, p.registered_position
         FROM players p
-        JOIN team_players tp ON p.id = tp.player_id
-        JOIN league_teams lt ON tp.team_id = lt.id
+        JOIN teams t ON p.club_id = t.id
+        JOIN league_teams lt ON t.club_name = lt.team_name
         WHERE lt.user_id = ?
         ORDER BY p.player_name ASC
     """, (user_id,))
@@ -2011,10 +2035,10 @@ def get_player_details(player_id):
     """, (player_id,))
     player = cur.fetchone()
     cur.close()
-    
+
     if not player:
         return jsonify({'error': 'Player not found'}), 404
-    
+
     return jsonify({
         'id': player['id'],
         'name': player['player_name'],
@@ -2078,12 +2102,12 @@ def select_team():
 def confirm_transfer_with_cpu(player_id):
     data = request.get_json()
     current_deal = data.get('current_deal')
-    
+
     app.logger.info(f"Confirming transfer for player {player_id} with deal: {current_deal}")
-    
+
     try:
         cur = db_helper.get_cursor()
-        
+
         # Get user's team
         cur.execute("SELECT id FROM league_teams WHERE user_id = ?", (current_user.id,))
         user_league_team = cur.fetchone()
@@ -2091,13 +2115,13 @@ def confirm_transfer_with_cpu(player_id):
             cur.close()
             return jsonify({'error': 'You do not manage a team.'}), 400
         user_league_team_id = user_league_team['id']
-        
+
         # Get the CPU team from the deal data - this is the team that should receive your player
         club_name = current_deal.get('club_name')
         if not club_name:
             cur.close()
             return jsonify({'error': 'CPU team not found in deal data'}), 400
-        
+
         # Get the CPU league team for this club
         cpu_league_team_id = None
         cur.execute("SELECT id FROM league_teams WHERE team_name = ? AND user_id = 1", (club_name,))
@@ -2109,12 +2133,12 @@ def confirm_transfer_with_cpu(player_id):
             cur.execute("INSERT INTO league_teams (user_id, team_name) VALUES (?, ?)", (1, club_name))
             db_helper.commit()
             cpu_league_team_id = cur.lastrowid
-        
+
         # Verify we found a CPU team
         if not cpu_league_team_id:
             cur.close()
             return jsonify({'error': 'No CPU team found'}), 400
-        
+
         # Build offered/requested player lists
         offered_players = [player_id]  # CPU's player(s) to user
         requested_players = []         # User's player(s) to CPU
@@ -2124,7 +2148,7 @@ def confirm_transfer_with_cpu(player_id):
         cpu_player_given = current_deal.get('cpu_player_given')
         if cpu_player_given and cpu_player_given.get('id'):
             offered_players.append(cpu_player_given['id'])
-        
+
         # Transfer offered_players to user
         cur.execute("SELECT id FROM teams WHERE club_name = (SELECT team_name FROM league_teams WHERE id = ?)", (user_league_team_id,))
         user_club = cur.fetchone()
@@ -2133,7 +2157,7 @@ def confirm_transfer_with_cpu(player_id):
                 cur.execute("UPDATE players SET club_id = ? WHERE id = ?", (user_club['id'], pid))
             cur.execute("DELETE FROM team_players WHERE player_id = ?", (pid,))
             cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)", (user_league_team_id, pid))
-        
+
         # Transfer requested_players to CPU
         cur.execute("SELECT id FROM teams WHERE club_name = (SELECT team_name FROM league_teams WHERE id = ?)", (cpu_league_team_id,))
         cpu_club = cur.fetchone()
@@ -2147,40 +2171,40 @@ def confirm_transfer_with_cpu(player_id):
             # Always update team_players to ensure the player goes to the correct CPU team
             cur.execute("DELETE FROM team_players WHERE player_id = ?", (pid,))
             cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)", (cpu_league_team_id, pid))
-        
+
         # Compose a clear confirmation message
         def get_player_name(pid):
             cur.execute("SELECT player_name FROM players WHERE id = ?", (pid,))
             row = cur.fetchone()
             return row['player_name'] if row else f'Player {pid}'
-        
+
         offered_names = ', '.join(get_player_name(pid) for pid in offered_players)
         requested_names = ', '.join(get_player_name(pid) for pid in requested_players)
         cur.execute("SELECT team_name FROM league_teams WHERE id = ?", (user_league_team_id,))
         user_team_name = cur.fetchone()['team_name']
         cur.execute("SELECT team_name FROM league_teams WHERE id = ?", (cpu_league_team_id,))
         cpu_team_name = cur.fetchone()['team_name']
-        
+
         # Update budgets using unified budget system
         cash_paid = current_deal.get('cash_paid', 0)
         if cash_paid != 0:
             # Update user's unified budget
-            add_user_movement(current_user.id, 'CPU Negotiation', 
-                            f'Transfer with {cpu_team_name}: {offered_names} for {requested_names}', 
+            add_user_movement(current_user.id, 'CPU Negotiation',
+                            f'Transfer with {cpu_team_name}: {offered_names} for {requested_names}',
                             -cash_paid)
-            
+
             # Update CPU team budget (legacy system for CPU teams)
             cur.execute("SELECT budget FROM league_teams WHERE id = ?", (cpu_league_team_id,))
             cpu_budget = cur.fetchone()['budget']
             new_cpu_budget = cpu_budget + cash_paid
             cur.execute("UPDATE league_teams SET budget = ? WHERE id = ?", (new_cpu_budget, cpu_league_team_id))
-        
+
         summary = f"Transfer complete! {offered_names} joined {user_team_name}."
         if requested_players:
             summary += f" {requested_names} joined {cpu_team_name}."
         if cash_paid > 0:
             summary += f" €{cash_paid:,} transferred."
-        
+
         # Post transfer news to blog
         news_title = f"Transfer News: {offered_names} → {user_team_name}"
         news_content = f"""
@@ -2192,17 +2216,17 @@ def confirm_transfer_with_cpu(player_id):
         if cash_paid > 0:
             news_content += f"<p><strong>{user_team_name}</strong> pays <strong>€{cash_paid:,}</strong> to <strong>{cpu_team_name}</strong>.</p>"
         news_content += "<p>The transfer has been completed.</p>"
-        
+
         post_transfer_news(news_title, news_content)
-        
+
         db_helper.commit()
         cur.close()
         return jsonify({
-            'success': True, 
+            'success': True,
             'message': summary,
             'updated_budget': get_user_budget(current_user.id) if cash_paid != 0 else None
         })
-        
+
     except Exception as e:
         app.logger.error(f"Error in confirm_transfer_with_cpu: {str(e)}")
         db_helper.get_connection().rollback()
@@ -2217,7 +2241,7 @@ def sell_player(player_id):
         return jsonify({'error': 'This player is no longer available for sale negotiations.'}), 403
     # Blacklist the player as soon as the user requests offers
     add_to_blacklist(current_user.id, player_id)
-    
+
     # Fetch player info
     cur = db_helper.get_cursor()
     cur.execute("SELECT * FROM players WHERE id = ?", (player_id,))
@@ -2298,12 +2322,12 @@ def sell_player_counter(player_id):
     cpu_team_name = proposal.get('cpu_team')
     cash = proposal.get('cash', 0)
     player_swap = proposal.get('player_swap')
-    
+
     # Calculate the total value of the current offer (cash + player market value)
     current_total_value = cash
     if player_swap:
         current_total_value += player_swap.get('Market Value', 0)
-    
+
     # Find the CPU team id
     cur = db_helper.get_cursor()
     cur.execute("SELECT id FROM league_teams WHERE team_name = ? AND user_id = 1", (cpu_team_name,))
@@ -2315,22 +2339,22 @@ def sell_player_counter(player_id):
     # Get the squad for that club
     cur.execute("SELECT p.id, p.player_name, p.market_value FROM players p JOIN team_players tp ON p.id = tp.player_id WHERE tp.team_id = ?", (cpu_team_id,))
     bidding_club_squad = [dict(row) for row in cur.fetchall()]
-    
+
     # If no players found in team_players, try to get players directly from the club
     if not bidding_club_squad:
         cur.execute("SELECT p.id, p.player_name, p.market_value FROM players p JOIN teams t ON p.club_id = t.id WHERE t.club_name = ?", (cpu_team_name,))
         bidding_club_squad = [dict(row) for row in cur.fetchall()]
-    
+
     # 35% chance the team quits negotiation
     if random.random() < 0.35:
         cur.close()
         return jsonify({'quit': True, 'message': f'{cpu_team_name} has quit negotiations.'})
-    
+
     # Improve the total offer value by 5-15%
     new_total_value = int(current_total_value * random.uniform(1.05, 1.15))
     new_cash = new_total_value
     new_player_swap = None
-    
+
     # 30% chance to offer a swap (either keep existing swap, improve it, or offer a new one)
     if bidding_club_squad and random.random() < 0.3:
         suitable = [p for p in bidding_club_squad if p['market_value'] <= int(new_total_value * 1.2)]
@@ -2339,7 +2363,7 @@ def sell_player_counter(player_id):
             # Calculate new cash based on the new total value minus the swap player's value
             new_cash = new_total_value - exchange_player['market_value']
             new_player_swap = {'id': exchange_player['id'], 'NAME': exchange_player['player_name'], 'Market Value': exchange_player['market_value']}
-    
+
     # If no swap was offered above, still try to offer a swap (40% chance)
     if not new_player_swap and bidding_club_squad and random.random() < 0.4:
         suitable = [p for p in bidding_club_squad if p['market_value'] <= int(new_total_value * 1.2)]
@@ -2347,7 +2371,7 @@ def sell_player_counter(player_id):
             exchange_player = random.choice(suitable)
             new_cash = new_total_value - exchange_player['market_value']
             new_player_swap = {'id': exchange_player['id'], 'NAME': exchange_player['player_name'], 'Market Value': exchange_player['market_value']}
-    
+
     cur.close()
     return jsonify({'quit': False, 'proposal': {
         'proposal_id': proposal.get('proposal_id'),
@@ -2399,14 +2423,14 @@ def accept_sell_offer(player_id):
     proposal = data.get('proposal')
     if not proposal:
         return jsonify({'error': 'No proposal provided.'}), 400
-    
+
     cpu_team_name = proposal.get('cpu_team')
     cash = proposal.get('cash', 0)
     player_swap = proposal.get('player_swap')
-    
+
     try:
         cur = db_helper.get_cursor()
-        
+
         # Find the CPU team id
         cur.execute("SELECT id FROM league_teams WHERE team_name = ? AND user_id = 1", (cpu_team_name,))
         cpu_team = cur.fetchone()
@@ -2414,7 +2438,7 @@ def accept_sell_offer(player_id):
             cur.close()
             return jsonify({'error': 'CPU team not found.'}), 404
         cpu_team_id = cpu_team['id']
-        
+
         # Get user's team
         cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = ?", (current_user.id,))
         user_team = cur.fetchone()
@@ -2423,17 +2447,17 @@ def accept_sell_offer(player_id):
             return jsonify({'error': 'You do not manage a team.'}), 400
         user_team_id = user_team['id']
         user_team_name = user_team['team_name']
-        
+
         # Build player lists for transfer
         offered_players = []  # CPU players to user
         requested_players = [player_id]  # User's player to CPU
-        
+
         if player_swap:
             offered_players.append(player_swap['id'])
-        
+
         # Track asset changes for response
         asset_changes = []
-        
+
         # Transfer offered_players to user
         cur.execute("SELECT id FROM teams WHERE club_name = (SELECT team_name FROM league_teams WHERE id = ?)", (user_team_id,))
         user_club = cur.fetchone()
@@ -2445,7 +2469,7 @@ def accept_sell_offer(player_id):
             cur.execute("DELETE FROM team_players WHERE player_id = ?", (pid,))
             cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)", (user_team_id, pid))
             asset_changes.append(f"✅ {player_name} transferred to your team")
-        
+
         # Transfer requested_players to CPU
         cur.execute("SELECT id FROM teams WHERE club_name = (SELECT team_name FROM league_teams WHERE id = ?)", (cpu_team_id,))
         cpu_club = cur.fetchone()
@@ -2457,39 +2481,39 @@ def accept_sell_offer(player_id):
             cur.execute("DELETE FROM team_players WHERE player_id = ?", (pid,))
             cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)", (cpu_team_id, pid))
             asset_changes.append(f"❌ {player_name} transferred to {cpu_team_name}")
-        
+
         # Update budgets using unified budget system
         if cash != 0:
             # Update user's unified budget
-            add_user_movement(current_user.id, 'CPU Negotiation', 
-                            f'Sell to CPU: Received €{cash:,}', 
+            add_user_movement(current_user.id, 'CPU Negotiation',
+                            f'Sell to CPU: Received €{cash:,}',
                             cash)
-            
+
             # Update CPU team budget (legacy system for CPU teams)
             cur.execute("SELECT budget FROM league_teams WHERE id = ?", (cpu_team_id,))
             cpu_budget = cur.fetchone()['budget']
             new_cpu_budget = cpu_budget - cash
             cur.execute("UPDATE league_teams SET budget = ? WHERE id = ?", (new_cpu_budget, cpu_team_id))
-            
+
             if cash > 0:
                 asset_changes.append(f"✅ €{cash:,} received")
             else:
                 asset_changes.append(f"❌ €{abs(cash):,} paid")
-        
+
         # Compose summary message
         offered_names = ', '.join([get_player_name(pid) for pid in offered_players]) if offered_players else 'No players'
         requested_names = ', '.join([get_player_name(pid) for pid in requested_players])
-        
+
         summary = f"Transfer complete! {requested_names} joined {cpu_team_name}."
         if offered_players:
             summary += f" {offered_names} joined {user_team_name}."
         if cash != 0:
             summary += f" €{cash:,} transferred."
-        
+
         # Create blog post
         cur.execute("SELECT player_name FROM players WHERE id = ?", (player_id,))
         player_name = cur.fetchone()['player_name']
-        
+
         news_title = f"Daily Mail Transfer: {player_name} → {cpu_team_name}"
         news_content = f"""
         <h3>Daily Mail Transfer News</h3>
@@ -2498,19 +2522,19 @@ def accept_sell_offer(player_id):
         if player_swap:
             news_content += f"<p><strong>{cpu_team_name}</strong> sends <strong>{player_swap['NAME']}</strong> in exchange.</p>"
         news_content += "<p>The transfer has been completed.</p>"
-        
+
         post_transfer_news(news_title, news_content)
-        
+
         db_helper.commit()
         cur.close()
-        
+
         return jsonify({
-            'success': True, 
+            'success': True,
             'message': summary,
             'updated_budget': get_user_budget(current_user.id) if cash != 0 else None,
             'asset_changes': asset_changes
         })
-        
+
     except Exception as e:
         app.logger.error(f"Error in accept_sell_offer: {str(e)}")
         db_helper.get_connection().rollback()
@@ -2611,22 +2635,22 @@ def confirm_sell_offer(offer_id):
     if 'offered_money' in offer and 'requested_money' in offer:
         # User-to-user deal
         if offer['offered_money'] > 0:
-            add_user_movement(current_user.id, 'User Deal', 
-                            f'Sell offer: Received €{offer["offered_money"]:,}', 
+            add_user_movement(current_user.id, 'User Deal',
+                            f'Sell offer: Received €{offer["offered_money"]:,}',
                             offer['offered_money'])
             asset_changes.append(f"✅ €{offer['offered_money']:,} received")
         if offer['requested_money'] > 0:
-            add_user_movement(current_user.id, 'User Deal', 
-                            f'Sell offer: Paid €{offer["requested_money"]:,}', 
+            add_user_movement(current_user.id, 'User Deal',
+                            f'Sell offer: Paid €{offer["requested_money"]:,}',
                             -offer['requested_money'])
             asset_changes.append(f"❌ €{offer['requested_money']:,} paid")
     else:
         # CPU offer: user gets offer_amount
-        add_user_movement(current_user.id, 'CPU Negotiation', 
-                        f'Sell to CPU: Received €{offer["offer_amount"]:,}', 
+        add_user_movement(current_user.id, 'CPU Negotiation',
+                        f'Sell to CPU: Received €{offer["offer_amount"]:,}',
                         offer['offer_amount'])
         asset_changes.append(f"✅ €{offer['offer_amount']:,} received")
-    
+
     # Update CPU team budget (legacy system for CPU teams)
     cur.execute("SELECT budget FROM league_teams WHERE id = ?", (cpu_team_id,))
     cpu_budget = cur.fetchone()['budget']
@@ -2636,21 +2660,21 @@ def confirm_sell_offer(offer_id):
         new_cpu_budget = cpu_budget - offer['offer_amount']
     cur.execute("UPDATE league_teams SET budget = ? WHERE id = ?", (new_cpu_budget, cpu_team_id))
     cur.execute("UPDATE offers SET status = 'accepted' WHERE id = ?", (offer_id,))
-    
+
     # Post news about the CPU transfer
     if offered_players or requested_players:
         offered_names = ', '.join([get_player_name(pid) for pid in offered_players]) if offered_players else 'No players'
         requested_names = ', '.join([get_player_name(pid) for pid in requested_players]) if requested_players else 'No players'
-        
+
         news_title = f"CPU Transfer Deal: {current_user.username} ↔ {cpu_team_name}"
         news_content = f"""
         <h3>CPU Transfer Deal Completed</h3>
         <p><strong>{current_user.username}</strong> and <strong>{cpu_team_name}</strong> have completed a transfer deal.</p>
-        
+
         <h4>Deal Details:</h4>
         <ul>
         """
-        
+
         if offered_players:
             news_content += f"<li><strong>{cpu_team_name}</strong> sent: {offered_names}</li>"
         if offer['offered_money'] and offer['offered_money'] > 0:
@@ -2659,16 +2683,16 @@ def confirm_sell_offer(offer_id):
             news_content += f"<li><strong>{current_user.username}</strong> sent: {requested_names}</li>"
         if offer['requested_money'] and offer['requested_money'] > 0:
             news_content += f"<li><strong>{current_user.username}</strong> paid: €{offer['requested_money']:,}</li>"
-        
+
         news_content += "</ul>"
-        
+
         post_transfer_news(news_title, news_content)
-    
+
     db_helper.commit()
     cur.close()
-    
+
     return jsonify({
-        'success': True, 
+        'success': True,
         'message': 'Sale confirmed and transfer completed!',
         'updated_budget': get_user_budget(current_user.id),
         'asset_changes': asset_changes
@@ -2683,7 +2707,7 @@ def confirm_buy_offer(offer_id):
     if not offer:
         cur.close()
         return jsonify({'error': 'Offer not found or already handled.'}), 404
-    
+
     # Handle both legacy (user-to-user) and CPU offers
     if 'offered_players' in offer and 'requested_players' in offer:
         offered_players = json.loads(offer['offered_players'])      # CPU players being offered
@@ -2693,7 +2717,7 @@ def confirm_buy_offer(offer_id):
         offered_players = [offer['player_id']]
         requested_players = []
         offered_money = offer['offer_amount']
-    
+
     # Get your team ID
     cur.execute("SELECT id FROM league_teams WHERE user_id = ?", (current_user.id,))
     user_team = cur.fetchone()
@@ -2701,7 +2725,7 @@ def confirm_buy_offer(offer_id):
         cur.close()
         return jsonify({'error': 'User team not found.'}), 400
     user_team_id = user_team['id']
-    
+
     # Find the CPU team by checking where the offered player currently belongs
     cpu_team_id = None
     cpu_team_name = None
@@ -2752,22 +2776,22 @@ def confirm_buy_offer(offer_id):
     if 'offered_money' in offer and 'requested_money' in offer:
         # User-to-user deal
         if offer['offered_money'] > 0:
-            add_user_movement(current_user.id, 'User Deal', 
-                            f'Buy offer: Paid €{offer["offered_money"]:,}', 
+            add_user_movement(current_user.id, 'User Deal',
+                            f'Buy offer: Paid €{offer["offered_money"]:,}',
                             -offer['offered_money'])
             asset_changes.append(f"❌ €{offer['offered_money']:,} paid")
         if offer['requested_money'] > 0:
-            add_user_movement(current_user.id, 'User Deal', 
-                            f'Buy offer: Received €{offer["requested_money"]:,}', 
+            add_user_movement(current_user.id, 'User Deal',
+                            f'Buy offer: Received €{offer["requested_money"]:,}',
                             offer['requested_money'])
             asset_changes.append(f"✅ €{offer['requested_money']:,} received")
     else:
         # CPU offer: user pays offer_amount
-        add_user_movement(current_user.id, 'CPU Negotiation', 
-                        f'Buy from CPU: Paid €{offer["offer_amount"]:,}', 
+        add_user_movement(current_user.id, 'CPU Negotiation',
+                        f'Buy from CPU: Paid €{offer["offer_amount"]:,}',
                         -offer['offer_amount'])
         asset_changes.append(f"❌ €{offer['offer_amount']:,} paid")
-    
+
     # Update CPU team budget (legacy system for CPU teams)
     cur.execute("SELECT budget FROM league_teams WHERE id = ?", (cpu_team_id,))
     cpu_budget = cur.fetchone()['budget']
@@ -2780,9 +2804,9 @@ def confirm_buy_offer(offer_id):
     cur.execute("UPDATE offers SET status = 'accepted' WHERE id = ?", (offer_id,))
     db_helper.commit()
     cur.close()
-    
+
     return jsonify({
-        'success': True, 
+        'success': True,
         'message': 'Purchase confirmed and transfer completed!',
         'updated_budget': get_user_budget(current_user.id),
         'asset_changes': asset_changes
@@ -2876,11 +2900,11 @@ def get_unread_count(user_id):
         # Count all messages (since there's no read status column)
         cur.execute("SELECT COUNT(*) as count FROM messages WHERE receiver_id = ?", (user_id,))
         message_count = cur.fetchone()['count']
-        
+
         # Count pending offers
         cur.execute("SELECT COUNT(*) as count FROM offers WHERE receiver_id = ? AND status = 'pending'", (user_id,))
         offer_count = cur.fetchone()['count']
-        
+
         return message_count + offer_count
     except Exception as e:
         app.logger.error(f"Error getting unread count: {e}")
@@ -2907,7 +2931,7 @@ def update_user_budget(user_id, new_budget):
     """Update user's unified budget"""
     cur = db_helper.get_cursor()
     cur.execute("""
-        INSERT OR REPLACE INTO user_budgets (user_id, budget, updated_at) 
+        INSERT OR REPLACE INTO user_budgets (user_id, budget, updated_at)
         VALUES (?, ?, ?)
     """, (user_id, new_budget, datetime.now().isoformat()))
     db_helper.commit()
@@ -2916,14 +2940,14 @@ def update_user_budget(user_id, new_budget):
 def add_user_movement(user_id, movement_type, description, amount):
     """Add a financial movement to user's transaction history"""
     cur = db_helper.get_cursor()
-    
+
     # Get current budget
     current_budget = get_user_budget(user_id)
     new_budget = current_budget + amount
-    
+
     # Update budget
     update_user_budget(user_id, new_budget)
-    
+
     # Add movement record
     cur.execute("""
         INSERT INTO user_movements (user_id, type, description, amount, balance_after)
@@ -2958,36 +2982,36 @@ def post_transfer_news(title, content, user_id=1):
 def get_offer_details(offer_id):
     cur = db_helper.get_cursor()
     cur.execute("""
-        SELECT o.*, 
+        SELECT o.*,
                CASE WHEN o.sender_id = 1 THEN 'cpu' ELSE 'user' END as offer_type,
                CASE WHEN o.player_id IS NOT NULL AND o.offered_players IS NULL THEN 'sell' ELSE 'buy' END as deal_type
-        FROM offers o 
+        FROM offers o
         WHERE o.id = ? AND o.receiver_id = ? AND o.status = 'pending'
     """, (offer_id, current_user.id))
     offer = cur.fetchone()
-    
+
     if not offer:
         cur.close()
         return jsonify({'error': 'Offer not found or already handled.'}), 404
-    
+
     # Get player details for offered and requested players
     offered_players = []
     requested_players = []
-    
+
     if offer['offered_players']:
         offered_player_ids = json.loads(offer['offered_players'])
         if offered_player_ids:
             placeholders = ','.join(['?' for _ in offered_player_ids])
             cur.execute(f"SELECT id, player_name, registered_position FROM players WHERE id IN ({placeholders})", offered_player_ids)
             offered_players = cur.fetchall()
-    
+
     if offer['requested_players']:
         requested_player_ids = json.loads(offer['requested_players'])
         if requested_player_ids:
             placeholders = ','.join(['?' for _ in requested_player_ids])
             cur.execute(f"SELECT id, player_name, registered_position FROM players WHERE id IN ({placeholders})", requested_player_ids)
             requested_players = cur.fetchall()
-    
+
     # Handle legacy offers
     if not offer['offered_players'] and offer['player_id']:
         if offer['deal_type'] == 'sell':
@@ -2998,9 +3022,9 @@ def get_offer_details(offer_id):
             # User buying from CPU
             cur.execute("SELECT id, player_name, registered_position FROM players WHERE id = ?", (offer['player_id'],))
             offered_players = cur.fetchall()
-    
+
     cur.close()
-    
+
     return jsonify({
         'offer_id': offer_id,
         'deal_type': offer['deal_type'],
@@ -3014,42 +3038,120 @@ def get_offer_details(offer_id):
 @app.route('/free_agency')
 @login_required
 def free_agency():
-    # Check for expired offers first
-    check_expired_offers()
-    
+    # Check for expired offers first - comprehensive check
+    processed_count = 0
+    try:
+        cur = db_helper.get_cursor()
+
+        # Get expired offers using proper datetime comparison
+        from datetime import datetime
+        current_time = datetime.now()
+
+        # Debug: Check what offers exist
+        cur.execute("SELECT COUNT(*) as total FROM free_agent_offers WHERE status = 'active'")
+        total_active = cur.fetchone()['total']
+
+        # Get expired offers using simple comparison
+        current_time_iso = current_time.isoformat()
+        cur.execute("""
+            SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
+                   fao.expires_at, p.player_name, u.username
+            FROM free_agent_offers fao
+            JOIN players p ON fao.player_id = p.id
+            JOIN users u ON fao.user_id = u.id
+            WHERE fao.status = 'active' AND fao.expires_at <= ?
+        """, (current_time_iso,))
+        expired_offers = cur.fetchall()
+
+        for offer in expired_offers:
+            try:
+                # Mark offer as completed
+                cur.execute("UPDATE free_agent_offers SET status = 'completed' WHERE id = ?", (offer['id'],))
+
+                # Get user's active team
+                cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = ? ORDER BY id LIMIT 1", (offer['user_id'],))
+                user_team = cur.fetchone()
+
+                if user_team:
+                    active_team_id = user_team['id']
+                    team_name = user_team['team_name']
+
+                    # Find the corresponding PES6 team ID
+                    cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+                    pes6_team_result = cur.fetchone()
+
+                    if pes6_team_result:
+                        pes6_team_id = pes6_team_result['id']
+
+                        # Update player's salary, contract, and club_id
+                        cur.execute("""
+                            UPDATE players
+                            SET salary = ?, contract_years_remaining = ?, club_id = ?
+                            WHERE id = ?
+                        """, (offer['offered_salary'], offer['offered_contract_years'], pes6_team_id, offer['player_id']))
+
+                        # Add player to team_players table
+                        cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)",
+                                   (active_team_id, offer['player_id']))
+
+                        # Post transfer news
+                        title = f"Free Agent Transfer: {offer['player_name']}"
+                        content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years."
+                        post_transfer_news(title, content, offer['user_id'])
+
+                        processed_count += 1
+
+            except Exception as e:
+                app.logger.error(f"Error processing expired offer {offer['id']}: {e}")
+
+        if processed_count > 0:
+            db_helper.commit()
+            flash(f'Processed {processed_count} expired free agent offers.', 'info')
+
+        cur.close()
+
+    except Exception as e:
+        app.logger.error(f"Error in expired offers check: {e}")
+
+    # Now continue with normal free agency page logic
     cur = db_helper.get_cursor()
-    
+
     # Get filter parameters
     min_salary = request.args.get('min_salary')
     max_salary = request.args.get('max_salary')
     position = request.args.get('position')
-    
+    player_name = request.args.get('player_name')
+
     # Build the query with filters
     query = """
         SELECT id, player_name, age, game_position, strong_foot, salary, contract_years_remaining, market_value,
                attack_rating, defense_rating, physical_rating, power_rating, technique_rating, goalkeeping_rating
-        FROM players 
+        FROM players
         WHERE club_id = 141
     """
     params = []
-    
+
     if min_salary:
         query += " AND salary >= ?"
         params.append(int(min_salary))
-    
+
     if max_salary:
         query += " AND salary <= ?"
         params.append(int(max_salary))
-    
+
     if position:
         query += " AND game_position = ?"
         params.append(position)
-    
+
+    if player_name:
+        query += " AND player_name LIKE ?"
+        params.append(f"%{player_name}%")
+
     query += " ORDER BY salary DESC"
-    
+
     cur.execute(query, params)
     free_agents = cur.fetchall()
-    
+
     # Get current offers
     cur.execute("""
         SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
@@ -3063,11 +3165,11 @@ def free_agency():
         ORDER BY fao.expires_at ASC
     """)
     current_offers = cur.fetchall()
-    
+
     cur.close()
-    
-    return render_template('free_agency.html', 
-                         free_agents=free_agents, 
+
+    return render_template('free_agency.html',
+                         free_agents=free_agents,
                          current_offers=current_offers)
 
 @app.route('/free_agency/make_offer', methods=['POST'])
@@ -3076,35 +3178,35 @@ def make_free_agent_offer():
     player_id = request.form.get('player_id')
     offered_salary = int(request.form.get('offered_salary'))
     offered_contract_years = int(request.form.get('offered_contract_years'))
-    
+
     # Check if user has an active team
     active_team_id = session.get('active_team_id')
     if not active_team_id:
         flash('You need an active team to make offers.', 'danger')
         return redirect(url_for('free_agency'))
-    
+
     cur = db_helper.get_cursor()
-    
+
     # Check if player is still a free agent
     cur.execute("SELECT id FROM players WHERE id = ? AND club_id = 141", (player_id,))
     if not cur.fetchone():
         flash('Player is no longer available.', 'danger')
         cur.close()
         return redirect(url_for('free_agency'))
-    
+
     # Check if there's already an active offer for this player
     cur.execute("SELECT id FROM free_agent_offers WHERE player_id = ? AND status = 'active'", (player_id,))
     existing_offer = cur.fetchone()
-    
+
     if existing_offer:
         flash('This player already has an active offer.', 'danger')
         cur.close()
         return redirect(url_for('free_agency'))
-    
+
     # Create new offer (2 minutes for testing)
     from datetime import datetime, timedelta
-    expires_at = datetime.now() + timedelta(minutes=1500)
-    
+    expires_at = datetime.now() + timedelta(minutes=80)
+
     try:
         cur.execute("""
             INSERT INTO free_agent_offers (player_id, user_id, offered_salary, offered_contract_years, expires_at)
@@ -3112,76 +3214,75 @@ def make_free_agent_offer():
         """, (player_id, current_user.id, offered_salary, offered_contract_years, expires_at.isoformat()))
         db_helper.commit()
         flash('Offer made successfully!', 'success')
-        
+
         # Trigger immediate check for expired offers to process any that should be completed
         check_expired_offers()
-        
+
     except Exception as e:
         db_helper.get_connection().rollback()
         flash(f'Error making offer: {e}', 'danger')
     finally:
         cur.close()
-    
+
     return redirect(url_for('free_agency'))
 
 @app.route('/free_agency/raise_offer/<int:offer_id>', methods=['POST'])
 @login_required
 def raise_free_agent_offer(offer_id):
     cur = db_helper.get_cursor()
-    
+
     # Get current offer
     cur.execute("""
         SELECT id, player_id, user_id, offered_salary, offered_contract_years, expires_at
         FROM free_agent_offers WHERE id = ? AND status = 'active'
     """, (offer_id,))
     offer = cur.fetchone()
-    
+
     if not offer:
         flash('Offer not found or already expired.', 'danger')
         cur.close()
         return redirect(url_for('free_agency'))
-    
+
     # Check if user has an active team
     active_team_id = session.get('active_team_id')
     if not active_team_id:
         flash('You need an active team to make offers.', 'danger')
         cur.close()
         return redirect(url_for('free_agency'))
-    
+
     # Raise offer by 250,000€ and reset timer
     new_salary = offer['offered_salary'] + 250000
     from datetime import datetime, timedelta
-    new_expires_at = datetime.now() + timedelta(minutes=1500)
-    
+    new_expires_at = datetime.now() + timedelta(minutes=80)
+
     try:
         cur.execute("""
-            UPDATE free_agent_offers 
+            UPDATE free_agent_offers
             SET user_id = ?, offered_salary = ?, expires_at = ?
             WHERE id = ?
         """, (current_user.id, new_salary, new_expires_at.isoformat(), offer_id))
         db_helper.commit()
         flash('Offer raised successfully!', 'success')
-        
+
         # Trigger immediate check for expired offers to process any that should be completed
         check_expired_offers()
-        
+
     except Exception as e:
         db_helper.get_connection().rollback()
         flash(f'Error raising offer: {e}', 'danger')
     finally:
         cur.close()
-    
+
     return redirect(url_for('free_agency'))
 
-@app.route('/free_agency/check_expired_offers')
 def check_expired_offers():
-    """Background task to check and process expired offers"""
+    """Helper function to check and process expired offers"""
     cur = db_helper.get_cursor()
-    
+
     # Get expired offers using proper datetime comparison
     from datetime import datetime
     current_time = datetime.now().isoformat()
-    
+
     cur.execute("""
         SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
                p.player_name, u.username
@@ -3191,179 +3292,617 @@ def check_expired_offers():
         WHERE fao.status = 'active' AND fao.expires_at <= ?
     """, (current_time,))
     expired_offers = cur.fetchall()
-    
+
     processed_count = 0
     for offer in expired_offers:
         try:
             # Mark offer as completed
             cur.execute("UPDATE free_agent_offers SET status = 'completed' WHERE id = ?", (offer['id'],))
-            
+
             # Get user's active team (handle multiple teams)
             cur.execute("SELECT id FROM league_teams WHERE user_id = ? ORDER BY id LIMIT 1", (offer['user_id'],))
             user_team = cur.fetchone()
-            
+
             if user_team:
                 active_team_id = user_team['id']  # Use first team as active
-                
-                # Add player to team
-                cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)", 
+
+                # Add player to team (using consistent database approach)
+                cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)",
                            (active_team_id, offer['player_id']))
-                
+
                 # Get the PES6 team ID for this league team
                 cur.execute("SELECT team_name FROM league_teams WHERE id = ?", (active_team_id,))
                 league_team_name = cur.fetchone()['team_name']
-                
+
                 # Find the corresponding PES6 team ID
                 cur.execute("SELECT id FROM teams WHERE club_name = ?", (league_team_name,))
                 pes6_team_result = cur.fetchone()
-                
+
                 if pes6_team_result:
                     pes6_team_id = pes6_team_result['id']
-                    
+
                     # Update player's salary, contract, and club_id to the PES6 team
                     cur.execute("""
-                        UPDATE players 
+                        UPDATE players
                         SET salary = ?, contract_years_remaining = ?, club_id = ?
                         WHERE id = ?
                     """, (offer['offered_salary'], offer['offered_contract_years'], pes6_team_id, offer['player_id']))
-                    
+
                     app.logger.info(f"Updated player {offer['player_name']} club_id to PES6 team {pes6_team_id} ({league_team_name})")
                 else:
                     # Fallback: just update salary and contract if PES6 team not found
                     cur.execute("""
-                        UPDATE players 
+                        UPDATE players
                         SET salary = ?, contract_years_remaining = ?
                         WHERE id = ?
                     """, (offer['offered_salary'], offer['offered_contract_years'], offer['player_id']))
-                    
+
                     app.logger.warning(f"PES6 team not found for league team: {league_team_name}")
-                
-                # Add budget movement for the signing bonus (first year salary)
-                signing_bonus = offer['offered_salary'] * offer['offered_contract_years']
-                add_user_movement(offer['user_id'], 'Free Agency', 
-                                f'Signing {offer["player_name"]} for €{offer["offered_salary"]:,}/year for {offer["offered_contract_years"]} years', 
-                                -signing_bonus)
-                
+
                 # Post transfer news to blog
                 title = f"Free Agent Transfer: {offer['player_name']}"
                 content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years."
                 post_transfer_news(title, content, offer['user_id'])
-                
+
                 processed_count += 1
                 app.logger.info(f"Processed expired offer: {offer['player_name']} -> {offer['username']}")
         except Exception as e:
             app.logger.error(f"Error processing expired offer {offer['id']}: {e}")
-    
+
     db_helper.commit()
     cur.close()
-    
+
+    return processed_count
+
+@app.route('/free_agency/check_expired_offers')
+def check_expired_offers_route():
+    """Background task route to check and process expired offers"""
+    processed_count = check_expired_offers()
     return jsonify({'processed': processed_count})
 
 @app.route('/free_agency/force_check_expired')
 @login_required
 def force_check_expired():
     """Manual trigger to check expired offers (for testing)"""
-    result = check_expired_offers()
-    return result
+    processed_count = check_expired_offers()
+    return jsonify({'processed': processed_count})
+
+
+
+@app.route('/free_agency/process_expired_manual', methods=['POST'])
+@login_required
+def process_expired_offers_manual():
+    """Manual button to process expired offers from the free agency page"""
+    try:
+        # Use the same logic as in the free agency page load
+        cur = db_helper.get_cursor()
+
+        # Get expired offers using proper datetime comparison
+        from datetime import datetime
+        current_time = datetime.now()
+
+        # Debug: Check what offers exist
+        cur.execute("SELECT COUNT(*) as total FROM free_agent_offers WHERE status = 'active'")
+        total_active = cur.fetchone()['total']
+
+        # Use a more robust comparison - get all active offers and check in Python
+        cur.execute("""
+            SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
+                   fao.expires_at, p.player_name, u.username
+            FROM free_agent_offers fao
+            JOIN players p ON fao.player_id = p.id
+            JOIN users u ON fao.user_id = u.id
+            WHERE fao.status = 'active'
+        """)
+        all_active_offers = cur.fetchall()
+
+        # Filter expired offers in Python for better control
+        expired_offers = []
+        for offer in all_active_offers:
+            try:
+                expires_at_str = offer['expires_at']
+                expires_at = None
+
+                # Try different parsing methods
+                try:
+                    expires_at = datetime.fromisoformat(expires_at_str)
+                except:
+                    try:
+                        expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                    except:
+                        # String comparison fallback
+                        if expires_at_str <= current_time.isoformat():
+                            expires_at = datetime.min
+
+                if expires_at and current_time > expires_at:
+                    expired_offers.append(offer)
+
+            except Exception as e:
+                app.logger.error(f"Error parsing expiration time for offer {offer['id']}: {e}")
+
+        processed_count = 0
+        for offer in expired_offers:
+            try:
+                app.logger.info(f"Manually processing expired offer: {offer['player_name']} -> {offer['username']} (expired at {offer['expires_at']})")
+
+                # Mark offer as completed
+                cur.execute("UPDATE free_agent_offers SET status = 'completed' WHERE id = ?", (offer['id'],))
+
+                # Get user's active team (handle multiple teams)
+                cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = ? ORDER BY id LIMIT 1", (offer['user_id'],))
+                user_team = cur.fetchone()
+
+                if user_team:
+                    active_team_id = user_team['id']
+                    team_name = user_team['team_name']
+
+                    # Find the corresponding PES6 team ID
+                    cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+                    pes6_team_result = cur.fetchone()
+
+                    if pes6_team_result:
+                        pes6_team_id = pes6_team_result['id']
+
+                        # Update player's salary, contract, and club_id to the PES6 team
+                        cur.execute("""
+                            UPDATE players
+                            SET salary = ?, contract_years_remaining = ?, club_id = ?
+                            WHERE id = ?
+                        """, (offer['offered_salary'], offer['offered_contract_years'], pes6_team_id, offer['player_id']))
+
+                        # Add player to team_players table for compatibility
+                        cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)",
+                                   (active_team_id, offer['player_id']))
+
+                        # Post transfer news to blog
+                        title = f"Free Agent Transfer: {offer['player_name']}"
+                        content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years."
+                        post_transfer_news(title, content, offer['user_id'])
+
+                        processed_count += 1
+                        app.logger.info(f"Successfully processed expired offer: {offer['player_name']} -> {offer['username']}")
+
+                    else:
+                        app.logger.error(f"PES6 team not found for league team: {team_name}")
+                else:
+                    app.logger.error(f"No team found for user {offer['user_id']} ({offer['username']})")
+
+            except Exception as e:
+                app.logger.error(f"Error processing expired offer {offer['id']}: {e}")
+
+        if processed_count > 0:
+            db_helper.commit()
+            flash(f'✅ Successfully processed {processed_count} expired free agent offers!', 'success')
+        else:
+            flash('ℹ️ No expired offers found to process.', 'info')
+
+        cur.close()
+
+    except Exception as e:
+        app.logger.error(f"Error in manual expired offers processing: {e}")
+        flash(f'❌ Error processing expired offers: {e}', 'danger')
+
+    return redirect(url_for('free_agency'))
+
+@app.route('/free_agency/sign_player/<int:offer_id>', methods=['POST'])
+@login_required
+def sign_expired_player(offer_id):
+    """Sign a player from an expired offer"""
+    cur = db_helper.get_cursor()
+
+    try:
+        # Get the offer details
+        cur.execute("""
+            SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
+                   fao.expires_at, fao.status, p.player_name, u.username
+            FROM free_agent_offers fao
+            JOIN players p ON fao.player_id = p.id
+            JOIN users u ON fao.user_id = u.id
+            WHERE fao.id = ? AND fao.status = 'active'
+        """, (offer_id,))
+        offer = cur.fetchone()
+
+        if not offer:
+            flash('Offer not found or already processed.', 'danger')
+            return redirect(url_for('free_agency'))
+
+        # Check if offer belongs to current user
+        if offer['user_id'] != current_user.id:
+            flash('You can only sign players from your own offers.', 'danger')
+            return redirect(url_for('free_agency'))
+
+        # Check if offer is expired (frontend should handle this, but double-check)
+        from datetime import datetime
+        current_time = datetime.now()
+        try:
+            expires_at = datetime.fromisoformat(offer['expires_at'])
+            if current_time <= expires_at:
+                flash('This offer has not expired yet.', 'warning')
+                return redirect(url_for('free_agency'))
+        except:
+            # If we can't parse the date, proceed (assume it's expired)
+            pass
+
+        # Process the signing
+        cur.execute("UPDATE free_agent_offers SET status = 'completed' WHERE id = ?", (offer_id,))
+
+        # Get user's active team
+        cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = ? ORDER BY id LIMIT 1", (current_user.id,))
+        user_team = cur.fetchone()
+
+        if user_team:
+            active_team_id = user_team['id']
+            team_name = user_team['team_name']
+
+            # Find the corresponding PES6 team ID
+            cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+            pes6_team_result = cur.fetchone()
+
+            if pes6_team_result:
+                pes6_team_id = pes6_team_result['id']
+
+                # Update player
+                cur.execute("""
+                    UPDATE players
+                    SET salary = ?, contract_years_remaining = ?, club_id = ?
+                    WHERE id = ?
+                """, (offer['offered_salary'], offer['offered_contract_years'], pes6_team_id, offer['player_id']))
+
+                # Add to team_players
+                cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)",
+                           (active_team_id, offer['player_id']))
+
+                # Post transfer news
+                title = f"Free Agent Transfer: {offer['player_name']}"
+                content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years."
+                post_transfer_news(title, content, current_user.id)
+
+                db_helper.commit()
+                flash(f'✅ Successfully signed {offer["player_name"]} to your team!', 'success')
+            else:
+                flash('Error: Could not find your team in the database.', 'danger')
+        else:
+            flash('Error: You do not have a team assigned.', 'danger')
+
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        flash(f'Error signing player: {e}', 'danger')
+    finally:
+        cur.close()
+
+    return redirect(url_for('free_agency'))
+
+@app.route('/tools/recalculate_player_financials', methods=['POST'])
+@login_required
+def recalculate_player_financials():
+    """Recalculate market values for all players using game mechanics (salaries remain unchanged)"""
+    try:
+        # Use the game mechanics module to update market values only
+        result = game_mechanics.update_player_market_values_only('pes6_league_db.sqlite')
+        
+        if result['success']:
+            flash(f"✅ Market value recalculation completed! {result['updated_count']} players updated. {result['errors']} errors occurred.", 'success')
+            
+            # Create a blog post about the market value recalculation
+            blog_title = f"💰 League Market Value Recalculation Complete"
+            
+            # Build content with top players by position
+            blog_content = f"""
+            <p><strong>📊 League Market Value Update</strong></p>
+            <p>The league has completed a comprehensive market value recalculation for all players (salaries remain unchanged).</p>
+            <ul>
+            <li><strong>✅ Players Updated:</strong> {result['updated_count']}</li>
+            <li><strong>❌ Errors:</strong> {result['errors']}</li>
+            <li><strong>🚫 Excluded:</strong> No Club players (market value set to €0)</li>
+            </ul>
+            """
+            
+            # Add top 5 players by position
+            if 'top_players_by_position' in result and result['top_players_by_position']:
+                blog_content += "<p><strong>🏆 Top 5 Most Valuable Players by Position:</strong></p>"
+                
+                for position, players in result['top_players_by_position'].items():
+                    if players:  # Only show positions with players
+                        blog_content += f"<h6>{position}</h6><ul>"
+                        for i, player in enumerate(players, 1):
+                            blog_content += f"<li>{i}. {player['name']} ({player['club_name']}): €{player['market_value']:,}</li>"
+                        blog_content += "</ul>"
+            
+            blog_content += """
+            <p><strong>📈 What was recalculated:</strong></p>
+            <ul>
+            <li>Market values based on current salaries and age multipliers</li>
+            <li>Age-based market value adjustments</li>
+            <li>No Club players automatically set to €0 market value</li>
+            </ul>
+            <p><strong>💡 Note:</strong> Player salaries remain unchanged to maintain financial stability.</p>
+            """
+            
+            post_transfer_news(blog_title, blog_content, user_id=1)
+            
+        else:
+            flash(f"❌ Error during market value recalculation: {result['message']}", 'danger')
+            
+    except Exception as e:
+        flash(f'Error during market value recalculation: {e}', 'danger')
+        print(f"❌ Error: {e}")
+    
+    return redirect(url_for('tools'))
+
+@app.route('/tools/end_of_season_process', methods=['POST'])
+@login_required
+def end_of_season_process():
+    """Process end of season changes: salaries, ages, contracts, and salary increases"""
+    cur = db_helper.get_cursor()
+
+    try:
+        # Step 1: Process salary bills (trigger the existing route logic)
+        print("🔄 Step 1: Processing salary bills...")
+        
+        # Process human users (except CPU)
+        cur.execute("SELECT id, username FROM users WHERE id != 1")
+        users = cur.fetchall()
+
+        payments_processed = 0
+
+        for user in users:
+            # Calculate the user's total salary bill
+            cur.execute("""
+                SELECT SUM(p.salary) as total_salary
+                FROM players p
+                JOIN teams t ON p.club_id = t.id
+                JOIN league_teams lt ON t.club_name = lt.team_name
+                WHERE lt.user_id = ?
+            """, (user['id'],))
+            result = cur.fetchone()
+            total_salary = result['total_salary'] if result and result['total_salary'] else 0
+
+            if total_salary > 0:
+                # Get top 3 highest paid players for the blog post
+                cur.execute("""
+                    SELECT p.player_name, p.salary, lt.team_name
+                    FROM players p
+                    JOIN teams t ON p.club_id = t.id
+                    JOIN league_teams lt ON t.club_name = lt.team_name
+                    WHERE lt.user_id = ?
+                    ORDER BY p.salary DESC
+                    LIMIT 3
+                """, (user['id'],))
+                top_players = cur.fetchall()
+
+                # Get total number of players
+                cur.execute("""
+                    SELECT COUNT(*) as player_count
+                    FROM players p
+                    JOIN teams t ON p.club_id = t.id
+                    JOIN league_teams lt ON t.club_name = lt.team_name
+                    WHERE lt.user_id = ?
+                """, (user['id'],))
+                player_count = cur.fetchone()['player_count']
+
+                # Update user's unified budget (negative amount = user pays)
+                add_user_movement(user['id'], 'End of Season Salary Bill',
+                                 f'End of season salary bill for all your players: €{total_salary:,}',
+                                 -total_salary)
+
+                # Create enhanced blog post about the club's finances being in order
+                blog_title = f"💰 {user['username']}'s End of Season Finances Settled"
+                print(f"📝 Creating blog post for {user['username']}: {blog_title}")
+
+                top_players_html = ""
+                if top_players:
+                    top_players_html = "<p><strong>Top 3 Player Wages:</strong></p><ul>"
+                    for player in top_players:
+                        top_players_html += f"<li>{player['player_name']} ({player['team_name']}): €{player['salary']:,}</li>"
+                    top_players_html += "</ul>"
+
+                blog_content = f"""
+                <p><strong>🏦 End of Season Bank Payments</strong></p>
+                <p><strong>{user['username']}</strong> has successfully processed their club's end of season salary bill of <strong>€{total_salary:,}</strong>.</p>
+                <p>The payment covers <strong>{player_count} players</strong> across all managed teams.</p>
+                {top_players_html}
+                <p><strong>✅ Financial Status:</strong> All player wages have been settled and the club's finances are now in order for the new season.</p>
+                <p>This ensures continued team stability and player satisfaction in the league.</p>
+                """
+                post_transfer_news(blog_title, blog_content, user_id=1)
+                print(f"✅ Blog post created for {user['username']}")
+
+                payments_processed += 1
+                print(f"  - {user['username']}: End of season salary bill paid (€{total_salary:,} for {player_count} players)")
+
+        # Process CPU teams (update their financial data without blog posts)
+        cpu_teams_processed = 0
+        cur.execute("""
+            SELECT t.id, t.club_name, COALESCE(SUM(p.salary), 0) as total_salaries, t.budget
+            FROM teams t
+            LEFT JOIN players p ON t.id = p.club_id
+            JOIN league_teams lt ON t.club_name = lt.team_name
+            WHERE lt.user_id = 1
+            GROUP BY t.id, t.club_name, t.budget
+        """)
+        cpu_teams = cur.fetchall()
+
+        for team in cpu_teams:
+            team_id = team['id']
+            club_name = team['club_name']
+            total_salaries = team['total_salaries']
+            current_budget = team['budget'] or 400000000  # Default if budget is NULL
+            
+            if total_salaries > 0:
+                # Reduce budget by the salary bill amount
+                new_budget = current_budget - total_salaries
+                
+                # Calculate available cap with new budget
+                available_cap = new_budget - total_salaries
+                
+                # Update CPU team financial data
+                cur.execute("""
+                    UPDATE teams
+                    SET total_salaries = ?, budget = ?, available_cap = ?
+                    WHERE id = ?
+                """, (total_salaries, new_budget, available_cap, team_id))
+                
+                cpu_teams_processed += 1
+                print(f"  - CPU {club_name}: Budget reduced by €{total_salaries:,} (€{current_budget:,} → €{new_budget:,}), available cap: €{available_cap:,}")
+
+        # Step 2: Add 1 year to every player's age
+        print("🔄 Step 2: Updating player ages...")
+        cur.execute("UPDATE players SET age = age + 1")
+        age_updated = cur.rowcount
+        print(f"  ✅ {age_updated} players had their age increased by 1 year")
+
+        # Step 3: Reduce 1 year to every player's contract (except "No Club" players)
+        print("🔄 Step 3: Updating player contracts...")
+        cur.execute("UPDATE players SET contract_years_remaining = contract_years_remaining - 1 WHERE club_id != 141")
+        contract_updated = cur.rowcount
+        print(f"  ✅ {contract_updated} players had their contract reduced by 1 year (excluding No Club players)")
+
+        # Step 4: Multiply each player's salary by 2
+        print("🔄 Step 4: Doubling player salaries...")
+        cur.execute("UPDATE players SET salary = salary * 2")
+        salary_doubled = cur.rowcount
+        print(f"  ✅ {salary_doubled} players had their salary doubled")
+
+        # Step 5: Apply yearly wage rise to each player's salary
+        print("🔄 Step 5: Applying yearly wage rises...")
+        cur.execute("""
+            UPDATE players 
+            SET salary = salary * (1 + COALESCE(yearly_wage_rise, 0) + 0.01)
+            WHERE yearly_wage_rise IS NOT NULL
+        """)
+        wage_rise_applied = cur.rowcount
+        print(f"  ✅ {wage_rise_applied} players had their yearly wage rise applied")
+
+        # Create a summary blog post
+        summary_title = f"🏆 End of Season Processing Complete"
+        summary_content = f"""
+        <p><strong>📊 End of Season League Update</strong></p>
+        <p>The league has successfully completed end of season processing:</p>
+        <ul>
+        <li><strong>💰 Salary Bills:</strong> Processed for {payments_processed} human clubs and {cpu_teams_processed} CPU clubs</li>
+        <li><strong>👴 Player Ages:</strong> All {age_updated} players aged by 1 year</li>
+        <li><strong>📜 Contracts:</strong> {contract_updated} players had contracts reduced by 1 year</li>
+        <li><strong>💵 Salaries:</strong> All {salary_doubled} players had salaries doubled</li>
+        <li><strong>📈 Wage Rises:</strong> {wage_rise_applied} players had yearly wage rises applied</li>
+        </ul>
+        <p><strong>✅ The new season is ready to begin!</strong></p>
+        <p>All clubs have settled their financial obligations and player contracts have been updated for the upcoming season.</p>
+        """
+        post_transfer_news(summary_title, summary_content, user_id=1)
+        print(f"📊 Summary blog post created for end of season processing")
+
+        db_helper.commit()
+
+        flash(f'End of season processing completed! {payments_processed} users had salary bills processed, {cpu_teams_processed} CPU teams updated, {age_updated} players aged, {contract_updated} contracts reduced, {salary_doubled} salaries doubled, and {wage_rise_applied} wage rises applied.', 'success')
+
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        flash(f'Error during end of season processing: {e}', 'danger')
+        print(f"❌ Error: {e}")
+    finally:
+        cur.close()
+
+    return redirect(url_for('tools'))
 
 @app.route('/tools/divide_salaries_by_2', methods=['POST'])
 @login_required
 def divide_salaries_by_2():
     """Divide all player salaries by 2"""
     cur = db_helper.get_cursor()
-    
+
     try:
         cur.execute("SELECT id, player_name, salary FROM players WHERE salary > 0")
         players = cur.fetchall()
-        
+
         updated_players = 0
-        
+
         for player in players:
             old_salary = player['salary']
             new_salary = old_salary // 2  # Integer division by 2
-            
+
             # Update player salary
             cur.execute("UPDATE players SET salary = ? WHERE id = ?", (new_salary, player['id']))
             updated_players += 1
-        
+
         db_helper.commit()
-        
+
         flash(f'All player salaries divided by 2! {updated_players} players updated.', 'success')
-        
+
     except Exception as e:
         db_helper.get_connection().rollback()
         flash(f'Error dividing salaries: {e}', 'danger')
     finally:
         cur.close()
-    
+
     return redirect(url_for('tools'))
 
 @app.route('/tools/pay_current_salary_bill', methods=['POST'])
 @login_required
 def pay_current_salary_bill():
-    """Directly deduct salary bills from all users (except CPU)"""
+    """Directly deduct salary bills from all users (except CPU) and process CPU team finances"""
     cur = db_helper.get_cursor()
-    
+
     try:
+        # Process human users (except CPU)
         cur.execute("SELECT id, username FROM users WHERE id != 1")
         users = cur.fetchall()
-        
+
         payments_processed = 0
-        
+
         for user in users:
             # Calculate the user's total salary bill
             cur.execute("""
                 SELECT SUM(p.salary) as total_salary
                 FROM players p
-                JOIN team_players tp ON p.id = tp.player_id
-                JOIN league_teams lt ON tp.team_id = lt.id
+                JOIN teams t ON p.club_id = t.id
+                JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE lt.user_id = ?
             """, (user['id'],))
             result = cur.fetchone()
             total_salary = result['total_salary'] if result and result['total_salary'] else 0
-            
+
             if total_salary <= 0:
                 print(f"  - {user['username']}: No salary bill to pay")
                 continue
-            
+
             # Get top 3 highest paid players for the blog post
             cur.execute("""
                 SELECT p.player_name, p.salary, lt.team_name
                 FROM players p
-                JOIN team_players tp ON p.id = tp.player_id
-                JOIN league_teams lt ON tp.team_id = lt.id
+                JOIN teams t ON p.club_id = t.id
+                JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE lt.user_id = ?
                 ORDER BY p.salary DESC
                 LIMIT 3
             """, (user['id'],))
             top_players = cur.fetchall()
-            
+
             # Get total number of players
             cur.execute("""
                 SELECT COUNT(*) as player_count
                 FROM players p
-                JOIN team_players tp ON p.id = tp.player_id
-                JOIN league_teams lt ON tp.team_id = lt.id
+                JOIN teams t ON p.club_id = t.id
+                JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE lt.user_id = ?
             """, (user['id'],))
             player_count = cur.fetchone()['player_count']
-            
+
             # Update user's unified budget (negative amount = user pays)
-            add_user_movement(user['id'], 'Salary Bill Payment', 
-                             f'Paid salary bill for all your players: €{total_salary:,}', 
+            add_user_movement(user['id'], 'Salary Bill Payment',
+                             f'Paid salary bill for all your players: €{total_salary:,}',
                              -total_salary)
-            
+
             # Create enhanced blog post about the club's finances being in order
             blog_title = f"💰 {user['username']}'s Club Finances Settled"
             print(f"📝 Creating blog post for {user['username']}: {blog_title}")  # Debug line
-            
+
             top_players_html = ""
             if top_players:
                 top_players_html = "<p><strong>Top 3 Player Wages:</strong></p><ul>"
                 for player in top_players:
                     top_players_html += f"<li>{player['player_name']} ({player['team_name']}): €{player['salary']:,}</li>"
                 top_players_html += "</ul>"
-            
+
             blog_content = f"""
             <p><strong>🏦 Processing Bank Payments</strong></p>
             <p><strong>{user['username']}</strong> has successfully processed their club's salary bill of <strong>€{total_salary:,}</strong>.</p>
@@ -3374,15 +3913,48 @@ def pay_current_salary_bill():
             """
             post_transfer_news(blog_title, blog_content, user_id=1)
             print(f"✅ Blog post created for {user['username']}")  # Debug line
-            
+
             # Small delay to make blog posts more visible
             time.sleep(0.5)
-            
+
             payments_processed += 1
             print(f"  - {user['username']}: Salary bill paid (€{total_salary:,} for {player_count} players)")
-        
-        db_helper.commit()
-        
+
+        # Process CPU teams (update their financial data without blog posts)
+        cpu_teams_processed = 0
+        cur.execute("""
+            SELECT t.id, t.club_name, COALESCE(SUM(p.salary), 0) as total_salaries, t.budget
+            FROM teams t
+            LEFT JOIN players p ON t.id = p.club_id
+            JOIN league_teams lt ON t.club_name = lt.team_name
+            WHERE lt.user_id = 1
+            GROUP BY t.id, t.club_name, t.budget
+        """)
+        cpu_teams = cur.fetchall()
+
+        for team in cpu_teams:
+            team_id = team['id']
+            club_name = team['club_name']
+            total_salaries = team['total_salaries']
+            current_budget = team['budget'] or 400000000  # Default if budget is NULL
+            
+            if total_salaries > 0:
+                # Reduce budget by the salary bill amount
+                new_budget = current_budget - total_salaries
+                
+                # Calculate available cap with new budget
+                available_cap = new_budget - total_salaries
+                
+                # Update CPU team financial data
+                cur.execute("""
+                    UPDATE teams
+                    SET total_salaries = ?, budget = ?, available_cap = ?
+                    WHERE id = ?
+                """, (total_salaries, new_budget, available_cap, team_id))
+                
+                cpu_teams_processed += 1
+                print(f"  - CPU {club_name}: Budget reduced by €{total_salaries:,} (€{current_budget:,} → €{new_budget:,}), available cap: €{available_cap:,}")
+
         # Create a summary blog post if multiple users were processed
         if payments_processed > 1:
             summary_title = f"🏦 League-Wide Salary Bill Processing Complete"
@@ -3394,16 +3966,18 @@ def pay_current_salary_bill():
             """
             post_transfer_news(summary_title, summary_content, user_id=1)
             print(f"📊 Summary blog post created for {payments_processed} users")
-        
-        flash(f'Salary bills processed! {payments_processed} users had their salary bills deducted and blog posts created.', 'success')
-        
+
+        db_helper.commit()
+
+        flash(f'Salary bills processed! {payments_processed} users had their salary bills deducted and blog posts created. {cpu_teams_processed} CPU teams had their financial data updated.', 'success')
+
     except Exception as e:
         db_helper.get_connection().rollback()
         flash(f'Error processing salary bills: {e}', 'danger')
         print(f"❌ Error: {e}")  # Debug line
     finally:
         cur.close()
-    
+
     return redirect(url_for('tools'))
 
 
@@ -3413,49 +3987,141 @@ def pay_current_salary_bill():
 def money_allocator():
     """Money Allocator: Add or subtract money from user budgets"""
     cur = db_helper.get_cursor()
-    
+
     if request.method == 'POST':
         user_id = request.form.get('user_id')
         amount = request.form.get('amount')
         operation = request.form.get('operation')  # 'add' or 'subtract'
         description = request.form.get('description', 'Manual allocation')
-        
+
         try:
             user_id = int(user_id)
             amount = int(amount)
-            
+
             if operation == 'subtract':
                 amount = -amount  # Make it negative for subtraction
-            
+
             # Get current budget
             current_budget = get_user_budget(user_id)
             new_budget = current_budget + amount
-            
+
             # Update budget
             update_user_budget(user_id, new_budget)
-            
+
             # Add movement record
             add_user_movement(user_id, 'Manual Allocation', description, amount)
-            
+
             # Get username for flash message
             cur.execute("SELECT username FROM users WHERE id = ?", (user_id,))
             user = cur.fetchone()
             username = user['username'] if user else f'User {user_id}'
-            
+
             operation_text = 'added to' if amount > 0 else 'subtracted from'
             flash(f'€{abs(amount):,} {operation_text} {username}\'s budget. New balance: €{new_budget:,}', 'success')
-            
+
         except ValueError:
             flash('Invalid amount or user ID.', 'danger')
         except Exception as e:
             flash(f'Error updating budget: {e}', 'danger')
-    
+
     # Get all users for the form
     cur.execute("SELECT id, username FROM users WHERE id != 1 ORDER BY username")
     users = cur.fetchall()
     cur.close()
-    
+
     return render_template('money_allocator.html', users=users)
+
+@app.route('/free_agency/get_user_teams', methods=['GET'])
+@login_required
+def get_user_teams():
+    """Get current user's teams for AJAX call"""
+    cur = db_helper.get_cursor()
+    cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = ? ORDER BY team_name", (current_user.id,))
+    user_teams = cur.fetchall()
+    cur.close()
+
+    teams_list = [{'id': team['id'], 'name': team['team_name']} for team in user_teams]
+    return jsonify({'teams': teams_list})
+
+@app.route('/free_agency/place_player/<int:offer_id>', methods=['POST'])
+@login_required
+def place_expired_player(offer_id):
+    """Place a player from an expired offer into a selected team via AJAX"""
+    cur = db_helper.get_cursor()
+
+    try:
+        # Get the offer details
+        cur.execute("""
+            SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
+                   fao.expires_at, fao.status, p.player_name, u.username
+            FROM free_agent_offers fao
+            JOIN players p ON fao.player_id = p.id
+            JOIN users u ON fao.user_id = u.id
+            WHERE fao.id = ? AND fao.status = 'active'
+        """, (offer_id,))
+        offer = cur.fetchone()
+
+        if not offer:
+            return jsonify({'success': False, 'error': 'Offer not found or already processed.'})
+
+        # Check if offer belongs to current user
+        if offer['user_id'] != current_user.id:
+            return jsonify({'success': False, 'error': 'You can only place players from your own offers.'})
+
+        selected_team_id = request.json.get('selected_team_id')
+
+        if not selected_team_id:
+            return jsonify({'success': False, 'error': 'Please select a team.'})
+
+        # Get the selected team
+        cur.execute("SELECT id, team_name FROM league_teams WHERE id = ? AND user_id = ?",
+                   (selected_team_id, current_user.id))
+        selected_team = cur.fetchone()
+
+        if not selected_team:
+            return jsonify({'success': False, 'error': 'Invalid team selection.'})
+
+        # Find the corresponding PES6 team ID
+        cur.execute("SELECT id FROM teams WHERE club_name = ?", (selected_team['team_name'],))
+        pes6_team_result = cur.fetchone()
+
+        if not pes6_team_result:
+            return jsonify({'success': False, 'error': 'Could not find the corresponding PES6 team.'})
+
+        pes6_team_id = pes6_team_result['id']
+
+        # Process the placement
+        cur.execute("UPDATE free_agent_offers SET status = 'completed' WHERE id = ?", (offer_id,))
+
+        # Update player's salary, contract, and club_id
+        cur.execute("""
+            UPDATE players
+            SET salary = ?, contract_years_remaining = ?, club_id = ?
+            WHERE id = ?
+        """, (offer['offered_salary'], offer['offered_contract_years'], pes6_team_id, offer['player_id']))
+
+        # Add to team_players table
+        cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)",
+                   (selected_team['id'], offer['player_id']))
+
+        # Post transfer news
+        title = f"Free Agent Placement: {offer['player_name']}"
+        content = f"{offer['player_name']} has been placed in {selected_team['team_name']} by {offer['username']} for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years."
+        post_transfer_news(title, content, current_user.id)
+
+        db_helper.commit()
+        return jsonify({
+            'success': True,
+            'message': f'Successfully placed {offer["player_name"]} in {selected_team["team_name"]}!',
+            'player_name': offer['player_name'],
+            'team_name': selected_team['team_name']
+        })
+
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        return jsonify({'success': False, 'error': f'Error placing player: {str(e)}'})
+    finally:
+        cur.close()
 
 
 

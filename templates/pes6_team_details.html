@@ -6,6 +6,51 @@
     <h2>{{ team_name }} - PES6 Roster</h2>
     <p><a href="{{ url_for('pes6_game_teams') }}">← Back to All Teams</a></p>
 
+    <!-- Team Details Section -->
+    <div class="team-details-section" style="margin-bottom: 30px;">
+        <div class="card" style="background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 2px solid #dee2e6; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+            <div class="card-header" style="background: linear-gradient(145deg, #495057, #6c757d); color: white; border-bottom: 2px solid #495057; border-radius: 8px 8px 0 0;">
+                <h4 style="margin: 0; text-align: center; font-weight: bold;">
+                    <i class="fas fa-chart-line"></i> Team Financial Details
+                </h4>
+            </div>
+            <div class="card-body" style="padding: 20px;">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #d4edda, #c3e6cb); border: 2px solid #28a745; border-radius: 8px; margin: 5px;">
+                            <h5 style="color: #155724; margin-bottom: 10px; font-weight: bold;">
+                                <i class="fas fa-money-bill-wave"></i> Total Salaries
+                            </h5>
+                            <div style="font-size: 1.5em; font-weight: bold; color: #155724;">
+                                €{{ total_salaries | format_currency }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #d1ecf1, #bee5eb); border: 2px solid #17a2b8; border-radius: 8px; margin: 5px;">
+                            <h5 style="color: #0c5460; margin-bottom: 10px; font-weight: bold;">
+                                <i class="fas fa-piggy-bank"></i> Budget
+                            </h5>
+                            <div style="font-size: 1.5em; font-weight: bold; color: #0c5460;">
+                                €{{ budget | format_currency }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #fff3cd, #ffeaa7); border: 2px solid #ffc107; border-radius: 8px; margin: 5px;">
+                            <h5 style="color: #856404; margin-bottom: 10px; font-weight: bold;">
+                                <i class="fas fa-coins"></i> Available Cap
+                            </h5>
+                            <div style="font-size: 1.5em; font-weight: bold; color: #856404;">
+                                €{{ available_cap | format_currency }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {% if players_in_team %}
         <table>
             <thead>

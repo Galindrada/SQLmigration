@@ -83,13 +83,33 @@
                 </form>
             </div>
             
-                           <div class="col-md-6">
-                    <h5>Process Salary Bills (All Users)</h5>
-                    <p>Directly deduct salary bills from all users' budgets and create blog posts about the payments.</p>
-                    <form method="post" action="{{ url_for('pay_current_salary_bill') }}" onsubmit="return confirm('Process salary bills for all users?\n\nThis will:\n- Calculate each user\'s salary bill\n- Directly deduct from their budgets\n- Create blog posts for each payment\n- No transfers to accept\n\nThis action cannot be undone!')">
-                        <button type="submit" class="button" style="background-color: #d9534f;">🏦 Process Salary Bills</button>
-                    </form>
-                </div>
+            <div class="col-md-6">
+                <h5>Process Salary Bills (All Users)</h5>
+                <p>Directly deduct salary bills from all users' budgets and create blog posts about the payments.</p>
+                <form method="post" action="{{ url_for('pay_current_salary_bill') }}" onsubmit="return confirm('Process salary bills for all users?\n\nThis will:\n- Calculate each user\'s salary bill\n- Directly deduct from their budgets\n- Create blog posts for each payment\n- No transfers to accept\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #d9534f;">🏦 Process Salary Bills</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <h5>🏆 End of Season Process</h5>
+                <p>Complete end of season processing that includes salary bills, player aging, contract updates, and salary increases.</p>
+                <form method="post" action="{{ url_for('end_of_season_process') }}" onsubmit="return confirm('Process end of season changes?\n\nThis will:\n- Process salary bills for all users and CPU teams\n- Add 1 year to all player ages\n- Reduce contract years by 1 (except No Club players)\n- Double all player salaries\n- Apply yearly wage rises + 1%\n- Create blog posts for all changes\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #f0ad4e; font-weight: bold;">🏆 End of Season Process</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <h5>💰 Recalculate Player Market Values</h5>
+                <p>Recalculate all player market values based on their current salaries and age using the advanced game mechanics algorithm. Salaries remain unchanged.</p>
+                <form method="post" action="{{ url_for('recalculate_player_financials') }}" onsubmit="return confirm('Recalculate all player market values?\n\nThis will:\n- Recalculate market values based on current salaries and age\n- Set No Club players market value to €0\n- Apply age-based market value multipliers\n- Create a blog post with top 5 players by position\n- Keep all salaries unchanged\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #5cb85c; font-weight: bold;">💰 Recalculate Market Values</button>
+                </form>
+            </div>
         </div>
         
                    <div class="mt-3">

@@ -13,7 +13,6 @@
                     <tr>
                         <th>Player</th>
                         <th>Current Salary</th>
-                        <th>Offered By</th>
                         <th>Offered Salary</th>
                         <th>Contract Years</th>
                         <th>Time Remaining</th>
@@ -25,17 +24,18 @@
                         <tr>
                             <td>{{ offer.player_name }}</td>
                             <td>{{ offer.salary | int | format_currency }}</td>
-                            <td>{{ offer.username }}</td>
                             <td>{{ offer.offered_salary | int | format_currency }}</td>
                             <td>{{ offer.offered_contract_years }}</td>
                             <td class="timer" data-expires="{{ offer.expires_at }}">--:--</td>
                             <td>
                                 {% if offer.user_id != current_user.id %}
                                     <form method="POST" action="{{ url_for('raise_free_agent_offer', offer_id=offer.id) }}" style="display: inline;">
-                                        <button type="submit" class="btn btn-warning btn-sm">Raise Offer</button>
+                                        <button type="submit" class="btn btn-danger btn-sm raise-offer-btn" data-expires="{{ offer.expires_at }}" data-offer-id="{{ offer.id }}">Raise Offer</button>
                                     </form>
                                 {% else %}
-                                    <span class="text-muted">Your offer</span>
+                                    <form method="POST" action="{{ url_for('raise_free_agent_offer', offer_id=offer.id) }}" style="display: inline;">
+                                        <button type="submit" class="btn btn-warning btn-sm raise-offer-btn user-offer-btn" data-expires="{{ offer.expires_at }}" data-offer-id="{{ offer.id }}">Your offer</button>
+                                    </form>
                                 {% endif %}
                             </td>
                         </tr>
@@ -45,6 +45,14 @@
         {% else %}
             <p>No active offers at the moment.</p>
         {% endif %}
+        
+        <!-- Process Expired Offers Button -->
+        <div style="margin-top: 15px;">
+            <form method="POST" action="{{ url_for('process_expired_offers_manual') }}" style="display: inline;">
+                <button type="submit" class="btn btn-info">🔄 Process Expired Offers</button>
+            </form>
+            <small class="text-muted" style="margin-left: 10px;">Click to manually check and process any expired offers</small>
+        </div>
     </div>
 
     <!-- Filter Section -->
@@ -53,10 +61,14 @@
         <form method="GET" action="{{ url_for('free_agency') }}" class="filter-form">
             <div class="row">
                 <div class="col-md-3">
+                    <label for="player_name">Player Name:</label>
+                    <input type="text" class="form-control" id="player_name" name="player_name" placeholder="Search by name..." value="{{ request.args.get('player_name', '') }}">
+                </div>
+                <div class="col-md-2">
                     <label for="min_salary">Min Salary (€):</label>
                     <input type="number" class="form-control" id="min_salary" name="min_salary" value="{{ request.args.get('min_salary', '') }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label for="max_salary">Max Salary (€):</label>
                     <input type="number" class="form-control" id="max_salary" name="max_salary" value="{{ request.args.get('max_salary', '') }}">
                 </div>
@@ -78,7 +90,7 @@
                         <option value="Striker" {% if request.args.get('position') == 'Striker' %}selected{% endif %}>Striker</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label>&nbsp;</label><br>
                     <button type="submit" class="btn btn-primary">Filter</button>
                     <a href="{{ url_for('free_agency') }}" class="btn btn-secondary">Clear</a>
@@ -178,6 +190,39 @@
     </div>
 </div>
 
+<!-- Place Player Modal -->
+<div class="modal fade" id="placePlayerModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Place Player in Team</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="player-info">
+                    <p><strong>Player:</strong> <span id="placePlayerName"></span></p>
+                    <p><strong>Salary:</strong> <span id="placePlayerSalary"></span></p>
+                    <p><strong>Contract Years:</strong> <span id="placePlayerYears"></span></p>
+                    <p><strong>Status:</strong> <span class="text-danger">EXPIRED OFFER</span></p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="teamSelect">Select Team:</label>
+                    <select class="form-control" id="teamSelect" required>
+                        <option value="">Loading teams...</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmPlacePlayer">Place Player</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
 .section {
     margin-bottom: 30px;
@@ -225,7 +270,12 @@
 }
 
 .btn-warning {
-    background: linear-gradient(145deg, #f39c12, #e67e22);
+    background: linear-gradient(145deg, #f1c40f, #f39c12);
+    border: none;
+}
+
+.btn-danger {
+    background: linear-gradient(145deg, #e74c3c, #c0392b);
     border: none;
 }
 
@@ -321,6 +371,56 @@
     background: #ffffff !important;
     color: #000000 !important;
 }
+
+/* Place Player Modal styling */
+#placePlayerModal .modal-content {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    color: white;
+}
+
+#placePlayerModal .modal-header {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    border-bottom: 2px solid #d35400;
+}
+
+#placePlayerModal .modal-title {
+    color: white;
+}
+
+#placePlayerModal .player-info {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+#placePlayerModal .player-info p {
+    margin-bottom: 10px;
+    font-size: 16px;
+}
+
+#placePlayerModal .form-group label {
+    color: #f39c12;
+    font-weight: bold;
+}
+
+#placePlayerModal .form-control {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+#placePlayerModal .form-control:focus {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #f39c12;
+    color: white;
+    box-shadow: 0 0 0 0.2rem rgba(243, 156, 18, 0.25);
+}
+
+#placePlayerModal .form-control option {
+    background: #2c3e50;
+    color: white;
+}
 </style>
 
 <script>
@@ -349,6 +449,36 @@ function updateTimers() {
         if (diff <= 0) {
             timer.textContent = 'EXPIRED';
             timer.style.color = '#e74c3c';
+            
+                                // Handle expired offers
+                    const row = timer.closest('tr');
+                    const raiseBtn = row.querySelector('.raise-offer-btn');
+                    if (raiseBtn) {
+                        // Check if this is the current user's offer
+                        const isUserOffer = raiseBtn.classList.contains('user-offer-btn');
+                        if (isUserOffer) {
+                            // For user's own expired offers, change to "Place Player" button
+                            raiseBtn.textContent = 'Place Player';
+                            raiseBtn.classList.remove('btn-warning');
+                            raiseBtn.classList.add('btn-success');
+                            raiseBtn.disabled = false;
+                            
+                            // Change behavior to show place player modal
+                            const offerId = raiseBtn.dataset.offerId;
+                            if (offerId) {
+                                raiseBtn.onclick = function(e) {
+                                    e.preventDefault();
+                                    showPlacePlayerModal(offerId, timer.closest('tr'));
+                                };
+                            }
+                        } else {
+                            // For other users' expired offers, just disable
+                            raiseBtn.disabled = true;
+                            raiseBtn.textContent = 'Expired';
+                            raiseBtn.classList.remove('btn-danger');
+                            raiseBtn.classList.add('btn-secondary');
+                        }
+                    }
         } else {
             const hours = Math.floor(diff / 3600000);
             const minutes = Math.floor((diff % 3600000) / 60000);
@@ -385,5 +515,98 @@ setInterval(() => {
         })
         .catch(error => console.error('Error checking expired offers:', error));
 }, 30000); // Check every 30 seconds
+
+// Place Player Modal Functions
+let currentOfferId = null;
+let currentPlayerRow = null;
+
+function showPlacePlayerModal(offerId, playerRow) {
+    currentOfferId = offerId;
+    currentPlayerRow = playerRow;
+    
+    // Get player details from the row
+    const playerName = playerRow.querySelector('td:first-child').textContent;
+    const salary = playerRow.querySelector('td:nth-child(4)').textContent;
+    const years = playerRow.querySelector('td:nth-child(5)').textContent;
+    
+    // Populate modal with player info
+    document.getElementById('placePlayerName').textContent = playerName;
+    document.getElementById('placePlayerSalary').textContent = salary;
+    document.getElementById('placePlayerYears').textContent = years;
+    
+    // Load user teams
+    loadUserTeams();
+    
+    // Show modal
+    $('#placePlayerModal').modal('show');
+}
+
+function loadUserTeams() {
+    const teamSelect = document.getElementById('teamSelect');
+    teamSelect.innerHTML = '<option value="">Loading teams...</option>';
+    
+    fetch('/free_agency/get_user_teams')
+        .then(response => response.json())
+        .then(data => {
+            teamSelect.innerHTML = '<option value="">-- Select a Team --</option>';
+            data.teams.forEach(team => {
+                const option = document.createElement('option');
+                option.value = team.id;
+                option.textContent = team.name;
+                teamSelect.appendChild(option);
+            });
+        })
+        .catch(error => {
+            console.error('Error loading teams:', error);
+            teamSelect.innerHTML = '<option value="">Error loading teams</option>';
+        });
+}
+
+// Handle place player confirmation
+document.getElementById('confirmPlacePlayer').addEventListener('click', function() {
+    const selectedTeamId = document.getElementById('teamSelect').value;
+    
+    if (!selectedTeamId) {
+        alert('Please select a team');
+        return;
+    }
+    
+    // Disable button during request
+    this.disabled = true;
+    this.textContent = 'Placing...';
+    
+    fetch(`/free_agency/place_player/${currentOfferId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            selected_team_id: selectedTeamId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            $('#placePlayerModal').modal('hide');
+            // Remove the row from the current offers table
+            if (currentPlayerRow) {
+                currentPlayerRow.remove();
+            }
+            // Show success message
+            alert(`✅ ${data.message}`);
+        } else {
+            alert(`❌ Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Error placing player:', error);
+        alert('❌ An error occurred while placing the player.');
+    })
+    .finally(() => {
+        // Re-enable button
+        this.disabled = false;
+        this.textContent = 'Place Player';
+    });
+});
 </script>
 {% endblock %} 
