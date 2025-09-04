@@ -872,9 +872,9 @@ def pes6_player_details(player_id):
         'Favoured Side': player_data['favoured_side'],
         'Registered Position': player_data['registered_position'],
         'Game Position': player_data['game_position'],
-        'Games': 0,    # Added empty field
-        'Assists': 0,  # Added empty field
-        'Goals': 0     # Added empty field
+        'Games': player_data['games_played'] if 'games_played' in player_data.keys() else 0,
+        'Assists': player_data['assists'] if 'assists' in player_data.keys() else 0,
+        'Goals': player_data['goals'] if 'goals' in player_data.keys() else 0
     }
 
     club_name = None
@@ -1227,7 +1227,7 @@ def download_updated_csv():
         output_filepath = os.path.join(DOWNLOAD_FOLDER, output_filename)
 
         # Write the CSV with the original header
-        df_output.to_csv(output_filepath, index=False, encoding='iso-8859-1')
+        df_output.to_csv(output_filepath, index=False, encoding='utf-8')
 
         return send_from_directory(DOWNLOAD_FOLDER, output_filename, as_attachment=True)
 
@@ -3773,6 +3773,102 @@ def end_of_season_process():
         wage_rise_applied = cur.rowcount
         print(f"  ✅ {wage_rise_applied} players had their yearly wage rise applied")
 
+        # Step 6: Process player skill development
+        print("🔄 Step 6: Processing player skill development...")
+        from game_mechanics import calculate_player_skill_development
+        
+        # Get all players with their development keys
+        cur.execute("""
+            SELECT id, player_name, age, registered_position, development_key, trait_key,
+                   attack, defense, balance, stamina, top_speed, acceleration,
+                   response, agility, dribble_accuracy, dribble_speed,
+                   short_pass_accuracy, short_pass_speed, long_pass_accuracy, long_pass_speed,
+                   shot_accuracy, shot_power, shot_technique, free_kick_accuracy, swerve,
+                   heading, jump, technique, aggression, mentality, goal_keeping,
+                   team_work, consistency, condition_fitness, games_played, goals, assists
+            FROM players 
+            WHERE development_key > 0 AND trait_key IS NOT NULL
+        """)
+        
+        players_for_development = cur.fetchall()
+        players_developed = 0
+        total_skill_changes = 0
+        
+        for player in players_for_development:
+            # Convert player data to dictionary format
+            player_data = dict(player)
+            
+            # Calculate development
+            development_result = calculate_player_skill_development(
+                player_data, 
+                player_data['development_key'], 
+                player_data['trait_key']
+            )
+            
+            # Apply skill changes to database
+            skill_changes = development_result['skill_changes']
+            for skill_name, change_info in skill_changes.items():
+                if change_info['change'] != 0:  # Only update if there's a change
+                    new_value = change_info['new']
+                    cur.execute(f"UPDATE players SET {skill_name} = ? WHERE id = ?", 
+                              (new_value, player_data['id']))
+            
+            players_developed += 1
+            total_skill_changes += development_result['total_skill_change']
+            
+            # Progress indicator
+            if players_developed % 500 == 0:
+                print(f"    📈 Processed {players_developed} players...")
+        
+        print(f"  ✅ {players_developed} players had their skills developed (total change: {total_skill_changes:+d} points)")
+
+        # Step 7: Replace retired players with new generated players
+        print("🔄 Step 7: Processing player retirements and replacements...")
+        from game_mechanics import process_player_retirements_and_replacements, generate_new_player, generate_proper_regen
+        
+        # Process retirements and generate replacements
+        retirement_result = process_player_retirements_and_replacements('pes6_league_db.sqlite')
+        
+        if 'error' in retirement_result:
+            print(f"  ❌ Error processing retirements: {retirement_result['error']}")
+            retired_count = 0
+            new_players_generated = 0
+            teams_updated = []
+        else:
+            retired_count = len(retirement_result['retired_players'])
+            new_players_generated = 0
+            teams_updated = set()
+            
+            # Generate replacement data but don't insert yet (to avoid database locks)
+            replacement_players = []
+            
+            for retired_player in retirement_result['retired_players']:
+                # Generate a proper regen based on the retiring player
+                new_player = generate_proper_regen(
+                    retired_player_data=retired_player,
+                    db_path='pes6_league_db.sqlite'
+                )
+                
+                # Store the replacement data
+                replacement_players.append({
+                    'new_player': new_player,
+                    'retired_player': retired_player
+                })
+                
+                # Get team name for reporting
+                cur.execute("SELECT club_name FROM teams WHERE id = ?", (retired_player['club_id'],))
+                team_result = cur.fetchone()
+                team_name = team_result['club_name'] if team_result else "Unknown Team"
+                teams_updated.add(team_name)
+                
+                print(f"    🔄 Prepared replacement: {retired_player['player_name']} ({retired_player['age']}yo, {retired_player['registered_position']}) → {new_player['player_name']} ({new_player['age']}yo, {new_player['nationality']}) at {team_name}")
+            
+            teams_updated = list(teams_updated)
+            print(f"  ✅ {retired_count} players retiring, {len(replacement_players)} replacements prepared for {len(teams_updated)} teams")
+            
+            # Note: Actual insertion will be done after the main transaction is committed
+            # to avoid database locking issues
+
         # Create a summary blog post
         summary_title = f"🏆 End of Season Processing Complete"
         summary_content = f"""
@@ -3784,16 +3880,95 @@ def end_of_season_process():
         <li><strong>📜 Contracts:</strong> {contract_updated} players had contracts reduced by 1 year</li>
         <li><strong>💵 Salaries:</strong> All {salary_doubled} players had salaries doubled</li>
         <li><strong>📈 Wage Rises:</strong> {wage_rise_applied} players had yearly wage rises applied</li>
+        <li><strong>🎯 Skill Development:</strong> {players_developed} players had their skills developed (total change: {total_skill_changes:+d} points)</li>
+        <li><strong>👋 Player Retirements:</strong> {retired_count} players retired from the league</li>
+        <li><strong>🌟 New Talent:</strong> {new_players_generated} new young players (16-18 years old) joined to replace retirees</li>
         </ul>
         <p><strong>✅ The new season is ready to begin!</strong></p>
-        <p>All clubs have settled their financial obligations and player contracts have been updated for the upcoming season.</p>
+        <p>All clubs have settled their financial obligations, player contracts have been updated, skills have evolved, veterans have retired, and fresh talent has entered the league for the upcoming season.</p>
         """
         post_transfer_news(summary_title, summary_content, user_id=1)
         print(f"📊 Summary blog post created for end of season processing")
 
         db_helper.commit()
 
-        flash(f'End of season processing completed! {payments_processed} users had salary bills processed, {cpu_teams_processed} CPU teams updated, {age_updated} players aged, {contract_updated} contracts reduced, {salary_doubled} salaries doubled, and {wage_rise_applied} wage rises applied.', 'success')
+        # Now replace the retiring players with regens (after main transaction is committed)
+        if 'replacement_players' in locals() and replacement_players:
+            print("🔄 Replacing retiring players with regens...")
+            
+            for replacement in replacement_players:
+                try:
+                    retired_id = replacement['retired_player']['id']
+                    new_player_data = replacement['new_player']
+                    
+                    # Update the retiring player with regen data (keeping the same ID)
+                    cur.execute("""
+                        UPDATE players SET 
+                            player_name = ?, age = ?, nationality = ?, skin_color = ?,
+                            strong_foot = ?, favoured_side = ?, registered_position = ?,
+                            salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?,
+                            development_key = ?, trait_key = ?, games_played = ?, goals = ?, assists = ?,
+                            attack = ?, defense = ?, balance = ?, stamina = ?, top_speed = ?,
+                            acceleration = ?, response = ?, agility = ?, dribble_accuracy = ?,
+                            dribble_speed = ?, short_pass_accuracy = ?, short_pass_speed = ?,
+                            long_pass_accuracy = ?, long_pass_speed = ?, shot_accuracy = ?,
+                            shot_power = ?, shot_technique = ?, free_kick_accuracy = ?, swerve = ?,
+                            heading = ?, jump = ?, technique = ?, aggression = ?, mentality = ?,
+                            goal_keeping = ?, team_work = ?, consistency = ?, condition_fitness = ?,
+                            gk = ?, cwp = ?, cbt = ?, sb = ?, dmf = ?, wb = ?, cmf = ?, smf = ?,
+                            amf = ?, wf = ?, ss = ?, cf = ?, dribbling_skill = ?, tactical_dribble = ?,
+                            positioning = ?, reaction = ?, playmaking = ?, passing = ?, scoring = ?,
+                            one_one_scoring = ?, post_player = ?, lines = ?, middle_shooting = ?,
+                            side = ?, centre = ?, penalties = ?, one_touch_pass = ?, outside = ?,
+                            marking = ?, sliding = ?, covering = ?, d_line_control = ?,
+                            penalty_stopper = ?, one_on_one_stopper = ?, long_throw = ?
+                        WHERE id = ?
+                    """, (
+                        new_player_data['player_name'], new_player_data['age'], new_player_data['nationality'],
+                        new_player_data['skin_color'], new_player_data['strong_foot'], new_player_data['favoured_side'],
+                        new_player_data['registered_position'], new_player_data['salary'],
+                        new_player_data['contract_years_remaining'], new_player_data['yearly_wage_rise'],
+                        new_player_data['development_key'], new_player_data['trait_key'],
+                        new_player_data['games_played'], new_player_data['goals'], new_player_data['assists'],
+                        new_player_data['attack'], new_player_data['defense'], new_player_data['balance'],
+                        new_player_data['stamina'], new_player_data['top_speed'], new_player_data['acceleration'],
+                        new_player_data['response'], new_player_data['agility'], new_player_data['dribble_accuracy'],
+                        new_player_data['dribble_speed'], new_player_data['short_pass_accuracy'],
+                        new_player_data['short_pass_speed'], new_player_data['long_pass_accuracy'],
+                        new_player_data['long_pass_speed'], new_player_data['shot_accuracy'],
+                        new_player_data['shot_power'], new_player_data['shot_technique'],
+                        new_player_data['free_kick_accuracy'], new_player_data['swerve'],
+                        new_player_data['heading'], new_player_data['jump'], new_player_data['technique'],
+                        new_player_data['aggression'], new_player_data['mentality'],
+                        new_player_data['goal_keeping'], new_player_data['team_work'],
+                        new_player_data['consistency'], new_player_data['condition_fitness'],
+                        new_player_data['gk'], new_player_data['cwp'], new_player_data['cbt'],
+                        new_player_data['sb'], new_player_data['dmf'], new_player_data['wb'],
+                        new_player_data['cmf'], new_player_data['smf'], new_player_data['amf'],
+                        new_player_data['wf'], new_player_data['ss'], new_player_data['cf'],
+                        new_player_data['dribbling_skill'], new_player_data['tactical_dribble'],
+                        new_player_data['positioning'], new_player_data['reaction'],
+                        new_player_data['playmaking'], new_player_data['passing'],
+                        new_player_data['scoring'], new_player_data['one_one_scoring'],
+                        new_player_data['post_player'], new_player_data['lines'],
+                        new_player_data['middle_shooting'], new_player_data['side'],
+                        new_player_data['centre'], new_player_data['penalties'],
+                        new_player_data['one_touch_pass'], new_player_data['outside'],
+                        new_player_data['marking'], new_player_data['sliding'],
+                        new_player_data['covering'], new_player_data['d_line_control'],
+                        new_player_data['penalty_stopper'], new_player_data['one_on_one_stopper'],
+                        new_player_data['long_throw'], retired_id
+                    ))
+                    
+                    new_players_generated += 1
+                    print(f"    ✅ Replaced {replacement['retired_player']['player_name']} (ID: {retired_id}) with {new_player_data['player_name']}")
+                except Exception as e:
+                    print(f"    ❌ Error replacing {replacement['retired_player']['player_name']}: {e}")
+            
+            db_helper.commit()
+            print(f"  ✅ Successfully replaced {new_players_generated} retiring players with regens")
+
+        flash(f'End of season processing completed! {payments_processed} users had salary bills processed, {cpu_teams_processed} CPU teams updated, {age_updated} players aged, {contract_updated} contracts reduced, {salary_doubled} salaries doubled, {wage_rise_applied} wage rises applied, {players_developed} players had their skills developed, {retired_count} players retired, and {new_players_generated} new young players joined to replace them.', 'success')
 
     except Exception as e:
         db_helper.get_connection().rollback()

@@ -83,13 +83,13 @@
                 </form>
             </div>
             
-            <div class="col-md-6">
-                <h5>Process Salary Bills (All Users)</h5>
-                <p>Directly deduct salary bills from all users' budgets and create blog posts about the payments.</p>
-                <form method="post" action="{{ url_for('pay_current_salary_bill') }}" onsubmit="return confirm('Process salary bills for all users?\n\nThis will:\n- Calculate each user\'s salary bill\n- Directly deduct from their budgets\n- Create blog posts for each payment\n- No transfers to accept\n\nThis action cannot be undone!')">
-                    <button type="submit" class="button" style="background-color: #d9534f;">🏦 Process Salary Bills</button>
-                </form>
-            </div>
+                           <div class="col-md-6">
+                    <h5>Process Salary Bills (All Users)</h5>
+                    <p>Directly deduct salary bills from all users' budgets and create blog posts about the payments.</p>
+                    <form method="post" action="{{ url_for('pay_current_salary_bill') }}" onsubmit="return confirm('Process salary bills for all users?\n\nThis will:\n- Calculate each user\'s salary bill\n- Directly deduct from their budgets\n- Create blog posts for each payment\n- No transfers to accept\n\nThis action cannot be undone!')">
+                        <button type="submit" class="button" style="background-color: #d9534f;">🏦 Process Salary Bills</button>
+                    </form>
+                </div>
         </div>
         
         <div class="row mt-3">

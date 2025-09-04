@@ -57,6 +57,46 @@ def safe_refresh_database():
             else:
                 print("  ℹ️  available_cap column already exists")
         
+        # Add development_key column to players table
+        print("\n📈 Adding development_key column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN development_key INTEGER DEFAULT 0")
+            print("  ✅ Added development_key column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding development_key column: {e}")
+            else:
+                print("  ℹ️  development_key column already exists")
+        
+        # Add trait_key column to players table
+        print("\n🎭 Adding trait_key column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN trait_key INTEGER DEFAULT 0")
+            print("  ✅ Added trait_key column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding trait_key column: {e}")
+            else:
+                print("  ℹ️  trait_key column already exists")
+        
+        # Add performance tracking columns to players table
+        print("\n📊 Adding performance tracking columns to players table...")
+        performance_columns = [
+            ('players', 'games_played', 'INTEGER DEFAULT 0'),
+            ('players', 'goals', 'INTEGER DEFAULT 0'),
+            ('players', 'assists', 'INTEGER DEFAULT 0')
+        ]
+        
+        for table, column, definition in performance_columns:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                print(f"  ✅ Added {column} column")
+            except Exception as e:
+                if 'duplicate column name' not in str(e):
+                    print(f"  ❌ Error adding {column} column: {e}")
+                else:
+                    print(f"  ℹ️  {column} column already exists")
+        
         # Add other missing columns that might be needed
         print("\n📋 Adding missing columns to offers table...")
         try:
@@ -203,27 +243,28 @@ def create_new_database():
         conn.commit()
         print('Schema committed.')
         
-    # Ensure CPU user exists
-    try:
-        cursor.execute("SELECT id FROM users WHERE id = 1")
-        result = cursor.fetchone()
-        if not result:
-            cursor.execute("INSERT INTO users (id, username, password, email) VALUES (?, ?, ?, ?)", (1, 'CPU', '', 'cpu@localhost'))
-            conn.commit()
-            print('CPU user created.')
-        else:
-            print('CPU user already exists.')
-    except Exception as e:
-        print(f"Error ensuring CPU user: {e}")
-    
+        # Ensure CPU user exists
+        try:
+            cursor.execute("SELECT id FROM users WHERE id = 1")
+            result = cursor.fetchone()
+            if not result:
+                cursor.execute("INSERT INTO users (id, username, password, email) VALUES (?, ?, ?, ?)", (1, 'CPU', '', 'cpu@localhost'))
+                conn.commit()
+                print('CPU user created.')
+            else:
+                print('CPU user already exists.')
+        except Exception as e:
+            print(f"Error ensuring CPU user: {e}")
+        
         # Add new columns for financial data
         try:
             cursor.execute("ALTER TABLE teams ADD COLUMN total_salaries INTEGER DEFAULT 0")
             cursor.execute("ALTER TABLE teams ADD COLUMN budget INTEGER DEFAULT 0")
             cursor.execute("ALTER TABLE teams ADD COLUMN available_cap INTEGER DEFAULT 0")
-            print("Financial columns added to teams table.")
-    except Exception as e:
-            print(f"Error adding financial columns: {e}")
+            cursor.execute("ALTER TABLE players ADD COLUMN development_key INTEGER DEFAULT 0")
+            print("Financial columns and development_key added to tables.")
+        except Exception as e:
+            print(f"Error adding columns: {e}")
         
         conn.commit()
         
@@ -231,8 +272,8 @@ def create_new_database():
         print(f"Error executing schema script:\n{e}")
         conn.rollback()
     finally:
-    cursor.close()
-    conn.close()
+        cursor.close()
+        conn.close()
     
     print('New database created.')
 
@@ -453,6 +494,7 @@ def safe_main():
     print("4. ✅ Initialize budget system for new users")
     print("5. ✅ Ensure CPU user exists")
     print("6. ✅ Populate team_players for CPU teams")
+    print("7. ✅ Assign development keys to players")
     print("\n⚠️  EXISTING USER DATA WILL BE PRESERVED!")
     
     # Safe operations that don't erase data
@@ -462,6 +504,25 @@ def safe_main():
     calculate_skill_ratings()
     populate_team_players_for_cpu()
     initialize_budget_system()
+    
+    # Assign development keys to players
+    print("\n🎭 Assigning development keys to players...")
+    try:
+        from game_mechanics import assign_development_keys_to_players, verify_development_keys
+        result = assign_development_keys_to_players(DB_PATH)
+        if result.get('new_keys_assigned', 0) > 0:
+            print(f"✅ Successfully assigned development keys to {result['new_keys_assigned']} players")
+        else:
+            print("ℹ️  All players already have development keys")
+        
+        # Verify the assignments
+        print("\n🔍 Verifying development key assignments...")
+        verify_result = verify_development_keys(DB_PATH)
+        if 'error' not in verify_result:
+            print("✅ Development key verification completed")
+        
+    except Exception as e:
+        print(f"❌ Error assigning development keys: {e}")
     
     print("\n✅ All safe operations completed successfully!")
     print("🎉 Your existing data is safe and new features have been added!")
