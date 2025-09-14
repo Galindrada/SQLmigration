@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football Club Overlay Generator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Football Club Overlay Generator</h1>
+        <p>Create professional overlays for CapCut showing final scores, competitions, and goal scorers</p>
+        
+        <div class="form-section">
+            <div class="team-inputs">
+                <div class="team-input">
+                    <h3>Home Team</h3>
+                    <select id="homeTeam" onchange="updateTeamLogo('home')">
+                        <option value="">Select Team</option>
+                        <option value="barcelona">FC Barcelona</option>
+                        <option value="real-madrid">Real Madrid</option>
+                        <option value="manchester-united">Manchester United</option>
+                        <option value="manchester-city">Manchester City</option>
+                        <option value="liverpool">Liverpool</option>
+                        <option value="chelsea">Chelsea</option>
+                        <option value="arsenal">Arsenal</option>
+                        <option value="tottenham">Tottenham</option>
+                        <option value="juventus">Juventus</option>
+                        <option value="ac-milan">AC Milan</option>
+                        <option value="inter-milan">Inter Milan</option>
+                        <option value="bayern-munich">Bayern Munich</option>
+                        <option value="borussia-dortmund">Borussia Dortmund</option>
+                        <option value="psg">Paris Saint-Germain</option>
+                        <option value="atletico-madrid">Atlético Madrid</option>
+                    </select>
+                    <input type="number" id="homeScore" placeholder="Score" min="0" max="20">
+                    <textarea id="homeScorers" placeholder="Goal scorers (one per line)&#10;e.g. Messi 23'&#10;Suarez 45'"></textarea>
+                </div>
+                
+                <div class="vs-section">
+                    <span class="vs">VS</span>
+                </div>
+                
+                <div class="team-input">
+                    <h3>Away Team</h3>
+                    <select id="awayTeam" onchange="updateTeamLogo('away')">
+                        <option value="">Select Team</option>
+                        <option value="barcelona">FC Barcelona</option>
+                        <option value="real-madrid">Real Madrid</option>
+                        <option value="manchester-united">Manchester United</option>
+                        <option value="manchester-city">Manchester City</option>
+                        <option value="liverpool">Liverpool</option>
+                        <option value="chelsea">Chelsea</option>
+                        <option value="arsenal">Arsenal</option>
+                        <option value="tottenham">Tottenham</option>
+                        <option value="juventus">Juventus</option>
+                        <option value="ac-milan">AC Milan</option>
+                        <option value="inter-milan">Inter Milan</option>
+                        <option value="bayern-munich">Bayern Munich</option>
+                        <option value="borussia-dortmund">Borussia Dortmund</option>
+                        <option value="psg">Paris Saint-Germain</option>
+                        <option value="atletico-madrid">Atlético Madrid</option>
+                    </select>
+                    <input type="number" id="awayScore" placeholder="Score" min="0" max="20">
+                    <textarea id="awayScorers" placeholder="Goal scorers (one per line)&#10;e.g. Benzema 67'&#10;Vinicius 89'"></textarea>
+                </div>
+            </div>
+            
+            <div class="match-details">
+                <input type="text" id="competition" placeholder="Competition (e.g. UEFA Champions League, Premier League)">
+                <input type="text" id="matchday" placeholder="Matchday/Round (e.g. Final, Matchday 3)">
+                <input type="date" id="matchDate">
+                <select id="overlayStyle">
+                    <option value="modern">Modern Style</option>
+                    <option value="classic">Classic Style</option>
+                    <option value="minimal">Minimal Style</option>
+                    <option value="champions-league">Champions League Style</option>
+                </select>
+            </div>
+            
+            <div class="controls">
+                <button onclick="generateOverlay()">Generate Overlay</button>
+                <button onclick="downloadOverlay()">Download as PNG</button>
+                <button onclick="clearForm()">Clear All</button>
+            </div>
+        </div>
+        
+        <div class="preview-section">
+            <h2>Preview</h2>
+            <div id="overlay-container">
+                <div id="overlay" class="overlay modern">
+                    <div class="overlay-content">
+                        <div class="competition-header">
+                            <span class="competition-name">Select teams and competition</span>
+                            <span class="matchday"></span>
+                        </div>
+                        
+                        <div class="match-info">
+                            <div class="team home-team">
+                                <div class="team-logo" id="homeLogo">
+                                    <span class="logo-placeholder">🏠</span>
+                                </div>
+                                <div class="team-name" id="homeTeamName">Home</div>
+                                <div class="team-score" id="homeScoreDisplay">-</div>
+                            </div>
+                            
+                            <div class="match-separator">
+                                <div class="vs-text">VS</div>
+                                <div class="match-date" id="matchDateDisplay"></div>
+                            </div>
+                            
+                            <div class="team away-team">
+                                <div class="team-logo" id="awayLogo">
+                                    <span class="logo-placeholder">✈️</span>
+                                </div>
+                                <div class="team-name" id="awayTeamName">Away</div>
+                                <div class="team-score" id="awayScoreDisplay">-</div>
+                            </div>
+                        </div>
+                        
+                        <div class="scorers-section">
+                            <div class="home-scorers">
+                                <h4>Goal Scorers</h4>
+                                <div id="homeScorersDisplay" class="scorers-list"></div>
+                            </div>
+                            <div class="away-scorers">
+                                <h4>Goal Scorers</h4>
+                                <div id="awayScorersDisplay" class="scorers-list"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
