@@ -121,5 +121,527 @@
             </div>
         </div>
     </div>
+
+    <!-- Contract Renewal Section -->
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-file-contract"></i> Expiring Contracts
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p style="color: black;">Manage players with expired contracts. Negotiate new terms or let them enter free agency.</p>
+                    <button id="loadExpiredContracts" class="btn btn-warning">
+                        <i class="fas fa-search"></i> Check Expired Contracts
+                    </button>
+                    
+                    <!-- Expired Contracts Table -->
+                    <div id="expiredContractsTable" style="display: none; margin-top: 20px;">
+                        <h6>Players with Expired Contracts:</h6>
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Player</th>
+                                        <th>Position</th>
+                                        <th>Age</th>
+                                        <th>Demands</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="expiredContractsList">
+                                    <!-- Will be populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+
+<!-- Contract Negotiation Modal -->
+<div class="modal fade" id="contractModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Contract Negotiation</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="contractForm">
+                    <input type="hidden" id="playerId" name="player_id">
+                    
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="form-group">
+                                <label for="playerName">Player:</label>
+                                <input type="text" id="playerName" class="form-control" readonly>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="salary">Annual Salary (€):</label>
+                                <input type="number" id="salary" name="salary" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="signingBonus">Signing Bonus (€):</label>
+                                <input type="number" id="signingBonus" name="signing_bonus" class="form-control" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="contractYears">Contract Years:</label>
+                                        <input type="text" id="contractYears" class="form-control" readonly>
+                                        <small class="text-muted">Player determines contract length</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="yearlyWageRise">Yearly Wage Rise:</label>
+                                        <input type="text" id="yearlyWageRise" class="form-control" readonly>
+                                        <small class="text-muted">Player determines yearly increase</small>
+                                    </div>
+                                </div>
+                            </div>
+                    
+                    <div class="alert alert-info">
+                        <strong>Player Demands:</strong>
+                        <div id="playerDemands"></div>
+                    </div>
+                    
+                    <!-- Patience Meter -->
+                    <div class="alert alert-warning">
+                        <strong>Player Patience:</strong>
+                        <div id="patienceMeter" class="d-flex mt-2">
+                            <div class="patience-bar" style="width: 20%; height: 20px; border: 1px solid #ccc; margin-right: 2px;"></div>
+                            <div class="patience-bar" style="width: 20%; height: 20px; border: 1px solid #ccc; margin-right: 2px;"></div>
+                            <div class="patience-bar" style="width: 20%; height: 20px; border: 1px solid #ccc; margin-right: 2px;"></div>
+                            <div class="patience-bar" style="width: 20%; height: 20px; border: 1px solid #ccc; margin-right: 2px;"></div>
+                            <div class="patience-bar" style="width: 20%; height: 20px; border: 1px solid #ccc;"></div>
+                        </div>
+                        <small class="text-muted">Player will walk away if patience runs out!</small>
+                    </div>
+                    
+                    <!-- Negotiation Feedback Area -->
+                    <div id="negotiationFeedback"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="submitContract">Submit Offer</button>
+                <button type="button" class="btn btn-danger" id="rejectContract">Let Player Go</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const loadBtn = document.getElementById('loadExpiredContracts');
+    const tableDiv = document.getElementById('expiredContractsTable');
+    const contractsList = document.getElementById('expiredContractsList');
+    
+    loadBtn.addEventListener('click', function() {
+        fetch('/contract_renewal/get_expired_players')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.players.length > 0) {
+                    contractsList.innerHTML = '';
+                    data.players.forEach(player => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${player.player_name}</td>
+                            <td>${player.registered_position}</td>
+                            <td>${player.age}</td>
+                            <td>€${player.contract_terms.salary_demand.toLocaleString()}/year + €${player.contract_terms.signing_bonus.toLocaleString()} bonus<br>
+                                <small>${player.contract_terms.contract_years} years, ${(player.contract_terms.yearly_wage_rise * 100).toFixed(1)}% yearly rise</small>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-success" onclick="signPlayer(${player.id})">
+                                    <i class="fas fa-check"></i> Sign
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="letPlayerWalkAway(${player.id})">
+                                    <i class="fas fa-walking"></i> Walk Away
+                                </button>
+                            </td>
+                        `;
+                        contractsList.appendChild(row);
+                    });
+                    tableDiv.style.display = 'block';
+                } else {
+                    alert('No players with expired contracts found.');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error loading expired contracts.');
+            });
+    });
+    
+    // Handle sign and walk away button clicks
+    window.signPlayer = function(playerId) {
+        if (confirm('Are you sure you want to sign this player with their demands?')) {
+            const formData = new FormData();
+            formData.append('player_id', playerId);
+            
+            fetch('/contract_renewal/sign', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (data.accepted) {
+                        alert('✅ ' + data.message);
+                        location.reload();
+                    } else {
+                        alert('❌ ' + data.message);
+                    }
+                } else {
+                    alert('❌ Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('❌ An error occurred while signing the contract.');
+            });
+        }
+    };
+    
+    window.letPlayerWalkAway = function(playerId) {
+        if (confirm('Are you sure you want to let this player walk away to free agency?')) {
+            const formData = new FormData();
+            formData.append('player_id', playerId);
+            
+            fetch('/contract_renewal/walk_away', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('ℹ️ ' + data.message);
+                    location.reload();
+                } else {
+                    alert('❌ Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('❌ An error occurred while letting the player walk away.');
+            });
+        }
+    };
+    
+        function openContractModal(player) {
+            document.getElementById('playerId').value = player.id;
+            document.getElementById('playerName').value = player.player_name;
+            document.getElementById('salary').value = player.contract_terms.salary_demand;
+            document.getElementById('signingBonus').value = player.contract_terms.signing_bonus;
+            
+            // Set player-determined terms (readonly)
+            document.getElementById('contractYears').value = `${player.contract_terms.contract_years} years`;
+            document.getElementById('yearlyWageRise').value = `${(player.contract_terms.yearly_wage_rise * 100).toFixed(1)}%`;
+            
+            // Initialize negotiation attempts counter
+            document.getElementById('contractModal').dataset.negotiationAttempts = '1';
+            
+            // Show player demands
+            const demandsDiv = document.getElementById('playerDemands');
+            demandsDiv.innerHTML = `
+                <ul>
+                    <li>Current Salary Demand: €${player.contract_terms.salary_demand.toLocaleString()}/year</li>
+                    <li>Current Signing Bonus: €${player.contract_terms.signing_bonus.toLocaleString()}</li>
+                    <li>Contract Years: ${player.contract_terms.contract_years} (Player determined)</li>
+                    <li>Yearly Wage Rise: ${(player.contract_terms.yearly_wage_rise * 100).toFixed(1)}% (Player determined)</li>
+                </ul>
+            `;
+            
+            // Clear any previous feedback
+            const feedbackDiv = document.getElementById('negotiationFeedback');
+            if (feedbackDiv) {
+                feedbackDiv.innerHTML = '';
+            }
+            
+            // Show patience meter (will be updated after first negotiation)
+            updatePatienceMeter(5); // Default, will be updated with actual max_patience
+            
+            $('#contractModal').modal('show');
+        }
+    
+    function updatePatienceMeter(patience, maxPatience = 5) {
+        const patienceDiv = document.getElementById('patienceMeter');
+        if (patienceDiv) {
+            const patienceBars = patienceDiv.querySelectorAll('.patience-bar');
+            
+            // Show/hide bars based on max patience
+            patienceBars.forEach((bar, index) => {
+                if (index < maxPatience) {
+                    bar.style.display = 'block';
+                    if (index < patience) {
+                        bar.style.backgroundColor = '#28a745'; // Green
+                    } else {
+                        bar.style.backgroundColor = '#dc3545'; // Red
+                    }
+                } else {
+                    bar.style.display = 'none';
+                }
+            });
+        }
+    }
+    
+        // Handle contract submission
+        document.getElementById('submitContract').addEventListener('click', function() {
+            const formData = new FormData();
+            const submitBtn = document.getElementById('submitContract');
+            const feedbackDiv = document.getElementById('negotiationFeedback');
+            const modal = document.getElementById('contractModal');
+            
+            // Only send salary and signing bonus (player determines other terms)
+            formData.append('player_id', document.getElementById('playerId').value);
+            formData.append('salary', document.getElementById('salary').value);
+            formData.append('signing_bonus', document.getElementById('signingBonus').value);
+            
+            // Get current negotiation attempts
+            const currentAttempts = parseInt(modal.dataset.negotiationAttempts) || 1;
+            formData.append('negotiation_attempts', currentAttempts);
+        
+        // Disable button and show loading
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Negotiating...';
+        
+        fetch('/contract_renewal/negotiate', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Re-enable button
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = 'Submit Offer';
+            
+            if (data.success) {
+                if (data.accepted) {
+                    // Contract accepted - show success and close modal
+                    feedbackDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>✅ Contract Accepted!</strong><br>
+                            ${data.message}
+                        </div>
+                    `;
+                    
+                    // Close modal after 2 seconds and reload
+                    setTimeout(() => {
+                        $('#contractModal').modal('hide');
+                        location.reload();
+                    }, 2000);
+                } else if (data.walked_away) {
+                    // Player walked away - show message and close modal
+                    feedbackDiv.innerHTML = `
+                        <div class="alert alert-danger">
+                            <strong>😤 Player Walked Away!</strong><br>
+                            ${data.message}
+                        </div>
+                    `;
+                    
+                    // Close modal after 3 seconds and reload
+                    setTimeout(() => {
+                        $('#contractModal').modal('hide');
+                        location.reload();
+                    }, 3000);
+                } else {
+                    // Contract rejected - show feedback and allow renegotiation
+                    const patienceRemaining = data.patience_remaining || 0;
+                    const negotiationAttempts = data.negotiation_attempts || 1;
+                    
+                    // Update negotiation attempts counter for next attempt
+                    modal.dataset.negotiationAttempts = negotiationAttempts + 1;
+                    
+                    // Update patience meter
+                    updatePatienceMeter(patienceRemaining, data.max_patience || 5);
+                    
+                    feedbackDiv.innerHTML = `
+                        <div class="alert alert-warning">
+                            <strong>❌ Contract Rejected</strong><br>
+                            ${data.message}
+                            ${data.player_demands ? `
+                                <br><br><strong>Player's minimum demands:</strong>
+                                <ul>
+                                    <li>Salary: €${data.player_demands.min_salary.toLocaleString()}/year</li>
+                                    <li>Signing Bonus: €${data.player_demands.min_bonus.toLocaleString()}</li>
+                                    <li>Contract Years: ${data.player_demands.min_years}</li>
+                                </ul>
+                            ` : ''}
+                            <br><strong>Patience remaining: ${patienceRemaining}/${data.max_patience || 5}</strong>
+                        </div>
+                    `;
+                    
+                    // Update form with current demands (which change with concessions)
+                    if (data.player_demands) {
+                        const currentSalary = data.player_demands.current_salary || data.player_demands.min_salary;
+                        const currentBonus = data.player_demands.current_bonus || data.player_demands.min_bonus;
+                        
+                        document.getElementById('salary').value = Math.ceil(currentSalary);
+                        document.getElementById('signingBonus').value = Math.ceil(currentBonus);
+                        
+                        // Update the player demands display to show current demands
+                        const demandsDiv = document.getElementById('playerDemands');
+                        if (demandsDiv) {
+                            const currentSalary = data.player_demands.current_salary || data.player_demands.min_salary;
+                            const currentBonus = data.player_demands.current_bonus || data.player_demands.min_bonus;
+                            
+                            demandsDiv.innerHTML = `
+                                <ul>
+                                    <li>Current Salary Demand: €${currentSalary.toLocaleString()}/year</li>
+                                    <li>Current Signing Bonus: €${currentBonus.toLocaleString()}</li>
+                                    <li>Contract Years: ${data.player_demands.contract_years} (Player determined)</li>
+                                    <li>Yearly Wage Rise: ${(data.player_demands.yearly_wage_rise * 100).toFixed(1)}% (Player determined)</li>
+                                </ul>
+                            `;
+                        }
+                        
+                        // Update readonly fields with player's terms
+                        document.getElementById('contractYears').value = `${data.player_demands.contract_years} years`;
+                        document.getElementById('yearlyWageRise').value = `${(data.player_demands.yearly_wage_rise * 100).toFixed(1)}%`;
+                    }
+                }
+            } else {
+                // Error occurred
+                feedbackDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>❌ Error</strong><br>
+                        ${data.error || 'An error occurred during negotiation.'}
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = 'Submit Offer';
+            
+            feedbackDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>❌ Error</strong><br>
+                    An error occurred while submitting the contract offer.
+                </div>
+            `;
+        });
+    });
+    
+    // Handle modal close (walk-away scenario)
+    $('#contractModal').on('hidden.bs.modal', function() {
+        const playerId = document.getElementById('playerId').value;
+        const modal = document.getElementById('contractModal');
+        const negotiationAttempts = parseInt(modal.dataset.negotiationAttempts) || 1;
+        
+        // Only handle walk-away if negotiation has started (more than 1 attempt)
+        if (negotiationAttempts > 1) {
+            const formData = new FormData();
+            formData.append('player_id', playerId);
+            
+            fetch('/contract_renewal/walk_away', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show walk-away message briefly
+                    const feedbackDiv = document.getElementById('negotiationFeedback');
+                    if (feedbackDiv) {
+                        feedbackDiv.innerHTML = `
+                            <div class="alert alert-info">
+                                <strong>ℹ️ Walk Away</strong><br>
+                                ${data.message}
+                            </div>
+                        `;
+                    }
+                    
+                    // Reload page after a short delay
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                }
+            })
+            .catch(error => {
+                console.error('Error handling walk away:', error);
+            });
+        }
+    });
+    
+    // Handle contract rejection
+    document.getElementById('rejectContract').addEventListener('click', function() {
+        if (confirm('Are you sure you want to let this player go to free agency?')) {
+            const formData = new FormData();
+            formData.append('player_id', document.getElementById('playerId').value);
+            const rejectBtn = document.getElementById('rejectContract');
+            const feedbackDiv = document.getElementById('negotiationFeedback');
+            
+            // Disable button and show loading
+            rejectBtn.disabled = true;
+            rejectBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            
+            fetch('/contract_renewal/reject', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Re-enable button
+                rejectBtn.disabled = false;
+                rejectBtn.innerHTML = 'Let Player Go';
+                
+                if (data.success) {
+                    feedbackDiv.innerHTML = `
+                        <div class="alert alert-info">
+                            <strong>ℹ️ Player Released</strong><br>
+                            ${data.message}
+                        </div>
+                    `;
+                    
+                    // Close modal after 2 seconds and reload
+                    setTimeout(() => {
+                        $('#contractModal').modal('hide');
+                        location.reload();
+                    }, 2000);
+                } else {
+                    feedbackDiv.innerHTML = `
+                        <div class="alert alert-danger">
+                            <strong>❌ Error</strong><br>
+                            ${data.error || 'An error occurred while rejecting the contract.'}
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                rejectBtn.disabled = false;
+                rejectBtn.innerHTML = 'Let Player Go';
+                
+                feedbackDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>❌ Error</strong><br>
+                        An error occurred while rejecting the contract.
+                    </div>
+                `;
+            });
+        }
+    });
+});
+</script>
 {% endblock %}

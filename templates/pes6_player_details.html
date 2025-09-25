@@ -5,7 +5,6 @@
 {% block content %}
     <h2>{{ player.player_name }} - Full Skillset</h2>
     <p><a href="{{ url_for('pes6_team_details', team_id=player.club_id) }}">← Back to {{ basic_info.Club }} Roster</a></p>
-    <button type="button" class="btn btn-primary btn-sm negotiate-btn" data-player-id="{{ player.id }}" data-player-name="{{ player.player_name }}" data-toggle="modal" data-target="#negotiateModal">Negotiate</button>
 
     <div class="player-summary-grid">
         <div class="player-info-section">
@@ -28,8 +27,59 @@
                     <p><strong>Contract Years:</strong> {{ financial_info['Contract Years'] }}</p>
                     <p><strong>Market Value:</strong> {{ financial_info['Market Value'] | int | format_currency }}</p>
                     <p><strong>Yearly Wage Rise:</strong> {{ (financial_info['Yearly Wage Rise'] * 100) | round(1) }}%</p>
+                    <p><strong>💰 Career Earnings:</strong> {{ financial_info['Career Earnings'] | int | format_currency }}</p>
                 </div>
             </div>
+
+            <h3>Career Achievements</h3>
+            <div class="player-details-section">
+                <div class="skills-grid">
+                    <p><strong>🏆 Championships Won:</strong> {{ player.championships_won or 0 }}</p>
+                    <p><strong>🥇 Cups Won:</strong> {{ player.cups_won or 0 }}</p>
+                </div>
+            </div>
+
+            {% if player_history %}
+            <h3>📊 Season History</h3>
+            <div class="player-details-section">
+                <div class="history-table">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Season</th>
+                                <th>Club</th>
+                                <th>Games</th>
+                                <th>Goals</th>
+                                <th>Assists</th>
+                                <th>Salary</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for season in player_history %}
+                            <tr>
+                                <td>{{ season.season }}</td>
+                                <td>{{ season.club_name }}</td>
+                                <td>{{ season.games_played }}</td>
+                                <td>{{ season.goals }}</td>
+                                <td>{{ season.assists }}</td>
+                                <td>{{ season.salary | int | format_currency }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if player_history %}
+                            <tr style="background-color: #ffd700; font-weight: bold; border-top: 2px solid #d4af37;">
+                                <td><strong>TOTAL</strong></td>
+                                <td>-</td>
+                                <td><strong>{{ player_history | sum(attribute='games_played') }}</strong></td>
+                                <td><strong>{{ player_history | sum(attribute='goals') }}</strong></td>
+                                <td><strong>{{ player_history | sum(attribute='assists') }}</strong></td>
+                                <td>-</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
         </div>
 
         <div class="skills-visualization-section">
@@ -399,8 +449,7 @@
             setTimeout(addPlayerHoverFunctionality, 100);
         });
 
-        // Negotiate button functionality
-        $(document).on('click', '.negotiate-btn', function() {
+        // Negotiate functionality removed
             const playerId = $(this).data('player-id');
             const playerName = $(this).data('player-name');
             

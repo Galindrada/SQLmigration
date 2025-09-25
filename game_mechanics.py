@@ -355,10 +355,10 @@ DEVELOPMENT_PROFILES = {
 
 # Development Traits (complementary to profiles)
 DEVELOPMENT_TRAITS = {
-    0: {'name': 'regular', 'rarity': 0.70, 'description': 'Follows positional skill averages'},
-    1: {'name': 'jokester', 'rarity': 0.15, 'description': 'Develops wrong skills for position'},
-    2: {'name': 'sharpie', 'rarity': 0.10, 'description': 'Overvalues shooting, decreases physical'},
-    3: {'name': 'genetic_freak', 'rarity': 0.05, 'description': 'Opposite of sharpie - physical focus'}
+    0: {'name': 'regular', 'rarity': 0.90, 'description': 'Follows positional skill averages'},
+    1: {'name': 'jokester', 'rarity': 0.03, 'description': 'Develops wrong skills for position'},
+    2: {'name': 'sharpie', 'rarity': 0.05, 'description': 'Overvalues shooting, decreases physical'},
+    3: {'name': 'genetic_freak', 'rarity': 0.02, 'description': 'Opposite of sharpie - physical focus'}
 }
 
 def generate_development_key(profile_type: int = 0, base_multiplier: float = 1.0) -> int:
@@ -455,7 +455,10 @@ def generate_mixed_development_key() -> int:
         total_weight = sum(profile_weights)
         profile_weights = [w / total_weight for w in profile_weights]
         
-        # Simple encoding: high bit + num_profiles + profiles + weights
+        # Generate base_multiplier using Beta distribution (same as single profiles)
+        base_multiplier = 0.1 + 2.9 * random.betavariate(2, 2)
+        
+        # Enhanced encoding: high bit + num_profiles + profiles + weights + base_multiplier
         encoded = 0x80000000  # High bit indicates mixed
         encoded |= (num_profiles << 24)  # Number of profiles
         
@@ -467,6 +470,11 @@ def generate_mixed_development_key() -> int:
         for i, weight in enumerate(profile_weights):
             encoded |= (int(weight * 100) << (i * 8))
         
+        # Encode base_multiplier (multiply by 1000 for precision, use remaining bits)
+        # We'll use a different approach: store base_multiplier in the lower 16 bits
+        # by shifting everything else up
+        encoded = (encoded << 16) | (int(base_multiplier * 1000) & 0xFFFF)
+        
         return encoded
     else:
         # Single profile - use original system
@@ -474,7 +482,8 @@ def generate_mixed_development_key() -> int:
             list(DEVELOPMENT_PROFILES.keys()),
             weights=[DEVELOPMENT_PROFILES[p]['rarity'] for p in DEVELOPMENT_PROFILES.keys()]
         )[0]
-        base_multiplier = random.uniform(0.7, 1.5)
+        # Use Beta distribution: mean ~1.5, 90% between 0.5-2.5, 5% tails
+        base_multiplier = 0.1 + 2.9 * random.betavariate(2, 2)
         return generate_development_key(profile_type, base_multiplier)
 
 def generate_development_trait() -> int:
@@ -601,21 +610,28 @@ def decode_mixed_development_key(development_key: int) -> dict:
         Dictionary with profile information
     """
     if development_key & 0x80000000:  # Mixed profile
+        # Extract base_multiplier from lower 16 bits
+        base_multiplier_encoded = development_key & 0xFFFF
+        base_multiplier = base_multiplier_encoded / 1000.0
+        
+        # Extract other data from upper bits (shifted right by 16)
+        shifted_key = development_key >> 16
+        
         # Extract number of profiles
-        num_profiles = (development_key >> 24) & 0xFF
+        num_profiles = (shifted_key >> 24) & 0xFF
         
         profiles = []
         weights = []
         
         # Extract profiles (max 3 profiles, 4 bits each)
         for i in range(min(num_profiles, 3)):  # Limit to 3 profiles maximum
-            profile_type = (development_key >> (16 + i * 4)) & 0xF
+            profile_type = (shifted_key >> (16 + i * 4)) & 0xF
             if profile_type in DEVELOPMENT_PROFILES:  # Only add valid profiles
                 profiles.append(profile_type)
         
         # Extract weights (max 3 weights, 8 bits each)
         for i in range(min(num_profiles, 3)):  # Limit to 3 weights maximum
-            weight = ((development_key >> (i * 8)) & 0xFF) / 100.0
+            weight = ((shifted_key >> (i * 8)) & 0xFF) / 100.0
             weights.append(weight)
         
         # Ensure we have matching numbers of profiles and weights
@@ -634,6 +650,7 @@ def decode_mixed_development_key(development_key: int) -> dict:
             'is_mixed': True,
             'profiles': profiles,
             'weights': weights,
+            'base_multiplier': base_multiplier,
             'profile_names': [DEVELOPMENT_PROFILES.get(p, {}).get('name', 'unknown') for p in profiles],
             'descriptions': [DEVELOPMENT_PROFILES.get(p, {}).get('description', 'Unknown profile') for p in profiles]
         }
@@ -654,119 +671,119 @@ def get_age_development_multiplier(age: int, profile_type: int) -> float:
     """
     if profile_type == 0:  # Regular
         if age <= 23:
-            return 0.8  # Good growth
+            return 1.2825  # Good growth (1.425 * 0.9)
         elif age <= 28:
-            return 0.3  # Moderate growth
+            return 0.6075  # Moderate growth (0.675 * 0.9)
         elif age <= 32:
-            return 0.0  # Stagnation
+            return 0.0  # Stagnation (0.0 * 0.9)
         elif age <= 35:
-            return -0.2  # Mild decline
+            return -0.4725  # Mild decline (-0.525 * 0.9)
         else:
-            return -0.5  # Strong decline
+            return -0.8775  # Strong decline (-0.975 * 0.9)
     
     elif profile_type == 1:  # Late bloomer
         if age <= 25:
-            return 0.5  # Moderate growth
+            return 0.8775  # Moderate growth (0.975 * 0.9)
         elif age <= 30:
-            return 1.0  # Strong growth
+            return 1.5525  # Strong growth (1.725 * 0.9)
         elif age <= 34:
-            return 0.2  # Mild growth
+            return 0.4725  # Mild growth (0.525 * 0.9)
         elif age <= 37:
-            return -0.1  # Very mild decline
+            return -0.4725  # Very mild decline (-0.525 * 0.9)
         else:
-            return -0.3  # Moderate decline
+            return -1.2825  # Moderate decline (-1.425 * 0.9)
     
     elif profile_type == 2:  # Early peak
         if age <= 20:
-            return 1.2  # Very strong growth
+            return 2.0925  # Very strong growth (2.325 * 0.9)
         elif age <= 25:
-            return 0.6  # Good growth
+            return 1.1475  # Good growth (1.275 * 0.9)
         elif age <= 28:
-            return 0.0  # Peak reached
+            return 0.0  # Peak reached (0.0 * 0.9)
         elif age <= 32:
-            return -0.3  # Moderate decline
+            return -0.7425  # Moderate decline (-0.825 * 0.9)
         else:
-            return -0.7  # Strong decline
+            return -1.2825  # Strong decline (-1.425 * 0.9)
     
     elif profile_type == 3:  # Consistent
         if age <= 26:
-            return 0.6  # Steady growth
+            return 1.0125  # Steady growth (1.125 * 0.9)
         elif age <= 32:
-            return 0.2  # Mild growth
+            return 0.6075  # Mild growth (0.675 * 0.9)
         elif age <= 36:
-            return -0.1  # Very mild decline
+            return -0.3375  # Very mild decline (-0.375 * 0.9)
         else:
-            return -0.2  # Mild decline
+            return -0.4725  # Mild decline (-0.525 * 0.9)
     
     elif profile_type == 4:  # Decliner
         if age <= 22:
-            return 0.4  # Moderate growth
+            return 0.54  # Moderate growth (0.6 * 0.9)
         elif age <= 26:
-            return 0.1  # Mild growth
+            return 0.135  # Mild growth (0.15 * 0.9)
         elif age <= 30:
-            return -0.2  # Early decline
+            return -0.6075  # Early decline (-0.675 * 0.9)
         elif age <= 34:
-            return -0.4  # Moderate decline
+            return -0.8775  # Moderate decline (-0.975 * 0.9)
         else:
-            return -0.8  # Strong decline
+            return -1.2825  # Strong decline (-1.425 * 0.9)
     
     elif profile_type == 5:  # Stronghold
         if age <= 25:
-            return 0.7  # Good growth
+            return 1.2825  # Good growth (1.425 * 0.9)
         elif age <= 30:
-            return 0.4  # Moderate growth
+            return 0.8775  # Moderate growth (0.975 * 0.9)
         elif age <= 35:
-            return 0.2  # Mild growth
+            return 0.6075  # Mild growth (0.675 * 0.9)
         elif age <= 40:
-            return 0.0  # Stagnation
+            return 0.0  # Stagnation (0.0 * 0.9)
         else:
-            return -0.1  # Very mild decline
+            return -0.3375  # Very mild decline (-0.375 * 0.9)
     
     elif profile_type == 6:  # One-time wonder
         if age <= 20:
-            return 0.6  # Moderate growth
+            return 0.4725  # Moderate growth (0.525 * 0.9)
         elif age <= 23:
-            return 1.5  # Amazing growth period
+            return 2.4975  # Amazing growth period (2.775 * 0.9)
         elif age <= 26:
-            return 1.2  # Still strong
+            return 1.35  # Still strong (1.5 * 0.9)
         elif age <= 29:
-            return 0.1  # Decline starts
+            return 0.2025  # Decline starts (0.225 * 0.9)
         else:
-            return -0.5  # Sharp decline
+            return -0.8775  # Sharp decline (-0.975 * 0.9)
     
     elif profile_type == 7:  # Bust
         if age <= 22:
-            return 0.9  # Good start
+            return 1.215  # Good start (1.35 * 0.9)
         elif age <= 25:
-            return 0.3  # Moderate growth
+            return 0.2025  # Moderate growth (0.225 * 0.9)
         elif age <= 28:
-            return -0.3  # Abrupt decline
+            return -0.7425  # Abrupt decline (-0.825 * 0.9)
         else:
-            return -0.7  # Severe decline
+            return -1.2825  # Severe decline (-1.425 * 0.9)
     
     elif profile_type == 8:  # GOAT
         if age <= 25:
-            return 0.8  # Strong growth
+            return 1.35  # Strong growth (1.5 * 0.9)
         elif age <= 30:
-            return 0.6  # Good growth
+            return 1.1475  # Good growth (1.275 * 0.9)
         elif age <= 35:
-            return 0.4  # Moderate growth
+            return 0.7425  # Moderate growth (0.825 * 0.9)
         elif age <= 40:
-            return 0.2  # Mild growth
+            return -0.2025  # Mild growth (-0.225 * 0.9)
         else:
-            return 0.0  # Maintains level
+            return -0.6075  # Maintains level (-0.675 * 0.9)
     
     elif profile_type == 9:  # El Crapo
         if age <= 22:
-            return 0.2  # Poor growth
+            return 0.27  # Poor growth (0.3 * 0.9)
         elif age <= 25:
-            return 0.0  # Stagnation
+            return 0.0  # Stagnation (0.0 * 0.9)
         elif age <= 28:
-            return -0.3  # Early decline
+            return -0.7425  # Early decline (-0.825 * 0.9)
         elif age <= 32:
-            return -0.6  # Moderate decline
+            return -0.8775  # Moderate decline (-0.975 * 0.9)
         else:
-            return -0.9  # Severe decline
+            return -1.2825  # Severe decline (-1.425 * 0.9)
     
     else:  # Default to regular
         return get_age_development_multiplier(age, 0)
@@ -789,11 +806,10 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     
     # Get age and position
     age = player_data.get('age', 25)
-    registered_position = player_data.get('registered_position', '7')
+    registered_position = str(player_data.get('registered_position', 7))
     
     # Calculate mixed profile multiplier if applicable
     if dev_info.get('is_mixed', False):
-        # Mixed profile - combine multiple profiles
         profiles = dev_info['profiles']
         weights = dev_info['weights']
         
@@ -804,7 +820,10 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
             total_age_multiplier += age_mult * weight
         
         age_multiplier = total_age_multiplier
-        base_multiplier = 1.0  # Mixed profiles use 1.0 as base
+        # Mixed profiles use stored base_multiplier from development key
+        # Scale from current range (0-10) to target range (0.5-5)
+        raw_base_multiplier = dev_info['base_multiplier']
+        base_multiplier = 0.5 + (raw_base_multiplier / 10.0) * 4.5  # Scale 0-10 to 0.5-5
         # Create clean mixed profile name
         mixed_parts = []
         for i, name in enumerate(dev_info['profile_names']):
@@ -815,7 +834,9 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     else:
         # Single profile
         profile_type = dev_info['profile_type']
-        base_multiplier = dev_info['base_multiplier']
+        # Scale from current range (0-10) to target range (0.5-5)
+        raw_base_multiplier = dev_info['base_multiplier']
+        base_multiplier = 0.5 + (raw_base_multiplier / 10.0) * 4.5  # Scale 0-10 to 0.5-5
         age_multiplier = get_age_development_multiplier(age, profile_type)
         profile_name = dev_info['profile_name']
     
@@ -837,7 +858,6 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     
     # Calculate performance-based boost
     performance_boost = calculate_performance_boost(player_data)
-    
     # Define skills that can be developed
     skill_columns = [
         'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
@@ -845,7 +865,7 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
         'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
         'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve',
         'heading', 'jump', 'technique', 'aggression', 'mentality', 'goal_keeping',
-        'team_work', 'consistency', 'condition_fitness'
+        'team_work'
     ]
     
     skill_changes = {}
@@ -862,51 +882,25 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
             # Get position weight for this skill from averages
             skill_weight = position_weights.get(skill, 1.0)
             
-            # Calculate base skill change
-            base_change = final_multiplier * skill_weight
-            
-            # Apply skill value-based progression modifier
-            # Higher values are harder to improve, easier to decline
-            if base_change > 0:  # Improvement
-                # Difficulty increases exponentially with current value
-                # 50-70: Easy to improve, 70-85: Moderate, 85-95: Hard, 95+: Very hard
-                if current_value >= 95:
-                    value_modifier = 0.3  # Very hard to improve
-                elif current_value >= 90:
-                    value_modifier = 0.5  # Hard to improve
-                elif current_value >= 85:
-                    value_modifier = 0.7  # Moderate difficulty
-                elif current_value >= 75:
-                    value_modifier = 0.9  # Easy to improve
-                else:
-                    value_modifier = 1.0  # Very easy to improve
+            # Calculate skill change based on remaining potential
+            # Apply multiplier to the remaining skill potential (99 - current_value)
+            if final_multiplier > 0:  # Improvement
+                # Calculate remaining potential
+                remaining_potential = 99 - current_value
+                # Apply multiplier to remaining potential, scaled down for realistic changes
+                base_change = (final_multiplier * skill_weight * remaining_potential) / 50.0
             else:  # Decline
-                # Easier to decline from higher values
-                if current_value >= 95:
-                    value_modifier = 1.5  # Easy to decline
-                elif current_value >= 90:
-                    value_modifier = 1.3  # Moderate decline
-                elif current_value >= 85:
-                    value_modifier = 1.1  # Slight decline boost
-                else:
-                    value_modifier = 1.0  # Normal decline
+                # For decline, apply multiplier to current value, scaled down
+                base_change = (final_multiplier * skill_weight * current_value) / 100.0
             
-            base_change *= value_modifier
-            
-            # Apply performance boost for relevant skills
-            if skill in ['attack', 'shot_accuracy', 'shot_power', 'shot_technique'] and player_data.get('goals', 0) > 0:
-                base_change += performance_boost['goals_boost']
-            elif skill in ['short_pass_accuracy', 'long_pass_accuracy', 'technique'] and player_data.get('assists', 0) > 0:
-                base_change += performance_boost['assists_boost']
-            elif skill in ['stamina', 'consistency', 'condition_fitness'] and player_data.get('games_played', 0) > 0:
-                base_change += performance_boost['games_boost']
+            # Performance boost is now applied to final_multiplier, not per skill
             
             # Apply some randomness to individual skills (±30%)
             skill_random = random.uniform(0.7, 1.3)
             skill_change = base_change * skill_random
             
-            # Ensure skill stays within reasonable bounds (1-99) and convert to integer
-            new_value = max(1, min(99, int(current_value + skill_change)))
+            # Ensure skill stays within reasonable bounds (1-99) and convert to integer with proper rounding
+            new_value = max(1, min(99, round(current_value + skill_change)))
             actual_change = new_value - current_value
             
             skill_changes[skill] = {
@@ -964,11 +958,15 @@ def get_position_skill_weights_from_averages(pos_avg_df: pd.DataFrame, registere
     for skill, avg_value in pos_averages.items():
         if avg_value > 0:
             # Weight based on how much this skill is valued for this position
-            # Higher average = higher development weight
-            weight = (avg_value / max_avg) * 2.0  # Scale to 0-2 range
-            weights[skill] = max(0.5, min(2.0, weight))  # Clamp between 0.5 and 2.0
+            # Higher average = higher weight for overall calculation
+            # For overall calculation, we want weights that sum to 1.0 for the most important skills
+            weight = avg_value / max_avg  # Scale to 0-1 range based on position averages
+            
+            # Only include skills that are significantly important for this position
+            if weight >= 0.7:  # Only skills that are at least 70% as important as the most important skill
+                weights[skill] = weight
         else:
-            weights[skill] = 0.5  # Low weight for skills not valued for this position
+            weights[skill] = 0.0  # No weight for skills not valued for this position
     
     return weights
 
@@ -1003,7 +1001,7 @@ def calculate_performance_boost(player_data: dict) -> dict:
 
 def check_player_retirement(player_data: Dict) -> Dict:
     """
-    Check if a player wants to retire based on age, salary, and club status.
+    Check if a player wants to retire based on age, salary, club status, contract, and games played.
     
     Args:
         player_data: Dictionary containing player information
@@ -1014,6 +1012,8 @@ def check_player_retirement(player_data: Dict) -> Dict:
     age = player_data.get('age', 25)
     salary = player_data.get('salary', GLOBAL_BASE_SALARY)
     club_id = player_data.get('club_id')
+    contract_years_remaining = player_data.get('contract_years_remaining', 0)
+    games_played = player_data.get('games_played', 0)
     
     # Base retirement probability starts at age 30
     if age < 30:
@@ -1021,6 +1021,15 @@ def check_player_retirement(player_data: Dict) -> Dict:
             'wants_to_retire': False,
             'retirement_probability': 0.0,
             'reason': 'Too young to consider retirement'
+        }
+    
+    # Players with 1+ years contract remaining are not eligible for retirement
+    # (This check happens after contract years are reduced at end of season)
+    if contract_years_remaining >= 1:
+        return {
+            'wants_to_retire': False,
+            'retirement_probability': 0.0,
+            'reason': f'Under contract for {contract_years_remaining} more years - not eligible for retirement'
         }
     
     # Calculate base retirement probability based on age
@@ -1038,10 +1047,16 @@ def check_player_retirement(player_data: Dict) -> Dict:
     if club_id == 141 or club_id is None:  # No Club
         club_factor = 0.25  # 25% additional probability (reduced from 30%)
     
+    # Games played factor - more games played reduces retirement probability (mild effect)
+    # Normalize games played to 0-1 range (0 = no games, 1 = many games)
+    # Assuming 30+ games in a season is "very active"
+    games_normalized = min(1.0, games_played / 30.0)
+    games_factor = games_normalized * 0.15  # Games can reduce probability by up to 15%
+    
     # Calculate final retirement probability
     base_probability = age_probability
     salary_adjustment = salary_factor * 0.3  # Salary can reduce probability by up to 30%
-    final_probability = base_probability + club_factor - salary_adjustment
+    final_probability = base_probability + club_factor - salary_adjustment - games_factor
     
     # Clamp probability between 0 and 1
     final_probability = max(0.0, min(1.0, final_probability))
@@ -1072,7 +1087,8 @@ def check_player_retirement(player_data: Dict) -> Dict:
         'reason': reason,
         'age_factor': age_probability,
         'salary_factor': salary_factor,
-        'club_factor': club_factor
+        'club_factor': club_factor,
+        'games_factor': games_factor
     }
 
 def apply_market_value_adjustment(market_value: int) -> int:
@@ -1322,7 +1338,7 @@ def update_player_market_values_only(db_path: str) -> Dict:
 
 def calculate_player_market_value_only(player_data: Dict) -> int:
     """
-    Calculate market value for a single player (salary remains unchanged).
+    Calculate market value for a single player using estimated salary.
     
     Args:
         player_data: Dictionary containing player information with skills
@@ -1333,12 +1349,35 @@ def calculate_player_market_value_only(player_data: Dict) -> int:
     # Convert to pandas Series for compatibility
     player_row = pd.Series(player_data)
     
-    # Get current salary (don't recalculate)
-    current_salary = player_data.get('salary', GLOBAL_BASE_SALARY)
+    # Calculate estimated salary instead of using current salary
+    try:
+        # Get position averages for salary calculation
+        pos_avg_df = get_cached_position_averages('pes6_league_db.sqlite')
+        
+        # Define skill lists (same as in the main salary calculation)
+        skills = ['attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+                 'response', 'agility', 'dribble_accuracy', 'dribble_speed',
+                 'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
+                 'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve',
+                 'heading', 'jump', 'technique', 'aggression', 'mentality', 'goal_keeping',
+                 'team_work', 'consistency', 'condition_fitness']
+        
+        binaries = ['dribbling', 'tactical_dribble', 'positioning', 'reaction', 'play_making',
+                   'passing', 'scoring', '1-1_score', 'post_player', 'lines', 'middle_shooting',
+                   'side', 'centre', 'penalties', '1-touch_pass', 'outside', 'marking', 'sliding',
+                   'covering', 'd_line_control', 'penalty_stopper', '1-on-1_stopper', 'long_throw']
+        
+        # Calculate estimated salary
+        estimated_salary = calculate_player_salary_base(player_row, pos_avg_df, skills, binaries)
+        
+    except Exception as e:
+        # Fallback to current salary if calculation fails
+        print(f"Warning: Could not calculate estimated salary for market value: {e}")
+        estimated_salary = player_data.get('salary', GLOBAL_BASE_SALARY)
     
-    # Calculate market value based on current salary
-    market_value = current_salary * 1.5
-    age_multiplier = get_age_market_value_multiplier(player_data.get('AGE', 25))
+    # Calculate market value based on estimated salary
+    market_value = estimated_salary * 1.5
+    age_multiplier = get_age_market_value_multiplier(player_data.get('age', 25))
     market_value = market_value * age_multiplier
     
     # Set market value to 0 for free agents (No Club)
@@ -1547,60 +1586,131 @@ import random
 import json
 from typing import Dict, List, Tuple
 
-# Nationality data with skin color mapping (PES6 numbering: 1=white, 2=light brown, 3=asian, 4=dark)
+# Nationality data with skin color mapping (PES6 numbering: 1python 4=dark)
 NATIONALITY_DATA = {
-    'Brazil': {'skin_color': 2, 'weight': 0.15, 'names': ['João', 'Pedro', 'Lucas', 'Gabriel', 'Matheus', 'Rafael', 'Bruno', 'Carlos', 'André', 'Felipe']},
-    'Argentina': {'skin_color': 1, 'weight': 0.12, 'names': ['Santiago', 'Mateo', 'Benjamín', 'Lucas', 'Nicolás', 'Alejandro', 'Diego', 'Martín', 'Javier', 'Gonzalo']},
-    'Spain': {'skin_color': 1, 'weight': 0.10, 'names': ['Carlos', 'Miguel', 'Javier', 'Antonio', 'David', 'Daniel', 'Francisco', 'José', 'Manuel', 'Luis']},
-    'France': {'skin_color': 1, 'weight': 0.09, 'names': ['Thomas', 'Pierre', 'Nicolas', 'Alexandre', 'Maxime', 'Antoine', 'Raphaël', 'Vincent', 'Julien', 'Baptiste']},
-    'England': {'skin_color': 1, 'weight': 0.08, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan']},
-    'Germany': {'skin_color': 1, 'weight': 0.08, 'names': ['Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas']},
-    'Italy': {'skin_color': 1, 'weight': 0.07, 'names': ['Marco', 'Alessandro', 'Matteo', 'Luca', 'Andrea', 'Giuseppe', 'Roberto', 'Antonio', 'Giovanni', 'Francesco']},
-    'Portugal': {'skin_color': 1, 'weight': 0.06, 'names': ['João', 'Miguel', 'Diogo', 'Tiago', 'André', 'Pedro', 'Ricardo', 'Nuno', 'Rui', 'Carlos']},
-    'Netherlands': {'skin_color': 1, 'weight': 0.05, 'names': ['Daan', 'Sem', 'Lucas', 'Milan', 'Levi', 'Finn', 'Jesse', 'Luuk', 'Bram', 'Thijs']},
-    'Belgium': {'skin_color': 1, 'weight': 0.04, 'names': ['Lucas', 'Louis', 'Arthur', 'Victor', 'Adam', 'Nathan', 'Thomas', 'Maxime', 'Antoine', 'Raphaël']},
-    'Croatia': {'skin_color': 1, 'weight': 0.04, 'names': ['Ivan', 'Marko', 'Luka', 'Petar', 'Ante', 'Josip', 'Matej', 'Filip', 'Domagoj', 'Borna']},
-    'Serbia': {'skin_color': 1, 'weight': 0.03, 'names': ['Stefan', 'Nikola', 'Marko', 'Aleksandar', 'Milan', 'Petar', 'Dragan', 'Bojan', 'Dejan', 'Nemanja']},
-    'Poland': {'skin_color': 1, 'weight': 0.03, 'names': ['Jakub', 'Kacper', 'Filip', 'Szymon', 'Michał', 'Jan', 'Piotr', 'Tomasz', 'Marek', 'Adam']},
-    'Ukraine': {'skin_color': 1, 'weight': 0.03, 'names': ['Oleksandr', 'Andriy', 'Mykhailo', 'Vitaliy', 'Serhiy', 'Ihor', 'Vasyl', 'Roman', 'Yuriy', 'Dmytro']},
-    'Russia': {'skin_color': 1, 'weight': 0.03, 'names': ['Alexander', 'Dmitri', 'Sergei', 'Andrei', 'Vladimir', 'Igor', 'Nikolai', 'Mikhail', 'Aleksei', 'Denis']},
-    'Turkey': {'skin_color': 2, 'weight': 0.03, 'names': ['Mehmet', 'Mustafa', 'Ahmet', 'Ali', 'Hasan', 'Hüseyin', 'İbrahim', 'Murat', 'Ömer', 'Yusuf']},
-    'Morocco': {'skin_color': 2, 'weight': 0.02, 'names': ['Youssef', 'Ahmad', 'Karim', 'Hassan', 'Omar', 'Khalid', 'Rachid', 'Nabil', 'Samir', 'Tariq']},
-    'Algeria': {'skin_color': 2, 'weight': 0.02, 'names': ['Karim', 'Yacine', 'Sofiane', 'Riyad', 'Islam', 'Adel', 'Samir', 'Nabil', 'Hakim', 'Farid']},
-    'Senegal': {'skin_color': 4, 'weight': 0.02, 'names': ['Mamadou', 'Ibrahima', 'Ousmane', 'Sadio', 'Kalidou', 'Cheikhou', 'Idrissa', 'Moussa', 'Pape', 'Youssouf']},
-    'Nigeria': {'skin_color': 4, 'weight': 0.02, 'names': ['Victor', 'Kelechi', 'Alex', 'Wilfred', 'Oghenekaro', 'John', 'Ahmed', 'Emmanuel', 'Odion', 'Moses']},
-    'Ghana': {'skin_color': 4, 'weight': 0.02, 'names': ['André', 'Thomas', 'Jordan', 'Daniel', 'Christian', 'Jeffrey', 'Mubarak', 'Emmanuel', 'Kwadwo', 'Asamoah']},
-    'Ivory Coast': {'skin_color': 4, 'weight': 0.02, 'names': ['Yaya', 'Wilfried', 'Serge', 'Salomon', 'Didier', 'Kolo', 'Emmanuel', 'Gervinho', 'Cheick', 'Seydou']},
-    'Cameroon': {'skin_color': 4, 'weight': 0.02, 'names': ['Samuel', 'Joel', 'Vincent', 'Eric', 'Pierre', 'Achille', 'Benjamin', 'Georges', 'Roger', 'Patrick']},
-    'Egypt': {'skin_color': 2, 'weight': 0.02, 'names': ['Mohamed', 'Ahmed', 'Mahmoud', 'Omar', 'Karim', 'Amr', 'Hossam', 'Tarek', 'Wael', 'Hassan']},
-    'Tunisia': {'skin_color': 2, 'weight': 0.01, 'names': ['Youssef', 'Wahbi', 'Hamza', 'Ferjani', 'Aymen', 'Naim', 'Saber', 'Karim', 'Oussama', 'Anis']},
-    'South Africa': {'skin_color': 4, 'weight': 0.01, 'names': ['Percy', 'Steven', 'Dean', 'Bongani', 'Siyabonga', 'Thulani', 'Kagisho', 'Teko', 'Siphiwe', 'Katlego']},
-    'Japan': {'skin_color': 3, 'weight': 0.02, 'names': ['Keisuke', 'Shinji', 'Yuto', 'Maya', 'Hiroshi', 'Takashi', 'Yasuhito', 'Makoto', 'Yoshinori', 'Eiji']},
+    'Brazil': {'skin_color': 3, 'weight': 0.10, 'names': ['Yago', 'Diamante', 'Cobrinha', 'Pedrão', 'Vascão', 'Guti', 'Biscão', 'Carlinhos', 'João', 'Pedro', 'Lucas', 'Gabriel', 'Matheus', 'Rafael', 'Bruno', 'Carlos', 'André', 'Felipe', 'Diego', 'Thiago', 'Marcos', 'Rodrigo', 'Fernando', 'Ricardo', 'Alexandre', 'Daniel', 'Leonardo', 'Eduardo', 'Fábio', 'Gustavo', 'Henrique', 'Igor', 'Juliano', 'Leandro', 'Marcelo', 'Nelson', 'Otávio', 'Paulo', 'Renato', 'Sérgio', 'Tiago', 'Vitor', 'Wagner', 'Yuri', 'Zeca', 'Adriano', 'Bernardo', 'Caio', 'Davi', 'Emanuel', 'Felipe', 'Guilherme', 'Hugo', 'Ivan', 'João', 'Kaique', 'Luan', 'Miguel']},
+    'Argentina': {'skin_color': 1, 'weight': 0.07, 'names': ['Pablito', 'Pato', 'Cholo', 'Guari', 'Santiago', 'Mateo', 'Benjamín', 'Lucas', 'Nicolás', 'Alejandro', 'Diego', 'Martín', 'Javier', 'Gonzalo', 'Facundo', 'Agustín', 'Tomás', 'Sebastián', 'Emiliano', 'Matías', 'Franco', 'Ignacio', 'Valentín', 'Thiago', 'Bautista', 'Santino', 'Dante', 'Ian', 'Lautaro', 'Máximo', 'Simón', 'Bruno', 'Leonardo', 'Gael', 'Lorenzo', 'Benicio', 'Samuel', 'Emilio', 'Rafael', 'Damián', 'Joaquín', 'Luciano', 'Milo', 'Ezequiel', 'Ciro', 'Antonio', 'Ángel', 'Liam', 'Noah', 'Mateo', 'Sebastián', 'Emiliano', 'Matías', 'Franco', 'Ignacio']},
+    'Spain': {'skin_color': 1, 'weight': 0.05, 'names': ['Pedrito', 'Carlitos', 'Carlos', 'Miguel', 'Javier', 'Antonio', 'David', 'Daniel', 'Francisco', 'José', 'Manuel', 'Luis', 'Alejandro', 'Álvaro', 'Adrián', 'Sergio', 'Pablo', 'Rafael', 'Fernando', 'Ángel', 'Rubén', 'Iván', 'Marcos', 'Jorge', 'Roberto', 'Víctor', 'Andrés', 'Gabriel', 'Raúl', 'Diego', 'Sergio', 'César', 'Eduardo', 'Alberto', 'Ramón', 'Enrique', 'Jesús', 'Ignacio', 'Ricardo', 'Óscar', 'Héctor', 'Nicolás', 'Gonzalo', 'Martín', 'Tomás', 'Emilio', 'Felipe', 'Lorenzo', 'Sebastián', 'Guillermo', 'Rodrigo', 'Santiago', 'Hugo']},
+    'France': {'skin_color': 1, 'weight': 0.04, 'names': ['Arcille', 'Napoleon', 'Jordain', 'Thomas', 'Pierre', 'Nicolas', 'Alexandre', 'Maxime', 'Antoine', 'Raphaël', 'Vincent', 'Julien', 'Baptiste', 'Lucas', 'Louis', 'Arthur', 'Victor', 'Adam', 'Nathan', 'Gabriel', 'Hugo', 'Léo', 'Raphaël', 'Paul', 'Ethan', 'Noah', 'Liam', 'Lucas', 'Gabriel', 'Arthur', 'Louis', 'Raphaël', 'Paul', 'Hugo', 'Victor', 'Adam', 'Nathan', 'Antoine', 'Maxime', 'Jules', 'Léon', 'Marcel', 'Émile', 'Henri', 'Charles', 'François', 'Jean', 'Philippe', 'Michel', 'Alain', 'Bernard', 'Claude', 'Daniel', 'Éric', 'Fabien']},
+    'England': {'skin_color': 1, 'weight': 0.03, 'names': ['Jermaine', 'Doyle', 'Cole', 'James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles', 'Thomas']},
+    'Germany': {'skin_color': 1, 'weight': 0.03, 'names': ['Buhler', 'Mads', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas', 'David', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard', 'Albert', 'Bernd']},
+    'Italy': {'skin_color': 1, 'weight': 0.03, 'names': ['Martino', 'Domenico', 'Salvatore', 'Bombardini', 'Dino', 'Marco', 'Alessandro', 'Matteo', 'Luca', 'Andrea', 'Giuseppe', 'Roberto', 'Antonio', 'Giovanni', 'Francesco', 'Francesco', 'Alessandro', 'Lorenzo', 'Leonardo', 'Gabriele', 'Tommaso', 'Riccardo', 'Edoardo', 'Davide', 'Federico', 'Simone', 'Michele', 'Stefano', 'Paolo', 'Cristian', 'Daniele', 'Manuel', 'Diego', 'Samuele', 'Nicolò', 'Mattia', 'Emanuele', 'Giacomo', 'Pietro', 'Elia', 'Christian', 'Gianluca', 'Lorenzo', 'Sebastiano', 'Valerio', 'Fabio', 'Dario', 'Enrico', 'Massimo', 'Vincenzo', 'Salvatore', 'Angelo', 'Carmine', 'Raffaele', 'Domenico']},
+    'Portugal': {'skin_color': 1, 'weight': 0.03, 'names': ['Bruninho', 'Aníbal', 'Josué', 'Sá', 'Bufo', 'Zequinha', 'Litos', 'Néné', 'João', 'Miguel', 'Diogo', 'Tiago', 'André', 'Pedro', 'Ricardo', 'Nuno', 'Rui', 'Carlos', 'Francisco', 'António', 'José', 'Manuel', 'Luís', 'Fernando', 'Paulo', 'Bruno', 'Daniel', 'Filipe', 'Gonçalo', 'Hugo', 'Ivo', 'João', 'Kiko', 'Leandro', 'Mário', 'Nelson', 'Óscar', 'Pedro', 'Quim', 'Rafael', 'Sérgio', 'Tomás', 'Úrsulo', 'Vasco', 'Xavier', 'Zé', 'Afonso', 'Bernardo', 'Carlos', 'Duarte', 'Eduardo', 'Fábio', 'Gabriel', 'Henrique', 'Igor', 'João', 'Kiko', 'Lucas', 'Miguel']},
+    'Netherlands': {'skin_color': 1, 'weight': 0.03, 'names': ['Van', 'Van der', 'Daan', 'Sem', 'Lucas', 'Milan', 'Levi', 'Finn', 'Jesse', 'Luuk', 'Bram', 'Thijs']},
+    'Belgium': {'skin_color': 1, 'weight': 0.03, 'names': ['Mertens', 'Lucas', 'Louis', 'Arthur', 'Victor', 'Adam', 'Nathan', 'Thomas', 'Maxime', 'Antoine', 'Raphaël']},
+    'Croatia': {'skin_color': 1, 'weight': 0.03, 'names': ['Davor', 'Ivan', 'Marko', 'Luka', 'Petar', 'Ante', 'Josip', 'Matej', 'Filip', 'Domagoj', 'Borna']},
+    'Serbia': {'skin_color': 1, 'weight': 0.03, 'names': ['Piko', 'Stefan', 'Nikola', 'Marko', 'Aleksandar', 'Milan', 'Petar', 'Dragan', 'Bojan', 'Dejan', 'Nemanja']},
+    'Poland': {'skin_color': 1, 'weight': 0.03, 'names': ['Gdansko', 'Jakub', 'Kacper', 'Filip', 'Szymon', 'Michał', 'Jan', 'Piotr', 'Tomasz', 'Marek', 'Adam']},
+    'Ukraine': {'skin_color': 1, 'weight': 0.03, 'names': ['Volodymyr', 'Oleksandr', 'Andriy', 'Mykhailo', 'Vitaliy', 'Serhiy', 'Ihor', 'Vasyl', 'Roman', 'Yuriy', 'Dmytro']},
+    'Russia': {'skin_color': 1, 'weight': 0.03, 'names': ['Fedor', 'Ilya', 'Alexander', 'Dmitri', 'Sergei', 'Andrei', 'Vladimir', 'Igor', 'Nikolai', 'Mikhail', 'Aleksei', 'Denis']},
+    'Turkey': {'skin_color': 3, 'weight': 0.03, 'names': ['Hakan', 'Mehmet', 'Mustafa', 'Ahmet', 'Ali', 'Hasan', 'Hüseyin', 'İbrahim', 'Murat', 'Ömer', 'Yusuf']},
+    'Morocco': {'skin_color': 3, 'weight': 0.03, 'names': ['Sarni', 'Youssef', 'Ahmad', 'Karim', 'Hassan', 'Omar', 'Khalid', 'Rachid', 'Nabil', 'Samir', 'Tariq']},
+    'Algeria': {'skin_color': 3, 'weight': 0.03, 'names': ['Ghilas', 'Karim', 'Yacine', 'Sofiane', 'Riyad', 'Islam', 'Adel', 'Samir', 'Nabil', 'Hakim', 'Farid']},
+    'Senegal': {'skin_color': 4, 'weight': 0.03, 'names': ['Mamadou', 'Ibrahima', 'Ousmane', 'Sadio', 'Kalidou', 'Cheikhou', 'Idrissa', 'Moussa', 'Pape', 'Youssouf']},
+    'Nigeria': {'skin_color': 4, 'weight': 0.03, 'names': ['Victor', 'Kelechi', 'Alex', 'Wilfred', 'Oghenekaro', 'John', 'Ahmed', 'Emmanuel', 'Odion', 'Moses']},
+    'Ghana': {'skin_color': 4, 'weight': 0.03, 'names': ['André', 'Thomas', 'Jordan', 'Daniel', 'Christian', 'Jeffrey', 'Mubarak', 'Emmanuel', 'Kwadwo', 'Asamoah']},
+    'Ivory Coast': {'skin_color': 4, 'weight': 0.03, 'names': ['Yaya', 'Wilfried', 'Serge', 'Salomon', 'Didier', 'Kolo', 'Emmanuel', 'Gervinho', 'Cheick', 'Seydou']},
+    'Cameroon': {'skin_color': 4, 'weight': 0.03, 'names': ['Samuel', 'Joel', 'Vincent', 'Eric', 'Pierre', 'Achille', 'Benjamin', 'Georges', 'Roger', 'Patrick']},
+    'Egypt': {'skin_color': 3, 'weight': 0.03, 'names': ['Mohamed', 'Ahmed', 'Mahmoud', 'Omar', 'Karim', 'Amr', 'Hossam', 'Tarek', 'Wael', 'Hassan']},
+    'Tunisia': {'skin_color': 3, 'weight': 0.02, 'names': ['Youssef', 'Wahbi', 'Hamza', 'Ferjani', 'Aymen', 'Naim', 'Saber', 'Karim', 'Oussama', 'Anis']},
+    'South Africa': {'skin_color': 4, 'weight': 0.02, 'names': ['Percy', 'Steven', 'Dean', 'Bongani', 'Siyabonga', 'Thulani', 'Kagisho', 'Teko', 'Siphiwe', 'Katlego']},
+    'Japan': {'skin_color': 3, 'weight': 0.02, 'names': ['Hideki', 'Hiroshima', 'Koji', 'Keisuke', 'Shinji', 'Yuto', 'Maya', 'Hiroshi', 'Takashi', 'Yasuhito', 'Makoto', 'Yoshinori', 'Eiji']},
     'South Korea': {'skin_color': 3, 'weight': 0.02, 'names': ['Son', 'Ki', 'Park', 'Lee', 'Kim', 'Jung', 'Choi', 'Kwon', 'Yoon', 'Han']},
-    'China': {'skin_color': 3, 'weight': 0.01, 'names': ['Wu', 'Zhang', 'Li', 'Wang', 'Chen', 'Liu', 'Yang', 'Huang', 'Zhao', 'Zhou']},
-    'Australia': {'skin_color': 1, 'weight': 0.01, 'names': ['Tim', 'Mathew', 'Mark', 'Joshua', 'Aaron', 'Mile', 'Tom', 'Jackson', 'Adam', 'Ryan']},
-    'USA': {'skin_color': 1, 'weight': 0.03, 'names': ['Christian', 'Michael', 'Clint', 'Jozy', 'Brad', 'Tim', 'Geoff', 'Alejandro', 'Graham', 'Bobby']},
-    'Mexico': {'skin_color': 2, 'weight': 0.02, 'names': ['Javier', 'Carlos', 'Andrés', 'Guillermo', 'Rafael', 'Jorge', 'Luis', 'Miguel', 'Diego', 'Eduardo']},
-    'Colombia': {'skin_color': 2, 'weight': 0.02, 'names': ['James', 'Radamel', 'Juan', 'Carlos', 'David', 'Abel', 'Jackson', 'Luis', 'Fredy', 'Teófilo']},
-    'Chile': {'skin_color': 2, 'weight': 0.01, 'names': ['Arturo', 'Alexis', 'Eduardo', 'Gary', 'Claudio', 'Jorge', 'Mauricio', 'Matías', 'Charles', 'Felipe']},
-    'Uruguay': {'skin_color': 1, 'weight': 0.01, 'names': ['Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Cristian', 'Walter', 'Egidio', 'Nicolás']},
-    'Paraguay': {'skin_color': 2, 'weight': 0.01, 'names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio', 'Carlos']},
-    'Peru': {'skin_color': 2, 'weight': 0.01, 'names': ['Paolo', 'Jefferson', 'André', 'Christian', 'Yoshimar', 'Renato', 'Luis', 'Carlos', 'Miguel', 'Raúl']},
-    'Ecuador': {'skin_color': 2, 'weight': 0.01, 'names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Luis', 'Gabriel', 'Walter']},
-    'Venezuela': {'skin_color': 2, 'weight': 0.01, 'names': ['Salomón', 'Tomás', 'Rómulo', 'Alejandro', 'Luis', 'Fernando', 'Carlos', 'Roberto', 'José', 'Manuel']},
-    'Canada': {'skin_color': 1, 'weight': 0.01, 'names': ['Alphonso', 'Jonathan', 'Atiba', 'Scott', 'Samuel', 'Cyle', 'Mark', 'Tosaint', 'Russell', 'Will']}
+    'China': {'skin_color': 2, 'weight': 0.02, 'names': ['Wu', 'Zhang', 'Li', 'Wang', 'Chen', 'Liu', 'Yang', 'Huang', 'Zhao', 'Zhou']},
+    'Australia': {'skin_color': 1, 'weight': 0.02, 'names': ['Tim', 'Mathew', 'Mark', 'Joshua', 'Aaron', 'Mile', 'Tom', 'Jackson', 'Adam', 'Ryan']},
+    'USA': {'skin_color': 1, 'weight': 0.03, 'names': ['Keith', 'Auston', 'Christian', 'Michael', 'Clint', 'Jozy', 'Brad', 'Tim', 'Geoff', 'Alejandro', 'Graham', 'Bobby']},
+    'Mexico': {'skin_color': 3, 'weight': 0.03, 'names': ['Serdo', 'Javier', 'Carlos', 'Andrés', 'Guillermo', 'Rafael', 'Jorge', 'Luis', 'Miguel', 'Diego', 'Eduardo']},
+    'Colombia': {'skin_color': 3, 'weight': 0.03, 'names': ['Bucho', 'James', 'Radamel', 'Juan', 'Carlos', 'David', 'Abel', 'Jackson', 'Luis', 'Fredy', 'Teófilo']},
+    'Chile': {'skin_color': 3, 'weight': 0.02, 'names': ['Cisternas', 'Arturo', 'Alexis', 'Eduardo', 'Gary', 'Claudio', 'Jorge', 'Mauricio', 'Matías', 'Charles', 'Felipe']},
+    'Uruguay': {'skin_color': 1, 'weight': 0.02, 'names': ['Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Cristian', 'Walter', 'Egidio', 'Nicolás']},
+    'Paraguay': {'skin_color': 3, 'weight': 0.02, 'names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio', 'Carlos']},
+    'Peru': {'skin_color': 3, 'weight': 0.02, 'names': ['Paolo', 'Jefferson', 'André', 'Christian', 'Yoshimar', 'Renato', 'Luis', 'Carlos', 'Miguel', 'Raúl']},
+    'Ecuador': {'skin_color': 3, 'weight': 0.02, 'names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Luis', 'Gabriel', 'Walter']},
+    'Venezuela': {'skin_color': 3, 'weight': 0.02, 'names': ['Salomón', 'Tomás', 'Rómulo', 'Alejandro', 'Luis', 'Fernando', 'Carlos', 'Roberto', 'José', 'Manuel']},
+    'Canada': {'skin_color': 1, 'weight': 0.02, 'names': ['Mitch', 'Alphonso', 'Jonathan', 'Atiba', 'Scott', 'Samuel', 'Cyle', 'Mark', 'Tosaint', 'Russell', 'Will']},
+    
+    # Additional countries from database
+    'Austria': {'skin_color': 1, 'weight': 0.02, 'names': ['David', 'Lukas', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard']},
+    'Switzerland': {'skin_color': 1, 'weight': 0.02, 'names': ['David', 'Lukas', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard', 'Albert']},
+    'Sweden': {'skin_color': 1, 'weight': 0.02, 'names': ['Mats', 'Rasmus', 'William', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
+    'Norway': {'skin_color': 1, 'weight': 0.02, 'names': ['Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
+    'Denmark': {'skin_color': 1, 'weight': 0.02, 'names': ['Fredrik', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
+    'Finland': {'skin_color': 1, 'weight': 0.02, 'names': ['Mikko', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
+    'Iceland': {'skin_color': 1, 'weight': 0.02, 'names': ['Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
+    'Ireland': {'skin_color': 1, 'weight': 0.02, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles']},
+    'Scotland': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles']},
+    'Wales': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles']},
+    'Northern Ireland': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles']},
+    
+    # Additional missing countries from database
+    'Albania': {'skin_color': 1, 'weight': 0.005, 'names': ['Arben', 'Bardh', 'Dritan', 'Endrit', 'Flamur', 'Genti', 'Hasan', 'Ilir', 'Jeton', 'Kastriot']},
+    'Angola': {'skin_color': 4, 'weight': 0.005, 'names': ['Adilson', 'Bruno', 'Carlos', 'Domingos', 'Eduardo', 'Fernando', 'Gilberto', 'Helder', 'Ivan', 'João']},
+    'Armenia': {'skin_color': 1, 'weight': 0.005, 'names': ['Arman', 'David', 'Gor', 'Hayk', 'Karen', 'Levon', 'Mher', 'Narek', 'Ruben', 'Sargis']},
+    'Belarus': {'skin_color': 1, 'weight': 0.005, 'names': ['Aliaksandr', 'Dzmitry', 'Ihar', 'Kanstantsin', 'Maksim', 'Pavel', 'Siarhei', 'Uladzimir', 'Vitali', 'Yury']},
+    'Benin': {'skin_color': 4, 'weight': 0.005, 'names': ['Abel', 'Benoît', 'Célestin', 'Désiré', 'Emmanuel', 'Félix', 'Gabriel', 'Henri', 'Ignace', 'Jean']},
+    'Bolivia': {'skin_color': 3, 'weight': 0.005, 'names': ['Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Hugo', 'Iván', 'Jorge', 'Luis', 'Miguel']},
+    'Bosnia and Herzegovina': {'skin_color': 1, 'weight': 0.005, 'names': ['Adnan', 'Benjamin', 'Dino', 'Emir', 'Faruk', 'Goran', 'Haris', 'Ivan', 'Jasmin', 'Kenan']},
+    'Bulgaria': {'skin_color': 1, 'weight': 0.005, 'names': ['Aleksandar', 'Boris', 'Dimitar', 'Emil', 'Georgi', 'Hristo', 'Ivan', 'Jordan', 'Krasimir', 'Lyubomir']},
+    'Burkina Faso': {'skin_color': 4, 'weight': 0.005, 'names': ['Abdoulaye', 'Boureima', 'Cheick', 'Daouda', 'Emmanuel', 'François', 'Gérard', 'Hervé', 'Issouf', 'Jean']},
+    'Congo': {'skin_color': 4, 'weight': 0.005, 'names': ['Alain', 'Boris', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
+    'Costa Rica': {'skin_color': 3, 'weight': 0.005, 'names': ['Alejandro', 'Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge', 'Luis']},
+    'Cote d\'Ivoire': {'skin_color': 4, 'weight': 0.005, 'names': ['Abou', 'Bakary', 'Cheick', 'Didier', 'Emmanuel', 'Franck', 'Gervinho', 'Hervé', 'Ibrahim', 'Jean']},
+    'Cyprus': {'skin_color': 1, 'weight': 0.005, 'names': ['Andreas', 'Christos', 'Demetris', 'Elias', 'Georgios', 'Haris', 'Ioannis', 'Kyriakos', 'Lefteris', 'Michalis']},
+    'Czech Republic': {'skin_color': 1, 'weight': 0.005, 'names': ['David', 'Jakub', 'Jan', 'Lukáš', 'Martin', 'Michal', 'Ondřej', 'Pavel', 'Tomáš', 'Václav']},
+    'DR Congo': {'skin_color': 4, 'weight': 0.005, 'names': ['Alain', 'Boris', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
+    'Equatorial Guinea': {'skin_color': 4, 'weight': 0.005, 'names': ['Abel', 'Benito', 'Carlos', 'Diego', 'Emilio', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge']},
+    'Estonia': {'skin_color': 1, 'weight': 0.005, 'names': ['Andres', 'Erik', 'Jaan', 'Kristjan', 'Marten', 'Ott', 'Priit', 'Raivo', 'Siim', 'Tarmo']},
+    'Free Nationality': {'skin_color': 1, 'weight': 0.005, 'names': ['Alex', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Gabon': {'skin_color': 4, 'weight': 0.002, 'names': ['Alain', 'Bruno', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
+    'Gambia': {'skin_color': 4, 'weight': 0.002, 'names': ['Abdoulie', 'Bakary', 'Cherno', 'Demba', 'Ebrima', 'Foday', 'Gibril', 'Habib', 'Ibrahim', 'Jallow']},
+    'Georgia': {'skin_color': 1, 'weight': 0.003, 'names': ['Aleksandre', 'Beka', 'Davit', 'Giorgi', 'Irakli', 'Jaba', 'Kakha', 'Levan', 'Mikheil', 'Nika']},
+    'Greece': {'skin_color': 1, 'weight': 0.01, 'names': ['Alexandros', 'Dimitrios', 'Georgios', 'Ioannis', 'Konstantinos', 'Michalis', 'Nikolaos', 'Panagiotis', 'Spyros', 'Vasileios']},
+    'Grenada': {'skin_color': 4, 'weight': 0.001, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Guadeloupe': {'skin_color': 4, 'weight': 0.001, 'names': ['Alain', 'Bruno', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
+    'Guinea': {'skin_color': 4, 'weight': 0.001, 'names': ['Aboubacar', 'Boubacar', 'Cheick', 'Daouda', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ibrahim', 'Jean']},
+    'Guinea-Bissau': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Bruno', 'Carlos', 'Daniel', 'Emmanuel', 'Fernando', 'Gabriel', 'Henri', 'Ivan', 'João']},
+    'Honduras': {'skin_color': 3, 'weight': 0.001, 'names': ['Alejandro', 'Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge', 'Luis']},
+    'Hungary': {'skin_color': 1, 'weight': 0.005, 'names': ['Ádám', 'Bence', 'Dániel', 'Erik', 'Gábor', 'István', 'János', 'Krisztián', 'László', 'Márk']},
+    'Iran': {'skin_color': 2, 'weight': 0.005, 'names': ['Ali', 'Amir', 'Arash', 'Behnam', 'Dariush', 'Ehsan', 'Farhad', 'Gholam', 'Hassan', 'Iraj']},
+    'Israel': {'skin_color': 1, 'weight': 0.003, 'names': ['Avi', 'Ben', 'David', 'Eli', 'Gabriel', 'Haim', 'Itai', 'Jonathan', 'Kobi', 'Lior']},
+    'Jamaica': {'skin_color': 4, 'weight': 0.005, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Kenya': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Brian', 'Collins', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Latvia': {'skin_color': 1, 'weight': 0.003, 'names': ['Aivis', 'Dainis', 'Eduards', 'Guntis', 'Haralds', 'Igors', 'Juris', 'Kaspars', 'Lauris', 'Māris']},
+    'Liberia': {'skin_color': 4, 'weight': 0.003, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Liechtenstein': {'skin_color': 1, 'weight': 0.001, 'names': ['Alexander', 'Benjamin', 'Christian', 'Daniel', 'Erik', 'Fabian', 'Gabriel', 'Hans', 'Ivan', 'Josef']},
+    'Lithuania': {'skin_color': 1, 'weight': 0.001, 'names': ['Arvydas', 'Darius', 'Egidijus', 'Gediminas', 'Henrikas', 'Ignas', 'Jonas', 'Kęstutis', 'Linas', 'Mindaugas']},
+    'Macedonia': {'skin_color': 1, 'weight': 0.001, 'names': ['Aleksandar', 'Bojan', 'Darko', 'Emil', 'Filip', 'Goran', 'Hristijan', 'Ivan', 'Jovan', 'Kristijan']},
+    'Mali': {'skin_color': 4, 'weight': 0.001, 'names': ['Abdoulaye', 'Boureima', 'Cheick', 'Daouda', 'Emmanuel', 'François', 'Gérard', 'Hervé', 'Issouf', 'Jean']},
+    'Martinique': {'skin_color': 4, 'weight': 0.001, 'names': ['Alain', 'Bruno', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
+    'Mozambique': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Bruno', 'Carlos', 'Daniel', 'Emmanuel', 'Fernando', 'Gabriel', 'Henri', 'Ivan', 'João']},
+    'Netherlands Antilles': {'skin_color': 3, 'weight': 0.001, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'New Zealand': {'skin_color': 1, 'weight': 0.002, 'names': ['Aaron', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Oman': {'skin_color': 2, 'weight': 0.001, 'names': ['Ahmed', 'Badr', 'Fahad', 'Hamed', 'Ibrahim', 'Jaber', 'Khalid', 'Majid', 'Nasser', 'Omar']},
+    'Panama': {'skin_color': 3, 'weight': 0.001, 'names': ['Alejandro', 'Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge', 'Luis']},
+    'Romania': {'skin_color': 1, 'weight': 0.01, 'names': ['Alexandru', 'Bogdan', 'Cristian', 'Daniel', 'Eduard', 'Florin', 'Gabriel', 'Horia', 'Ionut', 'Johan']},
+    'Saudi Arabia': {'skin_color': 2, 'weight': 0.003, 'names': ['Ahmed', 'Badr', 'Fahad', 'Hamed', 'Ibrahim', 'Jaber', 'Khalid', 'Majid', 'Nasser', 'Omar']},
+    'Serbia and Montenegro': {'skin_color': 1, 'weight': 0.001, 'names': ['Aleksandar', 'Bojan', 'Darko', 'Emil', 'Filip', 'Goran', 'Hristijan', 'Ivan', 'Jovan', 'Kristijan']},
+    'Sierra Leone': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Slovakia': {'skin_color': 1, 'weight': 0.001, 'names': ['Adam', 'Branislav', 'Daniel', 'Erik', 'Filip', 'Gabriel', 'Henrich', 'Ivan', 'Jozef', 'Kamil']},
+    'Slovenia': {'skin_color': 1, 'weight': 0.001, 'names': ['Aleš', 'Bojan', 'Dejan', 'Erik', 'Filip', 'Gregor', 'Henrik', 'Igor', 'Jure', 'Klemen']},
+    'Togo': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Benoît', 'Célestin', 'Désiré', 'Emmanuel', 'Félix', 'Gabriel', 'Henri', 'Ignace', 'Jean']},
+    'Trinidad and Tobago': {'skin_color': 4, 'weight': 0.001, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'United States': {'skin_color': 1, 'weight': 0.001, 'names': ['Aaron', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Uzbekistan': {'skin_color': 2, 'weight': 0.001, 'names': ['Akmal', 'Bakhtiyor', 'Dilshod', 'Eldor', 'Farrukh', 'Gulom', 'Hikmat', 'Ibrohim', 'Javlon', 'Karim']},
+    'Zambia': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'Zimbabwe': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']}
 }
 
 # Surname data by nationality
 SURNAME_DATA = {
-    'Brazil': ['Silva', 'Santos', 'Oliveira', 'Souza', 'Rodrigues', 'Ferreira', 'Alves', 'Pereira', 'Lima', 'Gomes'],
-    'Argentina': ['González', 'Rodríguez', 'Gómez', 'Fernández', 'López', 'Díaz', 'Martínez', 'Pérez', 'García', 'Sánchez'],
-    'Spain': ['García', 'Rodríguez', 'González', 'Fernández', 'López', 'Martínez', 'Sánchez', 'Pérez', 'Gómez', 'Martín'],
-    'France': ['Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand', 'Leroy', 'Moreau'],
-    'England': ['Smith', 'Jones', 'Williams', 'Brown', 'Taylor', 'Davies', 'Wilson', 'Evans', 'Thomas', 'Roberts'],
-    'Germany': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann'],
-    'Italy': ['Rossi', 'Ferrari', 'Russo', 'Bianchi', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Bruno'],
-    'Portugal': ['Silva', 'Santos', 'Ferreira', 'Pereira', 'Oliveira', 'Costa', 'Rodrigues', 'Martins', 'Jesus', 'Sousa'],
+    'Brazil': ['Chelas', 'Silva', 'Santos', 'Oliveira', 'Souza', 'Rodrigues', 'Ferreira', 'Alves', 'Pereira', 'Lima', 'Gomes', 'Costa', 'Ribeiro', 'Martins', 'Carvalho', 'Almeida', 'Lopes', 'Soares', 'Fernandes', 'Vieira', 'Barbosa', 'Rocha', 'Dias', 'Monteiro', 'Mendes', 'Cardoso', 'Reis', 'Farias', 'Nunes', 'Moreira', 'Melo', 'Araújo', 'Cavalcanti', 'Nascimento', 'Freitas', 'Machado', 'Teixeira', 'Correia', 'Cunha', 'Ramos', 'Andrade', 'Castro', 'Moura', 'Vasconcelos', 'Bezerra', 'Campos', 'Azevedo', 'Siqueira', 'Coelho', 'Pinto', 'Brito', 'Amaral'],
+    'Argentina': ['Batista', 'González', 'Rodríguez', 'Gómez', 'Fernández', 'López', 'Díaz', 'Martínez', 'Pérez', 'García', 'Sánchez', 'Romero', 'Sosa', 'Torres', 'Flores', 'Rivera', 'Gutiérrez', 'Díaz', 'Cruz', 'Morales', 'Guzmán', 'Ramos', 'Herrera', 'Jiménez', 'Ruiz', 'Aguilar', 'Mendoza', 'Vargas', 'Castillo', 'Ortega', 'Reyes', 'Silva', 'Moreno', 'Muñoz', 'Álvarez', 'Hernández', 'Medina', 'Garza', 'Castro', 'Vega', 'Rojas', 'Espinoza', 'Sandoval', 'Contreras', 'Valencia', 'Figueroa', 'Luna', 'Cervantes', 'Herrera', 'León', 'Márquez', 'Campos'],
+    'Spain': ['Mecano', 'de La Pailla', 'Ocio', 'García', 'Rodríguez', 'González', 'Fernández', 'López', 'Martínez', 'Sánchez', 'Pérez', 'Gómez', 'Martín'],
+    'France': ['Dalmen', 'Le Tissier', 'Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand', 'Leroy', 'Moreau'],
+    'England': ['Williams', 'Chambers', 'Palmer', 'Smith', 'Jones', 'Williams', 'Brown', 'Taylor', 'Davies', 'Wilson', 'Evans', 'Thomas', 'Roberts'],
+    'Germany': ['Dietrich', 'Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann'],
+    'Italy': ['Ponzio', 'Rossi', 'Ferrari', 'Russo', 'Bianchi', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Bruno'],
+    'Portugal': ['Galindro', 'Amaral', 'Abreu', 'Fernandes', 'Capelão', 'Pereira', 'Rocha', 'da Rocha', 'Forneira', 'Silva', 'Santos', 'Ferreira', 'Pereira', 'Oliveira', 'Costa', 'Rodrigues', 'Martins', 'Jesus', 'Sousa'],
     'Netherlands': ['de Jong', 'Jansen', 'de Vries', 'van den Berg', 'van Dijk', 'Bakker', 'Visser', 'Smit', 'Meijer', 'de Boer'],
     'Belgium': ['Peeters', 'Janssens', 'Maes', 'Jacobs', 'Mertens', 'Willems', 'Claes', 'Goossens', 'Wouters', 'De Smet'],
     'Croatia': ['Horvat', 'Kovačević', 'Novak', 'Knežević', 'Kovačić', 'Babić', 'Marić', 'Petrović', 'Vuković', 'Radić'],
@@ -1619,7 +1729,7 @@ SURNAME_DATA = {
     'Egypt': ['Hassan', 'Ahmed', 'Mahmoud', 'Ali', 'Mohamed', 'Hussein', 'Ibrahim', 'Omar', 'Khalil', 'Tarek'],
     'Tunisia': ['Ben', 'Trabelsi', 'Jaziri', 'Jemâa', 'Mnari', 'Nafti', 'Saïfi', 'Zitouni', 'Ben', 'Trabelsi'],
     'South Africa': ['Mokoena', 'Pienaar', 'Tshabalala', 'Khumalo', 'Masilela', 'Gaxa', 'Modise', 'Parker', 'Mphela', 'Nomvethe'],
-    'Japan': ['Tanaka', 'Sato', 'Suzuki', 'Takahashi', 'Watanabe', 'Ito', 'Yamamoto', 'Nakamura', 'Kobayashi', 'Kato'],
+    'Japan': ['Vegito', 'Tanaka', 'Sato', 'Suzuki', 'Takahashi', 'Watanabe', 'Ito', 'Yamamoto', 'Nakamura', 'Kobayashi', 'Kato'],
     'South Korea': ['Kim', 'Lee', 'Park', 'Choi', 'Jung', 'Kang', 'Cho', 'Yoon', 'Jang', 'Lim'],
     'China': ['Wang', 'Li', 'Zhang', 'Liu', 'Chen', 'Yang', 'Huang', 'Zhao', 'Wu', 'Zhou'],
     'Australia': ['Smith', 'Jones', 'Williams', 'Brown', 'Taylor', 'Wilson', 'Johnson', 'Anderson', 'Thompson', 'White'],
@@ -1632,7 +1742,78 @@ SURNAME_DATA = {
     'Peru': ['García', 'Rodríguez', 'López', 'González', 'Martínez', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
     'Ecuador': ['García', 'Rodríguez', 'González', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
     'Venezuela': ['González', 'Rodríguez', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
-    'Canada': ['Smith', 'Brown', 'Tremblay', 'Martin', 'Roy', 'Gagnon', 'Lee', 'Wilson', 'Johnson', 'MacDonald']
+    'Canada': ['Marchessault', 'Phaneuf', 'Hill', 'Vlasic', 'Tkachuk', 'Marner', 'Smith', 'Brown', 'Tremblay', 'Martin', 'Roy', 'Gagnon', 'Lee', 'Wilson', 'Johnson', 'MacDonald', 'Phaneuf', 'Seabrook', 'Bedard', 'Hill', 'Tkachuk', 'Marner'],
+    
+    # Additional countries surnames
+    'Austria': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann', 'Bauer', 'Wagner', 'Schwarz', 'Huber', 'Klein', 'Richter', 'Wolf', 'Neumann', 'Schwarz', 'Zimmermann', 'Braun', 'Krüger', 'Hofmann', 'Lange', 'Schmitt', 'Werner', 'Krause', 'Meier', 'Lehmann', 'Schmid', 'Schulze', 'Maier', 'Köhler', 'Herrmann', 'König', 'Walter', 'Mayer', 'Huber', 'Kaiser', 'Fuchs', 'Peters', 'Lang', 'Scholz', 'Möller', 'Weiß', 'Jung', 'Hahn', 'Schubert', 'Schwarz', 'Ziegler'],
+    'Switzerland': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann', 'Bauer', 'Wagner', 'Schwarz', 'Huber', 'Klein', 'Richter', 'Wolf', 'Neumann', 'Schwarz', 'Zimmermann', 'Braun', 'Krüger', 'Hofmann', 'Lange', 'Schmitt', 'Werner', 'Krause', 'Meier', 'Lehmann', 'Schmid', 'Schulze', 'Maier', 'Köhler', 'Herrmann', 'König', 'Walter', 'Mayer', 'Huber', 'Kaiser', 'Fuchs', 'Peters', 'Lang', 'Scholz', 'Möller', 'Weiß', 'Jung', 'Hahn', 'Schubert', 'Schwarz', 'Ziegler'],
+    'Sweden': ['Liljgren', 'Rantanen', 'Sundin', 'Nylander', 'Andersson', 'Johansson', 'Karlsson', 'Nilsson', 'Eriksson', 'Larsson', 'Olsson', 'Persson', 'Svensson', 'Gustafsson', 'Pettersson', 'Jonsson', 'Jansson', 'Hansson', 'Bengtsson', 'Jönsson', 'Lindberg', 'Jakobsson', 'Magnusson', 'Olofsson', 'Lindström', 'Eklund', 'Lindqvist', 'Lindgren', 'Axelsson', 'Bergström', 'Lundberg', 'Mattsson', 'Holmberg', 'Sandberg', 'Nyström', 'Lundqvist', 'Holm', 'Månsson', 'Palm', 'Hellström', 'Björk', 'Ekström', 'Berg', 'Lundin', 'Ström', 'Hedberg', 'Sjöberg', 'Forsberg', 'Engström', 'Lundgren', 'Blomqvist', 'Nordström', 'Samuelsson'],
+    'Norway': ['Hansen', 'Johansen', 'Olsen', 'Larsen', 'Andersen', 'Pedersen', 'Nilsen', 'Kristiansen', 'Jensen', 'Karlsen', 'Johnsen', 'Pettersen', 'Eriksen', 'Berg', 'Haugen', 'Hagen', 'Johannessen', 'Andreassen', 'Jacobsen', 'Dahl', 'Henriksen', 'Jørgensen', 'Halvorsen', 'Lund', 'Sørensen', 'Jakobsen', 'Moen', 'Gundersen', 'Iversen', 'Svendsen', 'Knudsen', 'Eide', 'Hauge', 'Solberg', 'Bakke', 'Danielsen', 'Berntsen', 'Christensen', 'Rasmussen', 'Lien', 'Mathisen', 'Paulsen', 'Holm', 'Aas', 'Sandvik', 'Lie', 'Haugland', 'Nygård', 'Vik', 'Ødegård'],
+    'Denmark': ['Nielsen', 'Jensen', 'Hansen', 'Pedersen', 'Andersen', 'Christensen', 'Larsen', 'Sørensen', 'Rasmussen', 'Jørgensen', 'Petersen', 'Madsen', 'Kristensen', 'Olsen', 'Thomsen', 'Christiansen', 'Poulsen', 'Johansen', 'Møller', 'Knudsen', 'Andreasen', 'Iversen', 'Jeppesen', 'Mikkelsen', 'Frederiksen', 'Jakobsen', 'Lauridsen', 'Henriksen', 'Lund', 'Svendsen', 'Eriksen', 'Holm', 'Bach', 'Bech', 'Bendtsen', 'Birk', 'Bjerre', 'Bøgh', 'Carlsen', 'Dahl', 'Dam', 'Eskildsen', 'Frandsen', 'Gravesen', 'Hansen', 'Hedegaard', 'Hjorth', 'Hoffmann', 'Jensen', 'Kjær'],
+    'Finland': ['Virtanen', 'Korhonen', 'Mäkinen', 'Nieminen', 'Mäkelä', 'Hämäläinen', 'Laine', 'Heikkinen', 'Koskinen', 'Järvinen', 'Lehtonen', 'Saarinen', 'Salminen', 'Heinonen', 'Niemi', 'Heikkilä', 'Kinnunen', 'Salonen', 'Turunen', 'Salo', 'Laitinen', 'Rantanen', 'Ahonen', 'Ojala', 'Lehto', 'Väisänen', 'Miettinen', 'Pitkänen', 'Hakkarainen', 'Mattila', 'Anttila', 'Hiltunen', 'Simonen', 'Manninen', 'Kivinen', 'Koski', 'Kangas', 'Peltola', 'Toivonen', 'Kokkonen', 'Nurmi', 'Kettunen', 'Seppänen', 'Aaltonen', 'Kallio', 'Karjalainen', 'Koivisto', 'Lindberg', 'Pekkanen', 'Rautio'],
+    'Iceland': ['Jónsson', 'Sigurðsson', 'Guðmundsson', 'Gunnarsson', 'Ólafsson', 'Einarsson', 'Kristjánsson', 'Magnússon', 'Stefánsson', 'Jóhannesson', 'Björnsson', 'Helgason', 'Pétursson', 'Óskarsson', 'Sveinsson', 'Þorsteinsson', 'Haraldsson', 'Árnason', 'Baldursson', 'Eiríksson', 'Friðriksson', 'Geirsson', 'Hauksson', 'Ingvarsson', 'Jónasson', 'Karlsson', 'Lárusson', 'Mársson', 'Níels', 'Ólafursson', 'Pállsson', 'Ragnarsson', 'Sigfússon', 'Tómas', 'Úlfsson', 'Vilhjálmsson', 'Þórsson', 'Ægirsson', 'Örnsson', 'Ásgeirsson', 'Bragi', 'Dagursson', 'Eiríkursson', 'Freyrsson', 'Gísli', 'Hrafnsson', 'Ívarsson', 'Jökull', 'Kári', 'Loki'],
+    'Ireland': ['Murphy', 'Kelly', 'O\'Sullivan', 'Walsh', 'Smith', 'O\'Brien', 'Byrne', 'Ryan', 'O\'Connor', 'O\'Neill', 'McCarthy', 'O\'Reilly', 'Doyle', 'Kennedy', 'Lynch', 'Quinn', 'Moore', 'O\'Callaghan', 'O\'Donnell', 'O\'Mahony', 'Burke', 'O\'Shea', 'O\'Leary', 'Daly', 'O\'Connell', 'Wilson', 'Dunne', 'Brennan', 'Murray', 'Collins', 'Campbell', 'Clarke', 'Johnston', 'Hughes', 'O\'Farrell', 'Fitzgerald', 'O\'Grady', 'Power', 'Sullivan', 'White', 'Hayes', 'O\'Dwyer', 'Martin', 'O\'Keeffe', 'O\'Rourke', 'O\'Malley', 'O\'Hara', 'O\'Donovan', 'O\'Sullivan', 'O\'Brien', 'O\'Connor'],
+    'Scotland': ['Smith', 'Brown', 'Wilson', 'Stewart', 'Thomson', 'Robertson', 'Campbell', 'Anderson', 'MacDonald', 'Scott', 'Reid', 'Murray', 'Taylor', 'Clark', 'Ross', 'Watson', 'Morrison', 'Paterson', 'Young', 'Mitchell', 'Fraser', 'Walker', 'Graham', 'Hamilton', 'Johnston', 'Cameron', 'Hunter', 'Kelly', 'Bell', 'Grant', 'McDonald', 'Miller', 'McLeod', 'McKenzie', 'Allan', 'Black', 'McKay', 'McLean', 'McIntosh', 'McPherson', 'McLaren', 'McGregor', 'McLaughlin', 'McBride', 'McFarlane', 'McTavish', 'McDougall', 'McInnes', 'McLennan', 'McNab', 'McNeill'],
+    'Wales': ['Jones', 'Williams', 'Davies', 'Evans', 'Thomas', 'Roberts', 'Lewis', 'Hughes', 'Morgan', 'Griffiths', 'Edwards', 'Owen', 'James', 'Price', 'Rees', 'Jenkins', 'Phillips', 'Harris', 'Lloyd', 'Powell', 'Morris', 'Richards', 'Taylor', 'Watkins', 'Bennett', 'Cook', 'Wood', 'Bailey', 'Cooper', 'Ward', 'Turner', 'Parker', 'Gray', 'Collins', 'Bell', 'Murphy', 'Cox', 'Howard', 'Ward', 'Torres', 'Peterson', 'Gray', 'Ramirez', 'James', 'Watson', 'Brooks', 'Kelly', 'Sanders', 'Price', 'Bennett'],
+    'Northern Ireland': ['Murphy', 'Kelly', 'O\'Sullivan', 'Walsh', 'Smith', 'O\'Brien', 'Byrne', 'Ryan', 'O\'Connor', 'O\'Neill', 'McCarthy', 'O\'Reilly', 'Doyle', 'Kennedy', 'Lynch', 'Quinn', 'Moore', 'O\'Callaghan', 'O\'Donnell', 'O\'Mahony', 'Burke', 'O\'Shea', 'O\'Leary', 'Daly', 'O\'Connell', 'Wilson', 'Dunne', 'Brennan', 'Murray', 'Collins', 'Campbell', 'Clarke', 'Johnston', 'Hughes', 'O\'Farrell', 'Fitzgerald', 'O\'Grady', 'Power', 'Sullivan', 'White', 'Hayes', 'O\'Dwyer', 'Martin', 'O\'Keeffe', 'O\'Rourke', 'O\'Malley', 'O\'Hara', 'O\'Donovan', 'O\'Sullivan', 'O\'Brien', 'O\'Connor'],
+    
+    # Additional missing countries surnames
+    'Albania': ['Hoxha', 'Krasniqi', 'Berisha', 'Gashi', 'Kadriu', 'Morina', 'Pajaziti', 'Rexhepi', 'Shala', 'Zejnullahu'],
+    'Angola': ['Santos', 'Fernandes', 'Silva', 'Costa', 'Pereira', 'Oliveira', 'Rodrigues', 'Ferreira', 'Alves', 'Gomes'],
+    'Armenia': ['Grigoryan', 'Khachatryan', 'Harutyunyan', 'Sargsyan', 'Vardanyan', 'Petrosyan', 'Karapetyan', 'Ghazaryan', 'Mkrtchyan', 'Avetisyan'],
+    'Belarus': ['Ivanov', 'Petrov', 'Sidorov', 'Kozlov', 'Morozov', 'Volkov', 'Alekseev', 'Lebedev', 'Semenov', 'Egorov'],
+    'Benin': ['Adjanohoun', 'Agbessi', 'Akplogan', 'Bokonon', 'Dossou', 'Gbaguidi', 'Houngbédji', 'Kouassi', 'Migan', 'Tchibozo'],
+    'Bolivia': ['García', 'Rodríguez', 'González', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
+    'Bosnia and Herzegovina': ['Kovačević', 'Petrović', 'Nikolić', 'Marković', 'Đorđević', 'Stojanović', 'Ilić', 'Stanković', 'Pavlović', 'Milošević'],
+    'Bulgaria': ['Ivanov', 'Petrov', 'Georgiev', 'Dimitrov', 'Stoyanov', 'Nikolov', 'Todorov', 'Hristov', 'Atanasov', 'Vasilev'],
+    'Burkina Faso': ['Ouédraogo', 'Traoré', 'Sawadogo', 'Kaboré', 'Zongo', 'Ouattara', 'Bikienga', 'Boukary', 'Compaoré', 'Dabiré'],
+    'Congo': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
+    'Costa Rica': ['Rodríguez', 'González', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
+    'Cote d\'Ivoire': ['Traoré', 'Ouattara', 'Koné', 'Diabaté', 'Bamba', 'Coulibaly', 'Drogba', 'Kalou', 'Tiéné', 'Zokora'],
+    'Cyprus': ['Georgiou', 'Ioannou', 'Christou', 'Michael', 'Andreou', 'Constantinou', 'Papa', 'Kyprianou', 'Charalambous', 'Demetriou'],
+    'Czech Republic': ['Novák', 'Svoboda', 'Novotný', 'Dvořák', 'Černý', 'Procházka', 'Kučera', 'Veselý', 'Horák', 'Němec'],
+    'DR Congo': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
+    'Equatorial Guinea': ['Mba', 'Nguema', 'Obiang', 'Mangue', 'Nsue', 'Bikoro', 'Sipoto', 'Mangue', 'Nsue', 'Bikoro'],
+    'Estonia': ['Tamm', 'Saar', 'Sepp', 'Mägi', 'Kask', 'Kukk', 'Ilves', 'Rebane', 'Karu', 'Lepik'],
+    'Free Nationality': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Gabon': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
+    'Gambia': ['Jallow', 'Sanneh', 'Ceesay', 'Jobe', 'Manneh', 'Colley', 'Barry', 'Sarr', 'Gomez', 'Bojang'],
+    'Georgia': ['Gelashvili', 'Kvaratskhelia', 'Mamardashvili', 'Kakabadze', 'Davitashvili', 'Kvaratskhelia', 'Mamardashvili', 'Kakabadze', 'Davitashvili', 'Gelashvili'],
+    'Greece': ['Papadopoulos', 'Georgiou', 'Karagiannis', 'Nikolaou', 'Antoniou', 'Vasileiou', 'Ioannou', 'Christou', 'Dimitriou', 'Konstantinou'],
+    'Grenada': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Guadeloupe': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
+    'Guinea': ['Diallo', 'Bah', 'Camara', 'Traoré', 'Sow', 'Barry', 'Keita', 'Sylla', 'Cissé', 'Touré'],
+    'Guinea-Bissau': ['Mendes', 'Fernandes', 'Silva', 'Costa', 'Pereira', 'Oliveira', 'Rodrigues', 'Ferreira', 'Alves', 'Gomes'],
+    'Honduras': ['Rodríguez', 'González', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
+    'Hungary': ['Nagy', 'Kovács', 'Tóth', 'Szabó', 'Horváth', 'Varga', 'Kiss', 'Molnár', 'Németh', 'Farkas'],
+    'Iran': ['Mohammadi', 'Rezaei', 'Hassani', 'Karimi', 'Ahmadi', 'Nouri', 'Gholami', 'Faraji', 'Ebrahimi', 'Rahmani'],
+    'Israel': ['Cohen', 'Levy', 'Mizrahi', 'Avraham', 'David', 'Shalom', 'Ben-David', 'Rosenberg', 'Goldberg', 'Weiss'],
+    'Jamaica': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Kenya': ['Mwangi', 'Njoroge', 'Kipchoge', 'Ochieng', 'Wanjiku', 'Kamau', 'Nyong\'o', 'Odinga', 'Kenyatta', 'Moi'],
+    'Latvia': ['Bērziņš', 'Kalniņš', 'Ozols', 'Liepiņš', 'Dzērve', 'Priede', 'Eglītis', 'Vītols', 'Mežs', 'Silis'],
+    'Liberia': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Liechtenstein': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann'],
+    'Lithuania': ['Kazlauskas', 'Petraitis', 'Jankauskas', 'Stankevičius', 'Vasiliauskas', 'Butkus', 'Grigas', 'Lukšys', 'Mickevičius', 'Navickas'],
+    'Macedonia': ['Nikolovski', 'Petrovski', 'Georgievski', 'Dimitrovski', 'Stojanovski', 'Todorovski', 'Hristovski', 'Atanasovski', 'Vasilevski', 'Ilievski'],
+    'Mali': ['Traoré', 'Keita', 'Coulibaly', 'Diallo', 'Sangaré', 'Diarra', 'Koné', 'Doumbia', 'Touré', 'Sissoko'],
+    'Martinique': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
+    'Mozambique': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
+    'Netherlands Antilles': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'New Zealand': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Oman': ['Al-Rashid', 'Al-Zahra', 'Al-Mansouri', 'Al-Hajri', 'Al-Balushi', 'Al-Saadi', 'Al-Mahrouqi', 'Al-Hinai', 'Al-Kharusi', 'Al-Shamsi'],
+    'Panama': ['Rodríguez', 'González', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
+    'Romania': ['Popescu', 'Ionescu', 'Popa', 'Radu', 'Stoica', 'Stan', 'Dumitrescu', 'Gheorghe', 'Constantinescu', 'Marin'],
+    'Saudi Arabia': ['Al-Rashid', 'Al-Zahra', 'Al-Mansouri', 'Al-Hajri', 'Al-Balushi', 'Al-Saadi', 'Al-Mahrouqi', 'Al-Hinai', 'Al-Kharusi', 'Al-Shamsi'],
+    'Serbia and Montenegro': ['Jovanović', 'Petrović', 'Nikolić', 'Marković', 'Đorđević', 'Stojanović', 'Ilić', 'Stanković', 'Pavlović', 'Milošević'],
+    'Sierra Leone': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Slovakia': ['Horváth', 'Kováč', 'Varga', 'Tóth', 'Nagy', 'Szabó', 'Molnár', 'Németh', 'Balog', 'Lukáč'],
+    'Slovenia': ['Novak', 'Horvat', 'Krajnc', 'Zupančič', 'Kovačič', 'Mlakar', 'Vidmar', 'Petek', 'Kos', 'Zajc'],
+    'Togo': ['Adjanohoun', 'Agbessi', 'Akplogan', 'Bokonon', 'Dossou', 'Gbaguidi', 'Houngbédji', 'Kouassi', 'Migan', 'Tchibozo'],
+    'Trinidad and Tobago': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'United States': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Uzbekistan': ['Karimov', 'Rashidov', 'Toshev', 'Nazirov', 'Khamidov', 'Usmanov', 'Yuldashev', 'Rakhimov', 'Saidov', 'Kurbanov'],
+    'Zambia': ['Mwamba', 'Chilufya', 'Banda', 'Mwanza', 'Sichone', 'Katongo', 'Kalaba', 'Mweene', 'Sunzu', 'Mulenga'],
+    'Zimbabwe': ['Mugabe', 'Tsvangirai', 'Nkomo', 'Mugabe', 'Chinamasa', 'Mpofu', 'Mugabe', 'Tsvangirai', 'Nkomo', 'Mugabe']
 }
 
 def generate_player_name(nationality: str) -> Tuple[str, str]:
@@ -1646,7 +1827,12 @@ def generate_player_name(nationality: str) -> Tuple[str, str]:
     
     # Generate name
     first_name = random.choice(first_names)
-    surname = random.choice(surnames)
+    
+    # 30% chance to have only one name (no surname)
+    if random.random() < 0.30:
+        surname = ""  # No surname
+    else:
+        surname = random.choice(surnames)
     
     return first_name, surname
 
@@ -1714,6 +1900,43 @@ def generate_player_attributes(age: int, position: str, db_path: str = None) -> 
     
     return attributes
 
+def get_position_name_mapping():
+    """Get mapping from position numbers to position names (matches refresh_and_reimport.py)."""
+    return {
+        0: 'Goal-Keeper',
+        2: 'Sweeper',
+        3: 'Centre-Back',
+        4: 'Side-Back',
+        5: 'Defensive Midfielder',
+        6: 'Wing-Back',
+        7: 'Center-Midfielder',
+        8: 'Side-Midfielder',
+        9: 'Attacking Midfielder',
+        10: 'Winger',
+        11: 'Shadow Striker',
+        12: 'Striker',
+        13: 'Unknown'  # Handle position 13
+    }
+
+def calculate_bundled_skill_ratings(skill_attributes: Dict) -> Dict:
+    """Calculate bundled skill ratings from individual skills."""
+    return {
+        'attack_rating': skill_attributes['attack'],
+        'defense_rating': (skill_attributes['defense'] + skill_attributes['aggression']) // 2,
+        'physical_rating': (skill_attributes['stamina'] + skill_attributes['top_speed'] + 
+                          skill_attributes['acceleration'] + skill_attributes['response'] + 
+                          skill_attributes['agility'] + skill_attributes['jump']) // 6,
+        'power_rating': (skill_attributes['shot_power'] + skill_attributes['balance'] + 
+                       skill_attributes['mentality']) // 3,
+        'technique_rating': (skill_attributes['technique'] + skill_attributes['swerve'] + 
+                           skill_attributes['free_kick_accuracy'] + skill_attributes['dribble_accuracy'] + 
+                           skill_attributes['dribble_speed'] + skill_attributes['short_pass_accuracy'] + 
+                           skill_attributes['short_pass_speed'] + skill_attributes['long_pass_accuracy'] + 
+                           skill_attributes['long_pass_speed']) // 9,
+        'goalkeeping_rating': (skill_attributes['defense'] + skill_attributes['goal_keeping'] + 
+                             skill_attributes['response'] + skill_attributes['agility']) // 4
+    }
+
 def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dict:
     """
     Generate a proper regen based on the retiring player's attributes.
@@ -1725,93 +1948,9 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
     Returns:
         Dictionary with the new regen player data
     """
-    # Nationality data with proper skin color mapping
-    NATIONALITY_DATA = {
-        'Brazil': {'skin_color': 2, 'weight': 0.15, 'names': ['João', 'Pedro', 'Lucas', 'Gabriel', 'Matheus', 'Rafael', 'Bruno', 'Carlos', 'André', 'Felipe']},
-        'Argentina': {'skin_color': 1, 'weight': 0.12, 'names': ['Santiago', 'Mateo', 'Benjamín', 'Lucas', 'Nicolás', 'Alejandro', 'Diego', 'Martín', 'Javier', 'Gonzalo']},
-        'Spain': {'skin_color': 1, 'weight': 0.10, 'names': ['Carlos', 'Miguel', 'Javier', 'Antonio', 'David', 'Daniel', 'Francisco', 'José', 'Manuel', 'Luis']},
-        'France': {'skin_color': 1, 'weight': 0.09, 'names': ['Thomas', 'Pierre', 'Nicolas', 'Alexandre', 'Maxime', 'Antoine', 'Raphaël', 'Vincent', 'Julien', 'Baptiste']},
-        'England': {'skin_color': 1, 'weight': 0.08, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan']},
-        'Germany': {'skin_color': 1, 'weight': 0.08, 'names': ['Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas']},
-        'Italy': {'skin_color': 1, 'weight': 0.07, 'names': ['Marco', 'Alessandro', 'Matteo', 'Luca', 'Andrea', 'Giuseppe', 'Roberto', 'Antonio', 'Giovanni', 'Francesco']},
-        'Portugal': {'skin_color': 1, 'weight': 0.06, 'names': ['João', 'Miguel', 'Diogo', 'Tiago', 'André', 'Pedro', 'Ricardo', 'Nuno', 'Rui', 'Carlos']},
-        'Netherlands': {'skin_color': 1, 'weight': 0.05, 'names': ['Daan', 'Sem', 'Lucas', 'Milan', 'Levi', 'Finn', 'Jesse', 'Luuk', 'Bram', 'Thijs']},
-        'Belgium': {'skin_color': 1, 'weight': 0.04, 'names': ['Lucas', 'Louis', 'Arthur', 'Victor', 'Adam', 'Nathan', 'Thomas', 'Maxime', 'Antoine', 'Raphaël']},
-        'Croatia': {'skin_color': 1, 'weight': 0.04, 'names': ['Ivan', 'Marko', 'Luka', 'Petar', 'Ante', 'Josip', 'Matej', 'Filip', 'Domagoj', 'Borna']},
-        'Serbia': {'skin_color': 1, 'weight': 0.03, 'names': ['Stefan', 'Nikola', 'Marko', 'Aleksandar', 'Milan', 'Petar', 'Dragan', 'Bojan', 'Dejan', 'Nemanja']},
-        'Poland': {'skin_color': 1, 'weight': 0.03, 'names': ['Jakub', 'Kacper', 'Filip', 'Szymon', 'Michał', 'Jan', 'Piotr', 'Tomasz', 'Marek', 'Adam']},
-        'Ukraine': {'skin_color': 1, 'weight': 0.03, 'names': ['Oleksandr', 'Andriy', 'Mykhailo', 'Vitaliy', 'Serhiy', 'Ihor', 'Vasyl', 'Roman', 'Yuriy', 'Dmytro']},
-        'Russia': {'skin_color': 1, 'weight': 0.03, 'names': ['Alexander', 'Dmitri', 'Sergei', 'Andrei', 'Vladimir', 'Igor', 'Nikolai', 'Mikhail', 'Aleksei', 'Denis']},
-        'Turkey': {'skin_color': 2, 'weight': 0.03, 'names': ['Mehmet', 'Mustafa', 'Ahmet', 'Ali', 'Hasan', 'Hüseyin', 'İbrahim', 'Murat', 'Ömer', 'Yusuf']},
-        'Morocco': {'skin_color': 2, 'weight': 0.02, 'names': ['Youssef', 'Ahmad', 'Karim', 'Hassan', 'Omar', 'Khalid', 'Rachid', 'Nabil', 'Samir', 'Tariq']},
-        'Algeria': {'skin_color': 2, 'weight': 0.02, 'names': ['Karim', 'Yacine', 'Sofiane', 'Riyad', 'Islam', 'Adel', 'Samir', 'Nabil', 'Hakim', 'Farid']},
-        'Senegal': {'skin_color': 4, 'weight': 0.02, 'names': ['Mamadou', 'Ibrahima', 'Ousmane', 'Sadio', 'Kalidou', 'Cheikhou', 'Idrissa', 'Moussa', 'Pape', 'Youssouf']},
-        'Nigeria': {'skin_color': 4, 'weight': 0.02, 'names': ['Victor', 'Kelechi', 'Alex', 'Wilfred', 'Oghenekaro', 'John', 'Ahmed', 'Emmanuel', 'Odion', 'Moses']},
-        'Ghana': {'skin_color': 4, 'weight': 0.02, 'names': ['André', 'Thomas', 'Jordan', 'Daniel', 'Christian', 'Jeffrey', 'Mubarak', 'Emmanuel', 'Kwadwo', 'Asamoah']},
-        'Ivory Coast': {'skin_color': 4, 'weight': 0.02, 'names': ['Yaya', 'Wilfried', 'Serge', 'Salomon', 'Didier', 'Kolo', 'Emmanuel', 'Gervinho', 'Cheick', 'Seydou']},
-        'Cameroon': {'skin_color': 4, 'weight': 0.02, 'names': ['Samuel', 'Joel', 'Vincent', 'Eric', 'Pierre', 'Achille', 'Benjamin', 'Georges', 'Roger', 'Patrick']},
-        'Egypt': {'skin_color': 2, 'weight': 0.02, 'names': ['Mohamed', 'Ahmed', 'Mahmoud', 'Omar', 'Karim', 'Amr', 'Hossam', 'Tarek', 'Wael', 'Hassan']},
-        'Tunisia': {'skin_color': 2, 'weight': 0.01, 'names': ['Youssef', 'Wahbi', 'Hamza', 'Ferjani', 'Aymen', 'Naim', 'Saber', 'Karim', 'Oussama', 'Anis']},
-        'South Africa': {'skin_color': 4, 'weight': 0.01, 'names': ['Percy', 'Steven', 'Dean', 'Bongani', 'Siyabonga', 'Thulani', 'Kagisho', 'Teko', 'Siphiwe', 'Katlego']},
-        'Japan': {'skin_color': 3, 'weight': 0.02, 'names': ['Keisuke', 'Shinji', 'Yuto', 'Maya', 'Hiroshi', 'Takashi', 'Yasuhito', 'Makoto', 'Yoshinori', 'Eiji']},
-        'South Korea': {'skin_color': 3, 'weight': 0.02, 'names': ['Son', 'Ki', 'Park', 'Lee', 'Kim', 'Jung', 'Choi', 'Kwon', 'Yoon', 'Han']},
-        'China': {'skin_color': 3, 'weight': 0.01, 'names': ['Wu', 'Zhang', 'Li', 'Wang', 'Chen', 'Liu', 'Yang', 'Huang', 'Zhao', 'Zhou']},
-        'Australia': {'skin_color': 1, 'weight': 0.01, 'names': ['Tim', 'Mathew', 'Mark', 'Joshua', 'Aaron', 'Mile', 'Tom', 'Jackson', 'Adam', 'Ryan']},
-        'USA': {'skin_color': 1, 'weight': 0.03, 'names': ['Christian', 'Michael', 'Clint', 'Jozy', 'Brad', 'Tim', 'Geoff', 'Alejandro', 'Graham', 'Bobby']},
-        'Mexico': {'skin_color': 2, 'weight': 0.02, 'names': ['Javier', 'Carlos', 'Andrés', 'Guillermo', 'Rafael', 'Jorge', 'Luis', 'Miguel', 'Diego', 'Eduardo']},
-        'Colombia': {'skin_color': 2, 'weight': 0.02, 'names': ['James', 'Radamel', 'Juan', 'Carlos', 'David', 'Abel', 'Jackson', 'Luis', 'Fredy', 'Teófilo']},
-        'Chile': {'skin_color': 2, 'weight': 0.01, 'names': ['Arturo', 'Alexis', 'Eduardo', 'Gary', 'Claudio', 'Jorge', 'Mauricio', 'Matías', 'Charles', 'Felipe']},
-        'Uruguay': {'skin_color': 1, 'weight': 0.01, 'names': ['Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Cristian', 'Walter', 'Egidio', 'Nicolás']},
-        'Paraguay': {'skin_color': 2, 'weight': 0.01, 'names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio', 'Carlos']},
-        'Peru': {'skin_color': 2, 'weight': 0.01, 'names': ['Paolo', 'Jefferson', 'André', 'Christian', 'Yoshimar', 'Renato', 'Luis', 'Carlos', 'Miguel', 'Raúl']},
-        'Ecuador': {'skin_color': 2, 'weight': 0.01, 'names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Luis', 'Gabriel', 'Walter']},
-        'Venezuela': {'skin_color': 2, 'weight': 0.01, 'names': ['Salomón', 'Tomás', 'Rómulo', 'Alejandro', 'Luis', 'Fernando', 'Carlos', 'Roberto', 'José', 'Manuel']},
-        'Canada': {'skin_color': 1, 'weight': 0.01, 'names': ['Alphonso', 'Jonathan', 'Atiba', 'Scott', 'Samuel', 'Cyle', 'Mark', 'Tosaint', 'Russell', 'Will']}
-    }
+    # Use the global NATIONALITY_DATA (extensive list with 50 names per country)
+    # No need to redefine it here
     
-    # Surname data
-    SURNAME_DATA = {
-        'Brazil': ['Silva', 'Santos', 'Oliveira', 'Souza', 'Rodrigues', 'Ferreira', 'Alves', 'Pereira', 'Lima', 'Gomes'],
-        'Argentina': ['González', 'Rodríguez', 'Gómez', 'Fernández', 'López', 'Díaz', 'Martínez', 'Pérez', 'García', 'Sánchez'],
-        'Spain': ['García', 'Rodríguez', 'González', 'Fernández', 'López', 'Martínez', 'Sánchez', 'Pérez', 'Gómez', 'Martín'],
-        'France': ['Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand', 'Leroy', 'Moreau'],
-        'England': ['Smith', 'Jones', 'Williams', 'Brown', 'Taylor', 'Davies', 'Wilson', 'Evans', 'Thomas', 'Roberts'],
-        'Germany': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann'],
-        'Italy': ['Rossi', 'Ferrari', 'Russo', 'Bianchi', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Bruno'],
-        'Portugal': ['Silva', 'Santos', 'Ferreira', 'Pereira', 'Oliveira', 'Costa', 'Rodrigues', 'Martins', 'Jesus', 'Sousa'],
-        'Netherlands': ['de Jong', 'Jansen', 'de Vries', 'van den Berg', 'van Dijk', 'Bakker', 'Visser', 'Smit', 'Meijer', 'de Boer'],
-        'Belgium': ['Peeters', 'Janssens', 'Maes', 'Jacobs', 'Mertens', 'Willems', 'Claes', 'Goossens', 'Wouters', 'De Smet'],
-        'Croatia': ['Horvat', 'Kovačević', 'Novak', 'Knežević', 'Kovačić', 'Babić', 'Marić', 'Petrović', 'Vuković', 'Radić'],
-        'Serbia': ['Jovanović', 'Petrović', 'Nikolić', 'Marković', 'Đorđević', 'Stojanović', 'Ilić', 'Stanković', 'Pavlović', 'Milošević'],
-        'Poland': ['Nowak', 'Kowalski', 'Wiśniewski', 'Wójcik', 'Kowalczyk', 'Kamiński', 'Lewandowski', 'Zieliński', 'Szymański', 'Woźniak'],
-        'Ukraine': ['Melnyk', 'Shevchenko', 'Bondarenko', 'Kovalenko', 'Tkachenko', 'Kravchenko', 'Kovalchuk', 'Oliynyk', 'Shevchuk', 'Polishchuk'],
-        'Russia': ['Ivanov', 'Smirnov', 'Kuznetsov', 'Popov', 'Vasiliev', 'Petrov', 'Sokolov', 'Mikhailov', 'Novikov', 'Fedorov'],
-        'Turkey': ['Yılmaz', 'Kaya', 'Demir', 'Çelik', 'Şahin', 'Yıldız', 'Yıldırım', 'Özdemir', 'Arslan', 'Doğan'],
-        'Morocco': ['Benjelloun', 'Alaoui', 'Tazi', 'Bennani', 'Berrada', 'Chraibi', 'Fassi', 'Gharbi', 'Hassani', 'Idrissi'],
-        'Algeria': ['Bouazza', 'Boumediene', 'Bouhani', 'Boukhari', 'Boukhobza', 'Boukhriss', 'Boumaaza', 'Boumediene', 'Bouras'],
-        'Senegal': ['Diop', 'Diallo', 'Fall', 'Ndiaye', 'Ba', 'Sow', 'Thiam', 'Cissé', 'Gueye', 'Diagne'],
-        'Nigeria': ['Okechukwu', 'Onyekachi', 'Onyekwelu', 'Onyemachi', 'Onyemaechi', 'Onyenachi', 'Onyenacho', 'Onyenachi', 'Onyenachi'],
-        'Ghana': ['Mensah', 'Owusu', 'Addo', 'Asante', 'Boateng', 'Darko', 'Essien', 'Gyan', 'Muntari', 'Paintsil'],
-        'Ivory Coast': ['Koné', 'Traoré', 'Ouattara', 'Bamba', 'Coulibaly', 'Diabaté', 'Drogba', 'Kalou', 'Tiéné', 'Zokora'],
-        'Cameroon': ['Eto\'o', 'Song', 'M\'Bami', 'Womé', 'Kalla', 'N\'Kufo', 'M\'Boma', 'Song', 'Eto\'o', 'Song'],
-        'Egypt': ['Hassan', 'Ahmed', 'Mahmoud', 'Ali', 'Mohamed', 'Hussein', 'Ibrahim', 'Omar', 'Khalil', 'Tarek'],
-        'Tunisia': ['Ben', 'Trabelsi', 'Jaziri', 'Jemâa', 'Mnari', 'Nafti', 'Saïfi', 'Zitouni', 'Ben', 'Trabelsi'],
-        'South Africa': ['Mokoena', 'Pienaar', 'Tshabalala', 'Khumalo', 'Masilela', 'Gaxa', 'Modise', 'Parker', 'Mphela', 'Nomvethe'],
-        'Japan': ['Tanaka', 'Sato', 'Suzuki', 'Takahashi', 'Watanabe', 'Ito', 'Yamamoto', 'Nakamura', 'Kobayashi', 'Kato'],
-        'South Korea': ['Kim', 'Lee', 'Park', 'Choi', 'Jung', 'Kang', 'Cho', 'Yoon', 'Jang', 'Lim'],
-        'China': ['Wang', 'Li', 'Zhang', 'Liu', 'Chen', 'Yang', 'Huang', 'Zhao', 'Wu', 'Zhou'],
-        'Australia': ['Smith', 'Jones', 'Williams', 'Brown', 'Taylor', 'Wilson', 'Johnson', 'Anderson', 'Thompson', 'White'],
-        'USA': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
-        'Mexico': ['Hernández', 'García', 'Martínez', 'López', 'González', 'Pérez', 'Rodríguez', 'Sánchez', 'Ramírez', 'Cruz'],
-        'Colombia': ['Rodríguez', 'González', 'García', 'Martínez', 'López', 'Hernández', 'Pérez', 'Sánchez', 'Ramírez', 'Torres'],
-        'Chile': ['González', 'Muñoz', 'Rojas', 'Díaz', 'Pérez', 'Soto', 'Silva', 'Morales', 'Flores', 'Castro'],
-        'Uruguay': ['Rodríguez', 'González', 'Silva', 'Pérez', 'García', 'Fernández', 'López', 'Martínez', 'Díaz', 'Hernández'],
-        'Paraguay': ['González', 'Rodríguez', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
-        'Peru': ['García', 'Rodríguez', 'López', 'González', 'Martínez', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
-        'Ecuador': ['García', 'Rodríguez', 'González', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
-        'Venezuela': ['González', 'Rodríguez', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
-        'Canada': ['Smith', 'Brown', 'Tremblay', 'Martin', 'Roy', 'Gagnon', 'Lee', 'Wilson', 'Johnson', 'MacDonald']
-    }
     
     def select_nationality():
         """Select a nationality based on weighted probabilities."""
@@ -1823,14 +1962,20 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
     
     def generate_player_name(nationality):
         """Generate a realistic first name and surname for a given nationality."""
-        if nationality not in NATIONALITY_DATA:
+        # Fallback to England if missing or invalid
+        if not nationality or nationality not in NATIONALITY_DATA:
             nationality = 'England'
         
         first_names = NATIONALITY_DATA[nationality]['names']
         surnames = SURNAME_DATA.get(nationality, SURNAME_DATA['England'])
         
         first_name = random.choice(first_names)
-        surname = random.choice(surnames)
+        
+        # 10% chance to have only one name (no surname)
+        if random.random() < 0.10:
+            surname = ""  # No surname
+        else:
+            surname = random.choice(surnames)
         
         return first_name, surname
     
@@ -1868,9 +2013,10 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
             return {}
     
     # Generate regen based on retiring player
-    nationality = select_nationality()
+    nationality = retired_player_data.get('nationality', 'England')  # Use retiring player's nationality, fallback to England
+    
     first_name, surname = generate_player_name(nationality)
-    full_name = f"{first_name} {surname}"
+    full_name = f"{first_name} {surname}".strip() if surname else first_name
     
     # Age: 16-18 for regens
     age = random.randint(16, 18)
@@ -1878,11 +2024,23 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
     # Skin color from nationality
     skin_color = NATIONALITY_DATA[nationality]['skin_color']
     
-    # Position: Keep the same as retiring player
-    registered_position = retired_player_data['registered_position']
+    # Position: Keep the same as retiring player, UNLESS it's an Unused/Edited player
+    position_mapping = get_position_name_mapping()
     
-    # Financial data: Lower for young players
-    base_salary = random.randint(30000, 120000)
+    # Check if this is an Unused/Edited player - randomize their position
+    player_name = retired_player_data.get('player_name', '')
+    if 'Unused' in player_name or 'Edited' in player_name:
+        # Randomize position for Unused/Edited players to prevent position concentration
+        # Valid positions: 0,2,3,4,5,6,7,8,9,10,11,12 (position 1 doesn't exist)
+        valid_positions = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        registered_position_num = random.choice(valid_positions)
+        print(f"  🎲 Randomized position for {player_name}: {registered_position_num}")
+    else:
+        # Normal players keep their position
+        registered_position_num = int(retired_player_data['registered_position'])  # Convert to int
+    
+    registered_position = position_mapping.get(registered_position_num, 'Center-Midfielder')
+    
     contract_years = random.randint(3, 5)
     yearly_wage_rise = random.uniform(0.03, 0.10)
     
@@ -1902,11 +2060,20 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
     # Get realistic ranges from database
     column_ranges = get_column_ranges()
     
-    # Base the regen's attributes on the retiring player's attributes
-    # but scaled down for age and with some randomness
-    age_factor = 0.6 + (age - 16) * 0.075  # 16yo = 60%, 17yo = 67.5%, 18yo = 75%
+    # Generate Inner Strength Index (1-9) - determines base skill level
+    # Most regens have average strength (around 4), only few have 8-9
+    strength_weights = [0.05, 0.10, 0.15, 0.30, 0.20, 0.10, 0.05, 0.03, 0.02]  # 1-9
+    inner_strength = random.choices(range(1, 10), weights=strength_weights)[0]
     
-    # Skill attributes: base on retiring player but scaled down
+    # Get position averages from database
+    position_averages = None
+    if db_path:
+        try:
+            position_averages = get_cached_position_averages(db_path)
+        except:
+            print("Warning: Could not load position averages")
+    
+    # Skill attributes: position-aware generation using inner strength
     skill_attributes = {}
     skill_fields = [
         'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
@@ -1917,38 +2084,101 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
         'team_work', 'consistency', 'condition_fitness'
     ]
     
+    # Inner strength determines base range: 1=35-45, 4=40-55, 9=55-70
+    base_min = 45 + (inner_strength - 1) * 2.5  # 35 to 55
+    base_max = 55 + (inner_strength - 1) * 2.8  # 45 to 67.2
+    
+    spikes_generated = 0
+    max_spikes = 10  # Allow up to 2 skill spikes per regen
+    
     for skill in skill_fields:
-        if skill in retired_player_data:
-            base_value = retired_player_data[skill]
-            # Scale down for age and add randomness
-            variation = random.uniform(-8, 8)
-            final_value = int(base_value * age_factor + variation)
-            
-            # Use realistic range from database if available
-            if skill in column_ranges:
-                min_val, max_val = column_ranges[skill]
-                final_value = max(min_val, min(max_val, final_value))
+        # Get positional average for this skill
+        position_base = None
+        if position_averages is not None and str(registered_position_num) in position_averages.index:
+            if skill in position_averages.columns:
+                position_base = position_averages.loc[str(registered_position_num), skill]
+        
+        if position_base is not None and not pd.isna(position_base):
+            # Use position average as guidance
+            if position_base > 70:  # High position average - potential for spikes
+                skill_base = position_base * 0.6 + (inner_strength / 9) * 20  # Scale down but allow growth
+                # 15% chance for exceptional spike for high positional skills
+                if random.random() < 0.15 and spikes_generated < max_spikes and inner_strength >= 5:
+                    skill_base = position_base * 0.85  # Close to position average
+                    spikes_generated += 1
+            elif position_base > 60:  # Medium-high position average
+                skill_base = position_base * 0.65 + (inner_strength / 9) * 15
+                # 10% chance for spike
+                if random.random() < 0.10 and spikes_generated < max_spikes and inner_strength >= 6:
+                    skill_base = position_base * 0.80
+                    spikes_generated += 1
             else:
-                # Default range if not found in database
-                final_value = max(1, min(99, final_value))
-            
-            # Special handling for condition_fitness (should be 4-8)
-            if skill == 'condition_fitness':
-                final_value = max(4, min(8, final_value))
-            
-            # Special handling for consistency (should be 4-8)
-            if skill == 'consistency':
-                final_value = max(4, min(8, final_value))
-            
-            skill_attributes[skill] = final_value
+                # Normal position average
+                skill_base = position_base * 0.7 + (inner_strength / 9) * 10
         else:
-            # Default value if skill not found
-            if skill == 'condition_fitness':
-                skill_attributes[skill] = random.randint(4, 8)
-            elif skill == 'consistency':
-                skill_attributes[skill] = random.randint(4, 8)
-            else:
-                skill_attributes[skill] = random.randint(50, 70)
+            # No position data - use inner strength base range
+            skill_base = random.uniform(base_min, base_max)
+        
+        # Add small random variation
+        variation = random.uniform(-3, 3)
+        final_value = int(skill_base + variation)
+        
+        # Apply database constraints if available
+        if skill in column_ranges:
+            min_val, max_val = column_ranges[skill]
+            final_value = max(min_val, min(max_val, final_value))
+        else:
+            final_value = max(1, min(99, final_value))
+        
+        # Special handling for condition_fitness (should be 3-8 random)
+        if skill == 'condition_fitness':
+            final_value = random.randint(3, 8)
+        
+        # Special handling for consistency (should be 3-8 random)
+        if skill == 'consistency':
+            final_value = random.randint(3, 8)
+        
+        skill_attributes[skill] = final_value
+    
+    # Calculate proper salary using the actual formula after skills are generated
+    # Create a temporary player row for salary calculation
+    temp_player_data = {
+        'registered_position': registered_position_num,  # Use position number for salary calculation
+        'age': age,
+        **skill_attributes  # Include all the generated skills
+    }
+    
+    # Convert to pandas Series for salary calculation
+    player_row = pd.Series(temp_player_data)
+    
+    # Get position averages for salary calculation
+    position_averages = None
+    if db_path:
+        try:
+            position_averages = get_cached_position_averages(db_path)
+        except:
+            print("Warning: Could not load position averages for salary calculation")
+    
+    # Calculate base salary using the actual formula
+    skill_columns = [
+        'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+        'response', 'agility', 'dribble_accuracy', 'dribble_speed',
+        'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
+        'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve',
+        'heading', 'jump', 'technique', 'aggression', 'mentality', 'goal_keeping',
+        'team_work', 'consistency', 'condition_fitness'
+    ]
+    
+    binary_skills = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
+    
+    base_salary = calculate_player_salary_base(player_row, position_averages, skill_columns, binary_skills)
+    
+    # Apply random adjustment to salary
+    final_salary = apply_random_salary_adjustment(base_salary)
+    
+    # Log the salary calculation
+    print(f"💰 Regen salary: Base={base_salary:,}€, Final={final_salary:,}€ (Inner Strength: {inner_strength})")
+    
     
     # Positional ratings: binary (0 or 1) - only the main position gets 1
     positional_fields = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
@@ -1971,7 +2201,7 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
         '13': 'cf'    # Unknown -> Striker
     }
     
-    main_position_field = position_to_field.get(str(registered_position), 'cf')
+    main_position_field = position_to_field.get(str(registered_position_num), 'cf')
     
     for pos in positional_fields:
         if pos == main_position_field:
@@ -1979,7 +2209,35 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
         else:
             positional_attributes[pos] = 0  # Cannot play this position
     
-    # Special skills: inherit some from retiring player
+    # Add position column logic for CSV compatibility
+    # Set the correct position column to 1 based on registered_position
+    position_column_attributes = {}
+    if registered_position_num == 0:
+        position_column_attributes['GK  0'] = 1
+    elif registered_position_num == 2:
+        position_column_attributes['CWP  2'] = 1
+    elif registered_position_num == 3:
+        position_column_attributes['CBT  3'] = 1
+    elif registered_position_num == 4:
+        position_column_attributes['SB  4'] = 1
+    elif registered_position_num == 5:
+        position_column_attributes['DMF  5'] = 1
+    elif registered_position_num == 6:
+        position_column_attributes['WB  6'] = 1
+    elif registered_position_num == 7:
+        position_column_attributes['CMF  7'] = 1
+    elif registered_position_num == 8:
+        position_column_attributes['SMF  8'] = 1
+    elif registered_position_num == 9:
+        position_column_attributes['AMF  9'] = 1
+    elif registered_position_num == 10:
+        position_column_attributes['WF 10'] = 1
+    elif registered_position_num == 11:
+        position_column_attributes['SS  11'] = 1
+    elif registered_position_num == 12:
+        position_column_attributes['CF  12'] = 1
+    
+    # Special skills: inherit some from retiring player + 10% chance for new abilities
     special_fields = [
         'dribbling_skill', 'tactical_dribble', 'positioning', 'reaction', 'playmaking',
         'passing', 'scoring', 'one_one_scoring', 'post_player', 'lines', 'middle_shooting',
@@ -1988,39 +2246,149 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
     ]
     
     special_attributes = {}
-    for skill in special_fields:
-        if skill in retired_player_data:
-            # 70% chance to inherit the skill
-            if random.random() < 0.7:
-                special_attributes[skill] = retired_player_data[skill]
+    
+    # For positions 2-12: 10% chance for special abilities
+    if registered_position_num in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
+        special_abilities = [
+            'dribbling_skill', 'tactical_dribble', 'positioning', 'reaction', 
+            'playmaking', 'passing', 'scoring', 'one_one_scoring', 'post_player', 
+            'lines', 'middle_shooting', 'side', 'centre', 'penalties', 
+            'one_touch_pass', 'outside', 'marking', 'sliding', 'covering', 'long_throw'
+        ]
+        
+        for skill in special_fields:
+            if skill in special_abilities:
+                # 10% chance to get the ability as 1, 90% chance to get 0
+                special_attributes[skill] = 1 if random.random() < 0.1 else 0
+            else:
+                # For other skills, inherit from retiring player or set to 0
+                if skill in retired_player_data:
+                    # 70% chance to inherit the skill
+                    if random.random() < 0.7:
+                        special_attributes[skill] = retired_player_data[skill]
+                    else:
+                        special_attributes[skill] = 0
+                else:
+                    special_attributes[skill] = 0
+    
+    # For goalkeepers (position 0): 10% chance for goalkeeper abilities
+    elif registered_position_num == 0:
+        gk_abilities = ['penalty_stopper', 'one_on_one_stopper']
+        
+        for skill in special_fields:
+            if skill in gk_abilities:
+                # 10% chance to get the ability as 1, 90% chance to get 0
+                special_attributes[skill] = 1 if random.random() < 0.1 else 0
+            else:
+                # For other skills, inherit from retiring player or set to 0
+                if skill in retired_player_data:
+                    # 70% chance to inherit the skill
+                    if random.random() < 0.7:
+                        special_attributes[skill] = retired_player_data[skill]
+                    else:
+                        special_attributes[skill] = 0
+                else:
+                    special_attributes[skill] = 0
+    
+    # For other positions (shouldn't happen, but safety fallback)
+    else:
+        for skill in special_fields:
+            if skill in retired_player_data:
+                # 70% chance to inherit the skill
+                if random.random() < 0.7:
+                    special_attributes[skill] = retired_player_data[skill]
+                else:
+                    special_attributes[skill] = 0
             else:
                 special_attributes[skill] = 0
-        else:
-            special_attributes[skill] = 0
     
-    # Physical attributes: use realistic ranges
+    # Physical attributes: use realistic ranges (override database ranges if unrealistic)
     physical_attributes = {}
+    
+    # Height: realistic range for footballers (160-200cm, not 148-203cm)
+    # Override database range if it includes unrealistic values
     if 'height' in column_ranges:
-        min_height, max_height = column_ranges['height']
-        physical_attributes['height'] = random.randint(min_height, max_height)
+        db_min_height, db_max_height = column_ranges['height']
+        # Use database range only if it's realistic
+        if db_min_height >= 160 and db_max_height <= 200:
+            physical_attributes['height'] = random.randint(db_min_height, db_max_height)
+        else:
+            # Use realistic range instead
+            physical_attributes['height'] = random.randint(160, 200)
     else:
         physical_attributes['height'] = random.randint(160, 200)
     
+    # Weight: realistic range for footballers (66-100kg, not 0-105kg)
+    # Override database range if it includes unrealistic values
     if 'weight' in column_ranges:
-        min_weight, max_weight = column_ranges['weight']
-        physical_attributes['weight'] = random.randint(min_weight, max_weight)
+        db_min_weight, db_max_weight = column_ranges['weight']
+        # Use database range only if it's realistic
+        if db_min_weight >= 66 and db_max_weight <= 100:
+            physical_attributes['weight'] = random.randint(db_min_weight, db_max_weight)
+        else:
+            # Use realistic range instead
+            physical_attributes['weight'] = random.randint(66, 100)
     else:
-        physical_attributes['weight'] = random.randint(60, 90)
+        physical_attributes['weight'] = random.randint(66, 100)
     
-    # Calculated ratings (will be calculated by the system)
-    calculated_ratings = {
-        'attack_rating': 50,
-        'defense_rating': 50,
-        'physical_rating': 50,
-        'power_rating': 50,
-        'technique_rating': 50,
-        'goalkeeping_rating': 50
-    }
+    # Physical appearance attributes: generate realistic values
+    appearance_attributes = {}
+    
+    # Face and appearance settings
+    appearance_attributes['face_type'] = random.randint(0, 2)  # 0-2
+    appearance_attributes['preset_face_number'] = random.randint(1, 361)  # 1-361
+    
+    # Body measurements: realistic ranges for footballers (-7 to +7, but weighted toward 0)
+    body_measurements = ['head_width', 'neck_length', 'neck_width', 'shoulder_height', 
+                        'shoulder_width', 'chest_measurement', 'waist_circumference', 
+                        'arm_circumference', 'leg_circumference', 'calf_circumference', 'leg_length']
+    
+    for measurement in body_measurements:
+        # Weighted toward 0 (average) with some variation
+        if random.random() < 0.7:  # 70% chance for average (0)
+            appearance_attributes[measurement] = 0
+        else:
+            # 30% chance for variation (-3 to +3, mostly closer to 0)
+            variation = random.choices([-3, -2, -1, 0, 1, 2, 3], weights=[1, 2, 3, 4, 3, 2, 1])[0]
+            appearance_attributes[measurement] = variation
+    
+    # Equipment attributes
+    equipment_attributes = {}
+    
+    # Wristband: 75% no wristband, 25% with wristband
+    if random.random() < 0.25:
+        wristband_colors = ['White', 'Red', 'Blue', 'Green', 'Black']
+        equipment_attributes['wristband'] = random.choice(['L', 'R', 'B'])  # Left, Right, Both
+        equipment_attributes['wristband_color'] = random.choice(wristband_colors)
+    else:
+        equipment_attributes['wristband'] = 'N'  # None
+        equipment_attributes['wristband_color'] = 'None'
+    
+    # Numbers: realistic ranges
+    equipment_attributes['international_number'] = random.randint(0, 44)  # 0-44
+    equipment_attributes['classic_number'] = random.randint(0, 23)  # 0-23
+    equipment_attributes['club_number'] = random.randint(0, 99)  # 0-99
+    
+    # Style attributes
+    style_attributes = {}
+    
+    # Dribble style: 1-4, weighted toward basic styles
+    style_attributes['dribble_style'] = random.choices([1, 2, 3, 4], weights=[40, 30, 20, 10])[0]
+    
+    # Free kick style: 1-10, weighted toward basic styles
+    style_attributes['free_kick_style'] = random.choices(range(1, 11), weights=[25, 20, 15, 10, 8, 6, 5, 4, 3, 2])[0]
+    
+    # PK style: 1-5, weighted toward basic styles
+    style_attributes['pk_style'] = random.choices([1, 2, 3, 4, 5], weights=[40, 30, 20, 8, 2])[0]
+    
+    # Drop kick style: 1-4, weighted toward basic styles
+    style_attributes['drop_kick_style'] = random.choices([1, 2, 3, 4], weights=[50, 30, 15, 5])[0]
+    
+    # Injury tolerance: mostly A (high), some B (medium), rarely C (low)
+    style_attributes['injury_tolerance'] = random.choices(['A', 'B', 'C'], weights=[70, 25, 5])[0]
+    
+    # Calculate bundled skill ratings from individual skills
+    bundled_ratings = calculate_bundled_skill_ratings(skill_attributes)
     
     # Create the complete regen data
     regen_data = {
@@ -2030,10 +2398,10 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
         'skin_color': skin_color,
         'strong_foot': random.choice(['R', 'L']),
         'favoured_side': random.choice(['R', 'L']),
-        'registered_position': registered_position,
-        'game_position': registered_position,
+        'registered_position': int(registered_position_num),  # Store position number as integer
+        'game_position': registered_position,  # Store position name
         'club_id': retired_player_data['club_id'],
-        'salary': base_salary,
+        'salary': final_salary,
         'contract_years_remaining': contract_years,
         'market_value': 0,  # Will be calculated
         'yearly_wage_rise': yearly_wage_rise,
@@ -2046,7 +2414,10 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
         **positional_attributes,
         **special_attributes,
         **physical_attributes,
-        **calculated_ratings
+        **appearance_attributes,
+        **equipment_attributes,
+        **style_attributes,
+        **bundled_ratings
     }
     
     return regen_data
@@ -2136,6 +2507,70 @@ def replace_retired_players(db_path: str, num_players: int = 10) -> Dict:
         conn.close()
         return {'error': str(e)}
 
+def calculate_player_career_stats(cursor, player_id: int) -> Dict:
+    """
+    Calculate comprehensive career statistics for a retiring player.
+    
+    Args:
+        cursor: Database cursor
+        player_id: ID of the player
+    
+    Returns:
+        Dictionary with career statistics
+    """
+    try:
+        # Get current season stats (from player table)
+        cursor.execute("""
+            SELECT games_played, goals, assists, salary, market_value
+            FROM players WHERE id = ?
+        """, (player_id,))
+        current_stats = cursor.fetchone()
+        
+        current_games = current_stats[0] if current_stats and current_stats[0] else 0
+        current_goals = current_stats[1] if current_stats and current_stats[1] else 0
+        current_assists = current_stats[2] if current_stats and current_stats[2] else 0
+        current_salary = current_stats[3] if current_stats and current_stats[3] else 0
+        
+        # Get historical stats from player_performance table
+        cursor.execute("""
+            SELECT SUM(matches_played), SUM(goals), SUM(assists), COUNT(DISTINCT season)
+            FROM player_performance WHERE player_id = ?
+        """, (player_id,))
+        historical_stats = cursor.fetchone()
+        
+        historical_games = historical_stats[0] if historical_stats and historical_stats[0] else 0
+        historical_goals = historical_stats[1] if historical_stats and historical_stats[1] else 0
+        historical_assists = historical_stats[2] if historical_stats and historical_stats[2] else 0
+        seasons_in_history = historical_stats[3] if historical_stats and historical_stats[3] else 0
+        
+        # Calculate total career stats
+        total_games = current_games + historical_games
+        total_goals = current_goals + historical_goals
+        total_assists = current_assists + historical_assists
+        
+        # Get career earnings from database (updated by end-of-season process)
+        cursor.execute("SELECT career_earnings FROM players WHERE id = ?", (player_id,))
+        career_earnings_result = cursor.fetchone()
+        career_earnings = career_earnings_result[0] if career_earnings_result and career_earnings_result[0] else 0
+        
+        return {
+            'total_games': total_games,
+            'total_goals': total_goals,
+            'total_assists': total_assists,
+            'career_earnings': career_earnings,
+            'seasons_played': seasons_in_history + 1  # +1 for current season
+        }
+        
+    except Exception as e:
+        print(f"Error calculating career stats for player {player_id}: {e}")
+        return {
+            'total_games': 0,
+            'total_goals': 0,
+            'total_assists': 0,
+            'career_earnings': 0,
+            'seasons_played': 1
+        }
+
 def process_player_retirements_and_replacements(db_path: str) -> Dict:
     """
     Process player retirements and replace retired players with new young players.
@@ -2152,7 +2587,7 @@ def process_player_retirements_and_replacements(db_path: str) -> Dict:
     try:
         # Get all players aged 30+ for retirement checking
         cursor.execute("""
-            SELECT id, player_name, age, registered_position, salary, club_id, nationality
+            SELECT id, player_name, age, registered_position, salary, club_id, nationality, contract_years_remaining, games_played
             FROM players 
             WHERE age >= 30
             ORDER BY age DESC
@@ -2162,7 +2597,7 @@ def process_player_retirements_and_replacements(db_path: str) -> Dict:
         retired_players = []
         continuing_players = []
         
-        print(f"  📊 Checking {len(players_to_check)} players aged 30+ for retirement...")
+        print(f"  📊 Checking {len(players_to_check)} players (aged 30+) for retirement...")
         
         # Check each player for retirement
         for player in players_to_check:
@@ -2173,9 +2608,12 @@ def process_player_retirements_and_replacements(db_path: str) -> Dict:
                 'registered_position': player[3],
                 'salary': player[4],
                 'club_id': player[5],
-                'nationality': player[6]
+                'nationality': player[6],
+                'contract_years_remaining': player[7],
+                'games_played': player[8]
             }
             
+            # Normal retirement check for age-based retirements
             retirement_check = check_player_retirement(player_data)
             
             if retirement_check['wants_to_retire']:
@@ -2190,23 +2628,238 @@ def process_player_retirements_and_replacements(db_path: str) -> Dict:
             else:
                 continuing_players.append(player_data['player_name'])
         
-        # For now, just return the retirement information
-        # The actual replacement will be handled by the calling function
-        # to avoid database locking issues
+        # Note: Hall of Fame population is now handled in app.py end-of-season process
+        # to ensure it happens right before players are replaced with regens
+        
+        # Now generate proper regens for retired players
+        regens_generated = 0
+        teams_updated = []
+        
+        print(f"  👶 Generating {len(retired_players)} regens for retired players...")
+        
+        for retired_player in retired_players:
+            try:
+                # Get full retired player data for regen generation
+                cursor.execute("""
+                    SELECT * FROM players WHERE id = ?
+                """, (retired_player['id'],))
+                
+                full_retired_data = cursor.fetchone()
+                if full_retired_data:
+                    # Convert to dictionary
+                    column_names = [description[0] for description in cursor.description]
+                    retired_player_dict = dict(zip(column_names, full_retired_data))
+                    
+                    # Generate proper regen
+                    regen_data = generate_proper_regen(retired_player_dict, db_path)
+                    
+                    # Insert regen into database
+                    regen_id = insert_new_player_to_database(db_path, regen_data)
+                    regens_generated += 1
+                    
+                    # Track team
+                    cursor.execute("SELECT club_name FROM teams WHERE id = ?", (regen_data['club_id'],))
+                    team_result = cursor.fetchone()
+                    if team_result:
+                        teams_updated.append(team_result[0])
+                    
+                    print(f"    ✅ Generated regen {regen_data['player_name']} (pos: {regen_data['registered_position']}) for retired {retired_player['player_name']}")
+                    
+            except Exception as e:
+                print(f"    ❌ Failed to generate regen for {retired_player['player_name']}: {e}")
+                continue
         
         conn.close()
         
         return {
             'retired_players': retired_players,
             'continuing_players': continuing_players,
-            'replacements_generated': 0,  # Will be calculated by caller
-            'teams_updated': [],  # Will be calculated by caller
+            'replacements_generated': regens_generated,
+            'teams_updated': list(set(teams_updated)),
             'success': True
         }
         
     except Exception as e:
         conn.close()
         return {'error': str(e)} 
+
+def recalculate_free_agent_salaries(db_path: str) -> Dict:
+    """Recalculate salaries for all free agents (club_id = 141) using proper salary calculation."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        # Get all free agents (No Club players)
+        cursor.execute("""
+            SELECT * FROM players 
+            WHERE club_id = 141
+        """)
+        
+        free_agents = cursor.fetchall()
+        if not free_agents:
+            conn.close()
+            return {'free_agents_updated': 0, 'success': True, 'message': 'No free agents found'}
+        
+        print(f"  💰 Recalculating salaries for {len(free_agents)} free agents...")
+        
+        # Get column names for DataFrame conversion
+        column_names = [description[0] for description in cursor.description]
+        
+        # Convert to DataFrame for salary calculation
+        import pandas as pd
+        df = pd.DataFrame(free_agents, columns=column_names)
+        
+        # Get position averages for salary calculation
+        try:
+            pos_avg_df = get_cached_position_averages(db_path)
+        except Exception as e:
+            print(f"Warning: Could not load position averages for salary calculation: {e}")
+            pos_avg_df = None
+            
+        if pos_avg_df is None:
+            conn.close()
+            return {'error': 'Could not load position averages for salary calculation'}
+        
+        # Define skill columns (same as in salary calculation)
+        skill_columns = [
+            'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+            'response', 'agility', 'dribble_accuracy', 'dribble_speed', 'short_pass_accuracy',
+            'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed', 'shot_accuracy',
+            'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve', 'heading',
+            'jump', 'technique', 'aggression', 'mentality', 'goal_keeping', 'team_work',
+            'consistency', 'condition_fitness'
+        ]
+        
+        binary_skills = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
+        
+        updated_count = 0
+        
+        # Process each free agent
+        for idx, player_row in df.iterrows():
+            try:
+                # Calculate new salary
+                new_salary = calculate_player_salary_base(player_row, pos_avg_df, skill_columns, binary_skills)
+                
+                # Update salary in database
+                cursor.execute("""
+                    UPDATE players 
+                    SET salary = ? 
+                    WHERE id = ?
+                """, (new_salary, player_row['id']))
+                
+                updated_count += 1
+                
+                if updated_count <= 5:  # Show first 5 examples
+                    old_salary = player_row['salary']
+                    print(f"    ✅ {player_row['player_name']}: €{old_salary:,} → €{new_salary:,}")
+                    
+            except Exception as e:
+                print(f"    ❌ Failed to update salary for {player_row['player_name']}: {e}")
+                continue
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"  ✅ Updated salaries for {updated_count}/{len(free_agents)} free agents")
+        
+        return {
+            'free_agents_updated': updated_count,
+            'total_free_agents': len(free_agents),
+            'success': True
+        }
+        
+    except Exception as e:
+        conn.close()
+        return {'error': str(e)} 
+
+def recalculate_free_agent_salaries(db_path: str) -> Dict:
+    """Recalculate salaries for all free agents (club_id = 141) using proper salary calculation."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        # Get all free agents (No Club players)
+        cursor.execute("""
+            SELECT * FROM players 
+            WHERE club_id = 141
+        """)
+        
+        free_agents = cursor.fetchall()
+        if not free_agents:
+            conn.close()
+            return {'free_agents_updated': 0, 'success': True, 'message': 'No free agents found'}
+        
+        print(f"  💰 Recalculating salaries for {len(free_agents)} free agents...")
+        
+        # Get column names for DataFrame conversion
+        column_names = [description[0] for description in cursor.description]
+        
+        # Convert to DataFrame for salary calculation
+        import pandas as pd
+        df = pd.DataFrame(free_agents, columns=column_names)
+        
+        # Get position averages for salary calculation
+        try:
+            pos_avg_df = get_cached_position_averages(db_path)
+        except Exception as e:
+            print(f"Warning: Could not load position averages for salary calculation: {e}")
+            pos_avg_df = None
+            
+        if pos_avg_df is None:
+            conn.close()
+            return {'error': 'Could not load position averages for salary calculation'}
+        
+        # Define skill columns (same as in salary calculation)
+        skill_columns = [
+            'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+            'response', 'agility', 'dribble_accuracy', 'dribble_speed', 'short_pass_accuracy',
+            'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed', 'shot_accuracy',
+            'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve', 'heading',
+            'jump', 'technique', 'aggression', 'mentality', 'goal_keeping', 'team_work',
+            'consistency', 'condition_fitness'
+        ]
+        
+        binary_skills = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
+        
+        updated_count = 0
+        
+        # Process each free agent
+        for idx, player_row in df.iterrows():
+            try:
+                # Calculate new salary
+                new_salary = calculate_player_salary_base(player_row, pos_avg_df, skill_columns, binary_skills)
+                
+                # Update salary in database
+                cursor.execute("""
+                    UPDATE players 
+                    SET salary = ? 
+                    WHERE id = ?
+                """, (new_salary, player_row['id']))
+                
+                updated_count += 1
+                
+                if updated_count <= 5:  # Show first 5 examples
+                    old_salary = player_row['salary']
+                    print(f"    ✅ {player_row['player_name']}: €{old_salary:,} → €{new_salary:,}")
+                    
+            except Exception as e:
+                print(f"    ❌ Failed to update salary for {player_row['player_name']}: {e}")
+                continue
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"  ✅ Updated salaries for {updated_count}/{len(free_agents)} free agents")
+        
+        return {
+            'free_agents_updated': updated_count,
+            'total_free_agents': len(free_agents),
+            'success': True
+        }
+        
+    except Exception as e:
+        conn.close()
+        return {'error': str(e)}
 
 def generate_new_player(team_id: int, position: str = None, db_path: str = None) -> Dict:
     """Generate a complete new player for a team."""
@@ -2221,7 +2874,7 @@ def generate_new_player(team_id: int, position: str = None, db_path: str = None)
     # Generate nationality and name
     nationality = select_nationality()
     first_name, surname = generate_player_name(nationality)
-    full_name = f"{first_name} {surname}"
+    full_name = f"{first_name} {surname}".strip() if surname else first_name
     
     # Get skin color from nationality
     skin_color = NATIONALITY_DATA[nationality]['skin_color']

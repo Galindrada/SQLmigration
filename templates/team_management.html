@@ -59,7 +59,6 @@
                                 <th>Side</th>
                                 <th>Salary</th>
                                 <th>Market Value</th>
-                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -71,9 +70,6 @@
                                     <td>{{ player.strong_foot }}</td>
                                     <td>{{ player.salary | int | format_currency }}</td>
                                     <td>{{ player.market_value | int | format_currency }}</td>
-                                    <td>
-                                        <button type="button" class="btn btn-warning sell-player-btn" data-player-id="{{ player.id }}" data-player-name="{{ player.player_name }}">Sell</button>
-                                    </td>
                                 </tr>
                             {% endfor %}
                         </tbody>

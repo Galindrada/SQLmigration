@@ -3,28 +3,269 @@
 {% block title %}Blog{% endblock %}
 
 {% block content %}
-    <h2>Blog</h2>
-    <p><a href="{{ url_for('create_post') }}">Create New Post</a></p>
+<style>
+    .blog-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 2rem 0;
+        margin: -20px -15px 30px -15px;
+        text-align: center;
+    }
+    
+    .blog-header h2 {
+        margin: 0;
+        font-size: 2.5rem;
+        font-weight: 300;
+    }
+    
+    .create-post-btn {
+        display: inline-block;
+        background: #28a745;
+        color: white;
+        padding: 12px 24px;
+        text-decoration: none;
+        border-radius: 25px;
+        font-weight: 500;
+        margin: 20px 0;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+    }
+    
+    .create-post-btn:hover {
+        background: #218838;
+        color: white;
+        text-decoration: none;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+    }
+    
+    .posts-container {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .post-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        margin-bottom: 30px;
+        overflow: hidden;
+        transition: all 0.3s ease;
+        border: 1px solid #e9ecef;
+    }
+    
+    .post-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+    }
+    
+    .post-header {
+        padding: 24px 24px 16px 24px;
+    }
+    
+    .post-title {
+        margin: 0 0 12px 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+        line-height: 1.3;
+    }
+    
+    .post-title a {
+        color: #2c3e50;
+        text-decoration: none;
+        transition: color 0.3s ease;
+    }
+    
+    .post-title a:hover {
+        color: #667eea;
+        text-decoration: none;
+    }
+    
+    .post-meta {
+        color: #6c757d;
+        font-size: 0.9rem;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .author-badge {
+        background: #667eea;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 15px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+    
+    .post-content {
+        padding: 0 24px;
+    }
+    
+    .post-media {
+        margin-bottom: 16px;
+    }
+    
+    .post-thumbnail {
+        width: 100%;
+        max-width: 200px;
+        height: 120px;
+        object-fit: cover;
+        border-radius: 8px;
+        float: left;
+        margin-right: 20px;
+        margin-bottom: 10px;
+    }
+    
+    .video-indicator {
+        background: #dc3545;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        display: inline-block;
+        margin-right: 20px;
+        margin-bottom: 10px;
+    }
+    
+    .post-excerpt {
+        color: #495057;
+        line-height: 1.6;
+        margin-bottom: 16px;
+        overflow: hidden;
+    }
+    
+    .post-footer {
+        padding: 0 24px 24px 24px;
+        border-top: 1px solid #f8f9fa;
+        margin-top: 16px;
+        padding-top: 16px;
+    }
+    
+    .read-more-btn {
+        background: #667eea;
+        color: white;
+        padding: 8px 20px;
+        border-radius: 20px;
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        display: inline-block;
+    }
+    
+    .read-more-btn:hover {
+        background: #5a6fd8;
+        color: white;
+        text-decoration: none;
+        transform: translateX(5px);
+    }
+    
+    .no-posts {
+        text-align: center;
+        padding: 60px 20px;
+        color: #6c757d;
+        font-size: 1.1rem;
+    }
+    
+    .clearfix::after {
+        content: "";
+        display: table;
+        clear: both;
+    }
+    
+    @media (max-width: 768px) {
+        .blog-header h2 {
+            font-size: 2rem;
+        }
+        
+        .post-card {
+            margin: 0 -15px 20px -15px;
+            border-radius: 0;
+        }
+        
+        .post-thumbnail {
+            float: none;
+            width: 100%;
+            max-width: 100%;
+            margin-right: 0;
+            margin-bottom: 15px;
+        }
+        
+        .posts-container {
+            max-width: 100%;
+        }
+    }
+</style>
 
-    {% if posts %}
-        {% for post in posts %}
-            <div class="post-item">
-                <h3><a href="{{ url_for('view_post', post_id=post['id']) }}">{{ post['title'] }}</a></h3>
-                <p class="post-meta">By {{ post['username'] }} on {{ post['created_at'] }}</p>
+<div class="blog-header">
+    <div class="container">
+        <h2><i class="fas fa-newspaper"></i> League Blog</h2>
+        <p style="margin: 10px 0 0 0; opacity: 0.9;">Latest news, transfers, and updates from the league</p>
+    </div>
+</div>
 
-                {# Display thumbnail if image is available #}
-                {% if post['media_type'] == 'image' and post['media_path'] %}
-                    <p><img src="{{ url_for('static', filename='uploads/' + post['media_path']) }}" alt="Post image" style="max-width: 150px; height: auto; float: left; margin-right: 15px;"></p>
-                {% elif post['media_type'] == 'video' and post['media_path'] %}
-                    <p style="float: left; margin-right: 15px;">[Video attached]</p>
-                {% endif %}
+<div class="container">
+    <div class="text-center">
+        <a href="{{ url_for('create_post') }}" class="create-post-btn">
+            <i class="fas fa-plus"></i> Create New Post
+        </a>
+    </div>
 
-                <div>{{ post['content'][:300] | safe }}...</div> {# Display first 300 chars #}
-                <p><a href="{{ url_for('view_post', post_id=post['id']) }}">Read More</a></p>
-                <div style="clear: both;"></div> {# Clear float #}
+    <div class="posts-container">
+        {% if posts %}
+            {% for post in posts %}
+                <article class="post-card">
+                    <div class="post-header">
+                        <h3 class="post-title">
+                            <a href="{{ url_for('view_post', post_id=post['id']) }}">{{ post['title'] }}</a>
+                        </h3>
+                        <div class="post-meta">
+                            <span class="author-badge">{{ post['username'] }}</span>
+                            <span><i class="fas fa-calendar"></i> {{ post['created_at'].strftime('%B %d, %Y at %H:%M') if post['created_at'] else 'Unknown date' }}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="post-content">
+                        {% if post['media_type'] == 'image' and post['media_path'] %}
+                            <div class="post-media">
+                                <img src="{{ url_for('static', filename='uploads/' + post['media_path']) }}" 
+                                     alt="Post image" class="post-thumbnail">
+                            </div>
+                        {% elif post['media_type'] == 'video' and post['media_path'] %}
+                            <div class="post-media">
+                                <span class="video-indicator">
+                                    <i class="fas fa-video"></i> Video Attached
+                                </span>
+                            </div>
+                        {% endif %}
+                        
+                        <div class="post-excerpt clearfix">
+                            {{ post['content'][:300] | safe }}
+                            {% if post['content'] | length > 300 %}...{% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="post-footer clearfix">
+                        <a href="{{ url_for('view_post', post_id=post['id']) }}" class="read-more-btn">
+                            Read Full Post <i class="fas fa-arrow-right"></i>
+                        </a>
+                    </div>
+                </article>
+            {% endfor %}
+        {% else %}
+            <div class="no-posts">
+                <i class="fas fa-newspaper fa-3x" style="opacity: 0.3; margin-bottom: 20px;"></i>
+                <p>No blog posts yet. Be the first to create one!</p>
+                <a href="{{ url_for('create_post') }}" class="create-post-btn" style="margin-top: 20px;">
+                    <i class="fas fa-plus"></i> Create First Post
+                </a>
             </div>
-        {% endfor %}
-    {% else %}
-        <p>No blog posts yet. Be the first to create one!</p>
-    {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<!-- Include Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 {% endblock %}

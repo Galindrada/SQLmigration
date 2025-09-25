@@ -15,6 +15,7 @@
                         <th>Current Salary</th>
                         <th>Offered Salary</th>
                         <th>Contract Years</th>
+                        <th>Signing Bonus</th>
                         <th>Time Remaining</th>
                         <th>Action</th>
                     </tr>
@@ -26,6 +27,21 @@
                             <td>{{ offer.salary | int | format_currency }}</td>
                             <td>{{ offer.offered_salary | int | format_currency }}</td>
                             <td>{{ offer.offered_contract_years }}</td>
+                            <td>
+                                {% set age = offer.age %}
+                                {% if age <= 22 %}
+                                    {% set bonus_pct = 0.45 %}
+                                {% elif age <= 25 %}
+                                    {% set bonus_pct = 0.40 %}
+                                {% elif age <= 28 %}
+                                    {% set bonus_pct = 0.35 %}
+                                {% else %}
+                                    {% set bonus_pct = 0.30 %}
+                                {% endif %}
+                                {% set signing_bonus = (offer.offered_salary * bonus_pct) | int %}
+                                €{{ signing_bonus | format_currency }}
+                                <br><small class="text-muted">({{ (bonus_pct * 100) | round(1) }}%)</small>
+                            </td>
                             <td class="timer" data-expires="{{ offer.expires_at }}">--:--</td>
                             <td>
                                 {% if offer.user_id != current_user.id %}
@@ -137,7 +153,7 @@
                             <td>{{ player.technique_rating }}</td>
                             <td>{{ player.goalkeeping_rating }}</td>
                             <td>
-                                <button type="button" class="btn btn-primary btn-sm" onclick="showOfferModal({{ player.id }}, &quot;{{ player.player_name }}&quot;, {{ player.salary }}, {{ player.contract_years_remaining }})">
+                                <button type="button" class="btn btn-primary btn-sm" onclick="showOfferModal({{ player.id }}, &quot;{{ player.player_name }}&quot;, {{ player.salary }}, {{ player.contract_years_remaining }}, {{ player.age }})">
                                     Make Offer
                                 </button>
                             </td>
@@ -171,7 +187,7 @@
                     
                     <div class="form-group">
                         <label for="offered_salary">Offered Salary (€):</label>
-                        <input type="number" class="form-control" id="offered_salary" name="offered_salary" required readonly>
+                        <input type="number" class="form-control" id="offered_salary" name="offered_salary" step="1" min="0" required readonly>
                         <small class="form-text text-muted">You must offer the player's demanded salary for the initial offer.</small>
                     </div>
                     
@@ -179,6 +195,14 @@
                         <label for="offered_contract_years">Contract Years:</label>
                         <input type="number" class="form-control" id="offered_contract_years" name="offered_contract_years" min="1" max="5" required readonly>
                         <small class="form-text text-muted">You must offer the player's demanded contract years for the initial offer.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Estimated Signing Bonus:</label>
+                        <div class="alert alert-info" id="signingBonusInfo">
+                            <strong>Signing Bonus:</strong> <span id="signingBonusAmount">--</span><br>
+                            <small>This will be deducted from your team budget upon signing.</small>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -205,6 +229,7 @@
                     <p><strong>Player:</strong> <span id="placePlayerName"></span></p>
                     <p><strong>Salary:</strong> <span id="placePlayerSalary"></span></p>
                     <p><strong>Contract Years:</strong> <span id="placePlayerYears"></span></p>
+                    <p><strong>Signing Bonus:</strong> <span id="placePlayerSigningBonus"></span></p>
                     <p><strong>Status:</strong> <span class="text-danger">EXPIRED OFFER</span></p>
                 </div>
                 
@@ -424,12 +449,27 @@
 </style>
 
 <script>
-function showOfferModal(playerId, playerName, currentSalary, currentContractYears) {
+function showOfferModal(playerId, playerName, currentSalary, currentContractYears, playerAge) {
     document.getElementById('modalPlayerId').value = playerId;
     document.getElementById('modalPlayerName').textContent = playerName;
     document.getElementById('modalCurrentSalary').textContent = '€' + currentSalary.toLocaleString();
     document.getElementById('offered_salary').value = currentSalary;
     document.getElementById('offered_contract_years').value = currentContractYears;
+    
+    // Calculate signing bonus based on age
+    let signingBonusPercentage;
+    if (playerAge <= 22) {
+        signingBonusPercentage = 0.45; // 45% for very young players
+    } else if (playerAge <= 25) {
+        signingBonusPercentage = 0.40; // 40% for young players
+    } else if (playerAge <= 28) {
+        signingBonusPercentage = 0.35; // 35% for mid-age players
+    } else {
+        signingBonusPercentage = 0.30; // 30% for older players
+    }
+    
+    const signingBonus = Math.floor(currentSalary * signingBonusPercentage);
+    document.getElementById('signingBonusAmount').textContent = '€' + signingBonus.toLocaleString() + ' (' + (signingBonusPercentage * 100).toFixed(1) + '%)';
     
     // Set readonly fields to player's demands
     document.getElementById('offered_salary').readOnly = true;
@@ -526,13 +566,15 @@ function showPlacePlayerModal(offerId, playerRow) {
     
     // Get player details from the row
     const playerName = playerRow.querySelector('td:first-child').textContent;
-    const salary = playerRow.querySelector('td:nth-child(4)').textContent;
-    const years = playerRow.querySelector('td:nth-child(5)').textContent;
+    const salary = playerRow.querySelector('td:nth-child(3)').textContent;  // Offered Salary
+    const years = playerRow.querySelector('td:nth-child(4)').textContent;  // Contract Years
+    const signingBonus = playerRow.querySelector('td:nth-child(5)').textContent;  // Signing Bonus
     
     // Populate modal with player info
     document.getElementById('placePlayerName').textContent = playerName;
     document.getElementById('placePlayerSalary').textContent = salary;
     document.getElementById('placePlayerYears').textContent = years;
+    document.getElementById('placePlayerSigningBonus').textContent = signingBonus;
     
     // Load user teams
     loadUserTeams();

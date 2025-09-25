@@ -1,0 +1,561 @@
+{% extends "base.html" %}
+
+{% block title %}Game Management - {{ game.home_team_name }} vs {{ game.away_team_name }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>⚽ Game Management</h1>
+    
+    <!-- Game Info -->
+    <div class="game-info-section">
+        <h2>{{ game.home_team_name }} vs {{ game.away_team_name }}</h2>
+        <div class="game-details">
+            <p><strong>Division:</strong> {{ division.name }}</p>
+            <p><strong>Round:</strong> {{ game.round_number }}</p>
+            <p><strong>Date:</strong> {{ game.game_date }}</p>
+            <p><strong>Status:</strong> 
+                {% if game.is_played %}
+                    <span class="badge badge-success">Played</span>
+                {% else %}
+                    <span class="badge badge-warning">Pending</span>
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% if not game.is_played %}
+    <!-- Game Setup Form -->
+    <div class="game-setup-section">
+        <h3>🎮 Set Up Game</h3>
+        <form id="gameSetupForm">
+            <div class="row">
+                <div class="col-md-6">
+                    <h4>🏠 {{ game.home_team_name }} Lineup</h4>
+                    <div class="lineup-section">
+                        <h5>Starting XI</h5>
+                        <div id="homeLineup" class="lineup-container">
+                            <!-- Home team lineup will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <h4>✈️ {{ game.away_team_name }} Lineup</h4>
+                    <div class="lineup-section">
+                        <h5>Starting XI</h5>
+                        <div id="awayLineup" class="lineup-container">
+                            <!-- Away team lineup will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Match Result -->
+            <div class="match-result-section">
+                <h4>📊 Match Result</h4>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="homeScore">{{ game.home_team_name }} Goals:</label>
+                            <input type="number" class="form-control" id="homeScore" min="0" value="0" required>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="awayScore">{{ game.away_team_name }} Goals:</label>
+                            <input type="number" class="form-control" id="awayScore" min="0" value="0" required>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="matchDate">Match Date:</label>
+                            <input type="datetime-local" class="form-control" id="matchDate" required>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Player Stats -->
+            <div class="player-stats-section">
+                <h4>⚽ Player Statistics</h4>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h5>{{ game.home_team_name }} Players</h5>
+                        <div id="homePlayerStats" class="player-stats-container">
+                            <!-- Home team player stats will be loaded here -->
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h5>{{ game.away_team_name }} Players</h5>
+                        <div id="awayPlayerStats" class="player-stats-container">
+                            <!-- Away team player stats will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn btn-success btn-lg">✅ Confirm Match Result</button>
+                <button type="button" class="btn btn-secondary btn-lg" onclick="window.history.back()">❌ Cancel</button>
+            </div>
+        </form>
+    </div>
+    {% else %}
+    <!-- Game Results Display -->
+    <div class="game-results-section">
+        <h3>📊 Match Result</h3>
+        <div class="result-display">
+            <div class="score-display">
+                <span class="home-team">{{ game.home_team_name }}</span>
+                <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
+                <span class="away-team">{{ game.away_team_name }}</span>
+            </div>
+        </div>
+        
+        <!-- Player Statistics -->
+        <div class="player-stats-display">
+            <h4>⚽ Player Statistics</h4>
+            <div class="row">
+                <div class="col-md-6">
+                    <h5>{{ game.home_team_name }}</h5>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Player</th>
+                                <th>Goals</th>
+                                <th>Assists</th>
+                                <th>Minutes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in home_player_stats %}
+                            <tr>
+                                <td>{{ player.player_name }}</td>
+                                <td>{{ player.goals }}</td>
+                                <td>{{ player.assists }}</td>
+                                <td>{{ player.minutes_played }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <h5>{{ game.away_team_name }}</h5>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Player</th>
+                                <th>Goals</th>
+                                <th>Assists</th>
+                                <th>Minutes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in away_player_stats %}
+                            <tr>
+                                <td>{{ player.player_name }}</td>
+                                <td>{{ player.goals }}</td>
+                                <td>{{ player.assists }}</td>
+                                <td>{{ player.minutes_played }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.game-info-section {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 30px;
+}
+
+.game-info-section h2 {
+    color: #f39c12;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.game-details {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+}
+
+.game-details p {
+    margin: 10px;
+    font-size: 1.1em;
+}
+
+.game-setup-section {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 30px;
+}
+
+.lineup-section {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.lineup-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.player-card {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 10px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.player-card:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+.player-card.selected {
+    background: linear-gradient(145deg, #27ae60, #229954);
+    border-color: #27ae60;
+}
+
+.player-card h6 {
+    margin: 0;
+    color: white;
+    font-weight: bold;
+}
+
+.player-card .position {
+    font-size: 0.8em;
+    color: #bdc3c7;
+}
+
+.match-result-section {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.player-stats-section {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.player-stats-container {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.player-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    margin-bottom: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+}
+
+.player-stat-row input {
+    width: 60px;
+    text-align: center;
+}
+
+.form-actions {
+    text-align: center;
+    margin-top: 30px;
+}
+
+.btn {
+    border-radius: 20px;
+    font-weight: bold;
+    margin: 0 10px;
+    padding: 12px 30px;
+}
+
+.btn-success {
+    background: linear-gradient(145deg, #27ae60, #229954);
+    border: none;
+}
+
+.btn-secondary {
+    background: linear-gradient(145deg, #6c757d, #5a6268);
+    border: none;
+}
+
+.result-display {
+    text-align: center;
+    margin: 30px 0;
+}
+
+.score-display {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 2em;
+    font-weight: bold;
+}
+
+.score {
+    margin: 0 20px;
+    color: #f39c12;
+    font-size: 1.5em;
+}
+
+.player-stats-display {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.table {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table th {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    color: white;
+    border: none;
+}
+
+.table td {
+    border-color: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+.form-control {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+.form-control:focus {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #f39c12;
+    color: white;
+    box-shadow: 0 0 0 0.2rem rgba(243, 156, 18, 0.25);
+}
+
+.form-group label {
+    color: #f39c12;
+    font-weight: bold;
+}
+</style>
+
+<script>
+let gameId = {{ game.id }};
+let homeTeamId = {{ game.home_team_id }};
+let awayTeamId = {{ game.away_team_id }};
+
+// Load team lineups when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    if (!{{ game.is_played|lower }}) {
+        loadTeamLineup(homeTeamId, 'homeLineup', 'home');
+        loadTeamLineup(awayTeamId, 'awayLineup', 'away');
+        loadTeamPlayers(homeTeamId, 'homePlayerStats', 'home');
+        loadTeamPlayers(awayTeamId, 'awayPlayerStats', 'away');
+        
+        // Set current date and time
+        const now = new Date();
+        const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        document.getElementById('matchDate').value = localDateTime;
+    }
+});
+
+function loadTeamLineup(teamId, containerId, teamType) {
+    fetch(`/colados_league/get_team_players/${teamId}`)
+        .then(response => response.json())
+        .then(data => {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            data.players.forEach(player => {
+                const playerCard = document.createElement('div');
+                playerCard.className = 'player-card';
+                playerCard.dataset.playerId = player.id;
+                playerCard.dataset.teamType = teamType;
+                playerCard.innerHTML = `
+                    <h6>${player.player_name}</h6>
+                    <div class="position">${player.position} - ${player.overall}</div>
+                `;
+                
+                playerCard.addEventListener('click', function() {
+                    togglePlayerSelection(this, teamType);
+                });
+                
+                container.appendChild(playerCard);
+            });
+        })
+        .catch(error => {
+            console.error('Error loading team lineup:', error);
+        });
+}
+
+function loadTeamPlayers(teamId, containerId, teamType) {
+    fetch(`/colados_league/get_team_players/${teamId}`)
+        .then(response => response.json())
+        .then(data => {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            data.players.forEach(player => {
+                const playerRow = document.createElement('div');
+                playerRow.className = 'player-stat-row';
+                playerRow.innerHTML = `
+                    <div>
+                        <strong>${player.player_name}</strong>
+                        <small class="text-muted">${player.position}</small>
+                    </div>
+                    <div>
+                        <label>Goals:</label>
+                        <input type="number" class="form-control" min="0" value="0" 
+                               data-player-id="${player.id}" data-stat="goals" data-team-type="${teamType}">
+                        <label>Assists:</label>
+                        <input type="number" class="form-control" min="0" value="0" 
+                               data-player-id="${player.id}" data-stat="assists" data-team-type="${teamType}">
+                        <label>Minutes:</label>
+                        <input type="number" class="form-control" min="0" max="90" value="90" 
+                               data-player-id="${player.id}" data-stat="minutes" data-team-type="${teamType}">
+                    </div>
+                `;
+                
+                container.appendChild(playerRow);
+            });
+        })
+        .catch(error => {
+            console.error('Error loading team players:', error);
+        });
+}
+
+function togglePlayerSelection(playerCard, teamType) {
+    const container = playerCard.parentElement;
+    const selectedPlayers = container.querySelectorAll('.player-card.selected');
+    
+    if (playerCard.classList.contains('selected')) {
+        playerCard.classList.remove('selected');
+    } else if (selectedPlayers.length < 11) {
+        playerCard.classList.add('selected');
+    } else {
+        alert('You can only select 11 players for the starting lineup');
+    }
+}
+
+// Handle form submission
+document.getElementById('gameSetupForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const homeScore = parseInt(document.getElementById('homeScore').value);
+    const awayScore = parseInt(document.getElementById('awayScore').value);
+    const matchDate = document.getElementById('matchDate').value;
+    
+    // Collect selected lineups
+    const homeLineup = Array.from(document.querySelectorAll('#homeLineup .player-card.selected'))
+        .map(card => parseInt(card.dataset.playerId));
+    const awayLineup = Array.from(document.querySelectorAll('#awayLineup .player-card.selected'))
+        .map(card => parseInt(card.dataset.playerId));
+    
+    // Collect player stats
+    const playerStats = [];
+    
+    // Home team stats
+    document.querySelectorAll('#homePlayerStats input').forEach(input => {
+        const playerId = parseInt(input.dataset.playerId);
+        const stat = input.dataset.stat;
+        const value = parseInt(input.value) || 0;
+        
+        let playerStat = playerStats.find(ps => ps.player_id === playerId);
+        if (!playerStat) {
+            playerStat = {
+                player_id: playerId,
+                team_id: homeTeamId,
+                goals: 0,
+                assists: 0,
+                minutes_played: 90
+            };
+            playerStats.push(playerStat);
+        }
+        playerStat[stat] = value;
+    });
+    
+    // Away team stats
+    document.querySelectorAll('#awayPlayerStats input').forEach(input => {
+        const playerId = parseInt(input.dataset.playerId);
+        const stat = input.dataset.stat;
+        const value = parseInt(input.value) || 0;
+        
+        let playerStat = playerStats.find(ps => ps.player_id === playerId);
+        if (!playerStat) {
+            playerStat = {
+                player_id: playerId,
+                team_id: awayTeamId,
+                goals: 0,
+                assists: 0,
+                minutes_played: 90
+            };
+            playerStats.push(playerStat);
+        }
+        playerStat[stat] = value;
+    });
+    
+    // Validate lineups
+    if (homeLineup.length !== 11) {
+        alert('Please select exactly 11 players for the home team');
+        return;
+    }
+    
+    if (awayLineup.length !== 11) {
+        alert('Please select exactly 11 players for the away team');
+        return;
+    }
+    
+    // Submit the match result
+    fetch(`/colados_league/submit_match_result/${gameId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            home_score: homeScore,
+            away_score: awayScore,
+            match_date: matchDate,
+            home_lineup: homeLineup,
+            away_lineup: awayLineup,
+            player_stats: playerStats
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Match result submitted successfully!');
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while submitting the match result');
+    });
+});
+</script>
+{% endblock %}

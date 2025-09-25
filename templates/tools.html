@@ -36,21 +36,142 @@
     {# --- Change Player Salary Tool --- #}
     {% if players %}
     <div class="tool-section" style="margin-bottom: 30px;">
-        <h3>Change Player's Salary</h3>
+        <h3>Change Player's Contract Details</h3>
         <form method="post" action="{{ url_for('change_player_salary') }}">
-            <label for="salary_player_id">Player:</label>
-            <select name="player_id" id="salary_player_id" required>
-                <option value="" disabled selected>Select player</option>
-                {% for player in players %}
-                    <option value="{{ player[0] }}">{{ player[1] }}</option>
-                {% endfor %}
-            </select>
-            <label for="salary" style="margin-left: 20px;">New Salary:</label>
-            <input type="number" name="salary" id="salary" placeholder="Enter new salary" required style="margin-left: 10px; padding: 5px;">
-            <button type="submit" class="button" style="margin-left: 20px;">Change Salary</button>
+            <div style="margin-bottom: 15px;">
+                <label for="salary_player_id">Player:</label>
+                <select name="player_id" id="salary_player_id" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
+                    <option value="" disabled selected>Select player</option>
+                    {% for player in players_salary %}
+                        <option value="{{ player[0] }}" data-salary="{{ player[2] }}" data-contract="{{ player[3] }}" data-wage-rise="{{ player[4] }}">
+                            {{ player[1] }} (Salary: €{{ '{:,.0f}'.format(player[2]).replace(',', 'X').replace('.', ',').replace('X', '.') }}, Contract: {{ player[3] }}y, Wage Rise: {{ (player[4] * 100) | round(1) }}%)
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="salary">New Salary:</label>
+                <input type="number" name="salary" id="salary" placeholder="Leave empty to keep current" style="margin-left: 10px; padding: 5px; width: 150px;">
+                
+                <label for="contract_years" style="margin-left: 20px;">Contract Years:</label>
+                <input type="number" name="contract_years" id="contract_years" placeholder="Leave empty to keep current" style="margin-left: 10px; padding: 5px; width: 100px;">
+                
+                <label for="yearly_wage_rise" style="margin-left: 20px;">Yearly Wage Rise (%):</label>
+                <input type="number" name="yearly_wage_rise" id="yearly_wage_rise" step="0.01" placeholder="Leave empty to keep current" style="margin-left: 10px; padding: 5px; width: 100px;">
+            </div>
+            
+            <button type="submit" class="button">Update Player Contract</button>
         </form>
         {% if salary_message %}
             <div style="color: green; margin-top: 10px;">{{ salary_message }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# --- Team Stats Updater Tool --- #}
+    {% if teams %}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>Update Team Stats (Current Year)</h3>
+        <p>Update games played, goals, and assists for players on a specific team. Leave fields empty to keep current values.</p>
+        
+        <form method="post" action="{{ url_for('update_team_stats') }}">
+            <div style="margin-bottom: 15px;">
+                <label for="team_select">Select Team:</label>
+                <select name="team_id" id="team_select" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
+                    <option value="" disabled selected>Select team</option>
+                    {% for team in teams %}
+                        <option value="{{ team[0] }}" {% if selected_team_id and selected_team_id == team[0]|string %}selected{% endif %}>
+                            {{ team[1] }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" name="action" value="load" class="button" style="margin-left: 20px;">Load Team Players</button>
+            </div>
+        </form>
+        
+        {% if team_players %}
+        <form method="post" action="{{ url_for('update_team_stats') }}">
+            <input type="hidden" name="team_id" value="{{ selected_team_id }}">
+            
+            <div style="overflow-x: auto; margin-top: 20px;">
+                <table class="table table-striped" style="min-width: 600px;">
+                    <thead>
+                        <tr>
+                            <th>Player Name</th>
+                            <th>Games Played</th>
+                            <th>Goals</th>
+                            <th>Assists</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for player in team_players %}
+                        <tr>
+                            <td>{{ player[1] }}</td>
+                            <td>
+                                <input type="number" name="games_{{ player[0] }}" value="{{ player[2] }}" 
+                                       placeholder="{{ player[2] }}" style="width: 80px; padding: 3px;">
+                            </td>
+                            <td>
+                                <input type="number" name="goals_{{ player[0] }}" value="{{ player[3] }}" 
+                                       placeholder="{{ player[3] }}" style="width: 80px; padding: 3px;">
+                            </td>
+                            <td>
+                                <input type="number" name="assists_{{ player[0] }}" value="{{ player[4] }}" 
+                                       placeholder="{{ player[4] }}" style="width: 80px; padding: 3px;">
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <button type="submit" name="action" value="update" class="button" style="margin-top: 15px;">Update Player Stats</button>
+        </form>
+        {% endif %}
+        
+        {% if team_stats_message %}
+            <div style="color: green; margin-top: 10px;">{{ team_stats_message }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# --- Trophy Allocation Tool --- #}
+    {% if teams %}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>🏆 Allocate Trophy</h3>
+        <p>Allocate championships or cups to teams. All players from the selected team will have their trophy count increased by 1.</p>
+        
+        <form method="post" action="{{ url_for('allocate_trophy') }}" onsubmit="return confirm('Allocate this trophy to the selected team?\n\nThis will:\n- Add 1 trophy to all players on the selected team\n- Update player statistics permanently\n- Create a blog post about the trophy allocation\n\nThis action cannot be undone!')">
+            <div style="margin-bottom: 15px;">
+                <label for="trophy_team_id">Select Team:</label>
+                <select name="team_id" id="trophy_team_id" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
+                    <option value="" disabled selected>Select team</option>
+                    {% for team in teams %}
+                        <option value="{{ team[0] }}">{{ team[1] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="trophy_type">Trophy Type:</label>
+                <select name="trophy_type" id="trophy_type" required style="margin-left: 10px; padding: 5px; min-width: 150px;">
+                    <option value="" disabled selected>Select trophy type</option>
+                    <option value="championship">🏆 Championship</option>
+                    <option value="cup">🥇 Cup</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="trophy_name">Trophy Name:</label>
+                <input type="text" name="trophy_name" id="trophy_name" placeholder="e.g., Premier League, Champions League, FA Cup" required style="margin-left: 10px; padding: 5px; width: 300px;">
+            </div>
+            
+            <button type="submit" class="button" style="background-color: #f0ad4e; font-weight: bold;">🏆 Allocate Trophy</button>
+        </form>
+        
+        {% if trophy_message %}
+            <div style="color: green; margin-top: 10px;">{{ trophy_message }}</div>
         {% endif %}
     </div>
     {% endif %}
@@ -104,10 +225,75 @@
         
         <div class="row mt-3">
             <div class="col-md-12">
+                <h5>📝 CPU Contract Renewals</h5>
+                <p>Process contract renewals for CPU teams. Players with expired contracts (contract_years_remaining = 0) will be offered new contracts. 90% success rate.</p>
+                <form method="post" action="{{ url_for('cpu_contract_renewals') }}" onsubmit="return confirm('Process CPU contract renewals?\n\nThis will:\n- Find all CPU players with expired contracts\n- Offer new contracts based on skill calculations\n- 90% chance of successful renewal\n- Players who reject will enter free agency\n- Create blog post with results\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #337ab7; font-weight: bold;">📝 Process CPU Contract Renewals</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <h5>🤖 CPU AI Market Bazaar Activity</h5>
+                <p>Trigger CPU teams to make intelligent transfer decisions in the market bazaar. CPU teams will analyze their needs and either list players for sale or make offers on available players.</p>
+                <form method="post" action="{{ url_for('trigger_cpu_ai') }}" onsubmit="return confirm('Trigger CPU AI market bazaar activity?\n\nThis will:\n- Analyze CPU team composition needs\n- List overpaid/surplus players for sale\n- Make offers on suitable players\n- Consider budget constraints and toxic contracts\n- Create blog post with activity summary\n- 25% chance per CPU team to take action\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #9b59b6; font-weight: bold;">🤖 Trigger CPU AI Activity</button>
+                </form>
+                
+                <div class="mt-2">
+                    <h6>🧹 Market Management</h6>
+                    <p class="small">Clear all active market bazaar listings and offers. This will expire all current transfer listings and CPU offers.</p>
+                    <form method="post" action="{{ url_for('expire_market_offers_route') }}" onsubmit="return confirm('Clear all market bazaar activity?\n\nThis will expire:\n- All active transfer listings\n- All active CPU offers\n- All active user offers\n\nThis action cannot be undone!')">
+                        <button type="submit" class="button" style="background-color: #e74c3c; font-weight: bold;">🧹 Clear Market</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-md-12">
                 <h5>💰 Recalculate Player Market Values</h5>
                 <p>Recalculate all player market values based on their current salaries and age using the advanced game mechanics algorithm. Salaries remain unchanged.</p>
                 <form method="post" action="{{ url_for('recalculate_player_financials') }}" onsubmit="return confirm('Recalculate all player market values?\n\nThis will:\n- Recalculate market values based on current salaries and age\n- Set No Club players market value to €0\n- Apply age-based market value multipliers\n- Create a blog post with top 5 players by position\n- Keep all salaries unchanged\n\nThis action cannot be undone!')">
                     <button type="submit" class="button" style="background-color: #5cb85c; font-weight: bold;">💰 Recalculate Market Values</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <h5>🆓 Recalculate Free Agent Salary Demands</h5>
+                <p>Recalculate salary demands for all free agents (No Club players) using the advanced game mechanics algorithm. This updates their salary requirements based on current skills and age.</p>
+                <form method="post" action="{{ url_for('recalculate_free_agent_salaries') }}" onsubmit="return confirm('Recalculate free agent salary demands?\n\nThis will:\n- Recalculate salary demands for all free agents\n- Update demands based on current skills and age\n- Create a blog post about the update\n- Only affects players with No Club (club_id = 141)\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #f0ad4e; font-weight: bold;">🆓 Recalculate Free Agent Salaries</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <h5>🔄 Scheduled Market Activity</h5>
+                <p>Trigger scheduled market activity including CPU AI actions, expired offer processing, and market updates. This simulates regular market activity that would normally run automatically.</p>
+                <form method="post" action="{{ url_for('scheduled_market_activity') }}" onsubmit="return confirm('Trigger scheduled market activity?\n\nThis will:\n- Trigger CPU AI activity (transfers, offers, etc.)\n- Process expired offers and clean up\n- Update market status\n- Create a blog post about the activity\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #337ab7; font-weight: bold;">🔄 Trigger Market Activity</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <h5>👴 Retire Player & Generate Regen</h5>
+                <p>Manually retire a specific player and generate a new regen to replace them. This uses the same regen generation system as the end-of-season process.</p>
+                <form method="post" action="{{ url_for('retire_player_manual') }}" onsubmit="return confirm('Retire this player and generate a regen?\n\nThis will:\n- Retire the selected player immediately\n- Generate a new young regen with random attributes\n- Replace the player in the same team\n- Create a blog post about the retirement\n\nThis action cannot be undone!')">
+                    <label for="retire_player_id">Select Player to Retire:</label>
+                    <select name="player_id" id="retire_player_id" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
+                        <option value="" disabled selected>-- Select Player --</option>
+                        {% for player in players %}
+                            <option value="{{ player[0] }}">{{ player[1] }} (Age: {{ player[2] }}, Team: {{ player[3] }})</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="button" style="background-color: #d9534f; font-weight: bold; margin-left: 20px;">👴 Retire Player</button>
                 </form>
             </div>
         </div>
@@ -130,6 +316,7 @@
         <p>Add or subtract money from user budgets. All transactions will be recorded in the user's financial movements.</p>
         <a href="{{ url_for('money_allocator') }}" class="button" style="background-color: #5bc0de;">Open Money Allocator</a>
     </div>
+
 
 
 

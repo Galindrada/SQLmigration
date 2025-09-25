@@ -4,49 +4,90 @@
 
 {% block content %}
     <h2>{{ team_name }} - PES6 Roster</h2>
-    <p><a href="{{ url_for('pes6_game_teams') }}">← Back to All Teams</a></p>
+    <p>
+        <a href="{{ url_for('pes6_game_teams') }}">← Back to All Teams</a>
+        <span style="margin-left: 20px;">
+            <button onclick="location.reload()" class="btn btn-sm btn-outline-primary">
+                🔄 Refresh Data
+            </button>
+        </span>
+    </p>
 
     <!-- Team Details Section -->
     <div class="team-details-section" style="margin-bottom: 30px;">
         <div class="card" style="background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 2px solid #dee2e6; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
             <div class="card-header" style="background: linear-gradient(145deg, #495057, #6c757d); color: white; border-bottom: 2px solid #495057; border-radius: 8px 8px 0 0;">
                 <h4 style="margin: 0; text-align: center; font-weight: bold;">
-                    <i class="fas fa-chart-line"></i> Team Financial Details
+                    <i class="fas fa-chart-line"></i> 
+                    {% if is_user_team %}
+                        Team Squad Details
+                    {% else %}
+                        Team Financial Details
+                    {% endif %}
                 </h4>
             </div>
             <div class="card-body" style="padding: 20px;">
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #d4edda, #c3e6cb); border: 2px solid #28a745; border-radius: 8px; margin: 5px;">
-                            <h5 style="color: #155724; margin-bottom: 10px; font-weight: bold;">
-                                <i class="fas fa-money-bill-wave"></i> Total Salaries
-                            </h5>
-                            <div style="font-size: 1.5em; font-weight: bold; color: #155724;">
-                                €{{ total_salaries | format_currency }}
+                {% if is_user_team %}
+                    <!-- For user teams, show only salary info and note about unified budget -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #d4edda, #c3e6cb); border: 2px solid #28a745; border-radius: 8px; margin: 5px;">
+                                <h5 style="color: #155724; margin-bottom: 10px; font-weight: bold;">
+                                    <i class="fas fa-money-bill-wave"></i> Total Salaries
+                                </h5>
+                                <div style="font-size: 1.5em; font-weight: bold; color: #155724;">
+                                    €{{ total_salaries | format_currency }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #e2e3e5, #d6d8db); border: 2px solid #6c757d; border-radius: 8px; margin: 5px;">
+                                <h5 style="color: #495057; margin-bottom: 10px; font-weight: bold;">
+                                    <i class="fas fa-info-circle"></i> Budget Management
+                                </h5>
+                                <div style="font-size: 1em; color: #495057;">
+                                    <strong>User Team</strong><br>
+                                    Budget managed via<br>
+                                    <a href="{{ url_for('team_management') }}" style="color: #007bff;">Team Management</a>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #d1ecf1, #bee5eb); border: 2px solid #17a2b8; border-radius: 8px; margin: 5px;">
-                            <h5 style="color: #0c5460; margin-bottom: 10px; font-weight: bold;">
-                                <i class="fas fa-piggy-bank"></i> Budget
-                            </h5>
-                            <div style="font-size: 1.5em; font-weight: bold; color: #0c5460;">
-                                €{{ budget | format_currency }}
+                {% else %}
+                    <!-- For CPU teams, show full financial details -->
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #d4edda, #c3e6cb); border: 2px solid #28a745; border-radius: 8px; margin: 5px;">
+                                <h5 style="color: #155724; margin-bottom: 10px; font-weight: bold;">
+                                    <i class="fas fa-money-bill-wave"></i> Total Salaries
+                                </h5>
+                                <div style="font-size: 1.5em; font-weight: bold; color: #155724;">
+                                    €{{ total_salaries | format_currency }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #d1ecf1, #bee5eb); border: 2px solid #17a2b8; border-radius: 8px; margin: 5px;">
+                                <h5 style="color: #0c5460; margin-bottom: 10px; font-weight: bold;">
+                                    <i class="fas fa-piggy-bank"></i> Budget
+                                </h5>
+                                <div style="font-size: 1.5em; font-weight: bold; color: #0c5460;">
+                                    €{{ budget | format_currency }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #fff3cd, #ffeaa7); border: 2px solid #ffc107; border-radius: 8px; margin: 5px;">
+                                <h5 style="color: #856404; margin-bottom: 10px; font-weight: bold;">
+                                    <i class="fas fa-coins"></i> Available Cap
+                                </h5>
+                                <div style="font-size: 1.5em; font-weight: bold; color: #856404;">
+                                    €{{ available_cap | format_currency }}
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="financial-stat" style="text-align: center; padding: 15px; background: linear-gradient(145deg, #fff3cd, #ffeaa7); border: 2px solid #ffc107; border-radius: 8px; margin: 5px;">
-                            <h5 style="color: #856404; margin-bottom: 10px; font-weight: bold;">
-                                <i class="fas fa-coins"></i> Available Cap
-                            </h5>
-                            <div style="font-size: 1.5em; font-weight: bold; color: #856404;">
-                                €{{ available_cap | format_currency }}
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -82,7 +123,7 @@
                         <td>{{ player[11] }}</td> {# technique_rating #}
                         <td>{{ player[12] }}</td> {# goalkeeping_rating #}
                         <td>
-                            <button type="button" class="btn btn-primary btn-sm negotiate-btn" data-player-id="{{ player[0] }}" data-player-name="{{ player[1] }}" data-toggle="modal" data-target="#negotiateModal">Negotiate</button>
+                            <a href="{{ url_for('negotiate_with_cpu', player_id=player[0]) }}" class="btn btn-primary btn-sm">Negotiate</a>
                         </td>
                     </tr>
                 {% endfor %}
@@ -103,13 +144,11 @@
             </button>
           </div>
           <div class="modal-body" id="negotiationContent">
-            <!-- Negotiation steps will be loaded here via JS -->
-            <div class="text-center text-muted">Negotiation logic coming soon...</div>
+            <!-- Negotiation options will be loaded here via JS -->
+            <div class="text-center text-muted">Loading negotiation options...</div>
           </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-success" id="acceptDealBtn">Accept</button>
-            <button type="button" class="btn btn-warning" id="counterOfferBtn">Counter</button>
-            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+          <div class="modal-footer" id="negotiationFooter">
+            <!-- Footer buttons will be loaded dynamically -->
           </div>
         </div>
       </div>
@@ -327,100 +366,191 @@
             setTimeout(addPlayerHoverFunctionality, 100);
         });
 
+        // Test if negotiate button exists
+        console.log('Negotiate buttons found:', $('.negotiate-btn').length);
+
         // Negotiate button functionality
         $(document).on('click', '.negotiate-btn', function() {
+            console.log('Negotiate button clicked!');
             const playerId = $(this).data('player-id');
             const playerName = $(this).data('player-name');
+            
+            console.log('Player ID:', playerId, 'Player Name:', playerName);
             
             // Show modal
             $('#negotiateModal').modal('show');
             $('#modalPlayerName').text(playerName);
             
-            // Fetch user's team players for negotiation
-            fetch(`/get_team_players_full/{{ current_user.id }}`)
-                .then(response => response.json())
-                .then(userTeamPlayers => {
-                    // Start negotiation
+            console.log('Modal shown, starting negotiation...');
+            
+            // Start negotiation with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
                     fetch(`/negotiate_with_cpu/${playerId}`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            action: 'start',
-                            current_deal: null,
-                            user_team_players: userTeamPlayers
-                        })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.error) {
-                            $('#negotiationContent').html(`<div class="alert alert-danger">${data.error}</div>`);
+                    action: 'start'
+                }),
+                signal: controller.signal
+            })
+            .then(response => {
+                console.log('Response received:', response.status);
+                
+                // Handle authentication errors
+                if (response.status === 401) {
+                    $('#negotiationContent').html('<div class="alert alert-warning">Please log in to negotiate with CPU teams.</div>');
+                    $('#negotiationFooter').html('<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>');
                             return;
                         }
                         
-                        let content = `<h4>Initial Offer from ${data.club_name}</h4>`;
-                        content += `<p><strong>Cash Required:</strong> €${data.deal.cash_paid.toLocaleString()}</p>`;
-                        
-                        if (data.deal.player_given) {
-                            content += `<p><strong>Player Requested:</strong> ${data.deal.player_given.NAME} (€${data.deal.player_given['Market Value'].toLocaleString()})</p>`;
-                        }
-                        
-                        content += `<button class="btn btn-success" onclick="acceptDeal(${playerId})">Accept</button>`;
-                        content += `<button class="btn btn-warning" onclick="counterDeal(${playerId})">Counter</button>`;
-                        
-                        // Add player details section at the bottom
-                        content += '<div class="player-details-section" style="margin-top: 20px; padding: 15px; background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 1px solid #dee2e6; border-radius: 8px;">';
-                        content += '<h5 style="color: #495057; margin-bottom: 15px;">Player Information</h5>';
+                // Handle other errors
+                if (!response.ok) {
+                    $('#negotiationContent').html(`<div class="alert alert-danger">Error: ${response.status} ${response.statusText}</div>`);
+                    $('#negotiationFooter').html('<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>');
+                    return;
+                }
+                
+                return response.json();
+            })
+            .then(data => {
+                console.log('Data received:', data);
+                if (data && data.error) {
+                    $('#negotiationContent').html(`<div class="alert alert-danger">${data.error}</div>`);
+                    $('#negotiationFooter').html('<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>');
+                    return;
+                }
+                
+                // Display negotiation options
+                let content = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header bg-success text-white">
+                                    <h5 class="mb-0">Buy Now</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p><strong>Price:</strong> €${data.buy_now_price.toLocaleString()}</p>
+                                    <p><strong>Market Value:</strong> €${data.market_value.toLocaleString()}</p>
+                                    <p class="text-muted">Instant purchase at 3x market value (minimum €5M)</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header bg-primary text-white">
+                                    <h5 class="mb-0">Submit Offer</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p><strong>Market Value:</strong> €${data.market_value.toLocaleString()}</p>
+                                    <p class="text-muted">Make an offer for the CPU to consider</p>
+                                    <div class="form-group">
+                                        <label for="offerAmount">Offer Amount (€):</label>
+                                        <input type="number" class="form-control" id="offerAmount" 
+                                               min="${data.market_value}" 
+                                               max="${data.market_value * 2}" 
+                                               value="${Math.round(data.market_value * 1.2)}">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
                         
                         $('#negotiationContent').html(content);
                         
-                        // Fetch and display player details
-                        fetch(`/get_player_details/${playerId}`)
-                            .then(response => response.json())
-                            .then(playerData => {
-                                if (!playerData.error) {
-                                    let playerInfo = `<p><strong>Age:</strong> ${playerData.age} | <strong>Salary:</strong> €${playerData.salary.toLocaleString()} | <strong>Contract:</strong> ${playerData.contract_years} years</p>`;
-                                    playerInfo += '<div class="skills-summary" style="margin-top: 10px;">';
-                                    playerInfo += '<p><strong>Skill Ratings:</strong></p>';
-                                    playerInfo += '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px;">';
-                                    Object.entries(playerData.bundled_skills).forEach(([skill, value]) => {
-                                        playerInfo += `<div style="text-align: center; padding: 5px; background: linear-gradient(145deg, #ffd700, #ffed4e); border-radius: 5px; border: 1px solid #d4af37;">`;
-                                        playerInfo += `<div style="font-size: 0.8em; color: #1a1a1a; font-weight: bold;">${skill}</div>`;
-                                        playerInfo += `<div style="font-size: 1.1em; color: #1a1a1a; font-weight: bold;">${value}</div>`;
-                                        playerInfo += '</div>';
-                                    });
-                                    playerInfo += '</div>';
-                                    playerInfo += '</div>';
-                                    playerInfo += '</div>';
-                                    
-                                    // Update the modal content with player info
-                                    $('#negotiationContent').append(playerInfo);
-                                }
+                // Footer buttons
+                $('#negotiationFooter').html(`
+                    <button type="button" class="btn btn-success" id="buyNowBtn">Buy Now (€${data.buy_now_price.toLocaleString()})</button>
+                    <button type="button" class="btn btn-primary" id="submitOfferBtn">Submit Offer</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                `);
+                
+                // Buy now functionality
+                $('#buyNowBtn').click(function() {
+                    if (confirm(`Are you sure you want to buy ${playerName} for €${data.buy_now_price.toLocaleString()}?`)) {
+                        fetch(`/negotiate_with_cpu/${playerId}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                action: 'buy_now'
                             })
-                            .catch(error => {
-                                console.error('Error fetching player details:', error);
-                            });
+                        })
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.success) {
+                                alert(result.message);
+                                $('#negotiateModal').modal('hide');
+                                location.reload(); // Refresh to show updated team
+                            } else {
+                                alert(result.error);
+                            }
                     })
                     .catch(error => {
                         console.error('Error:', error);
-                        $('#negotiationContent').html('<div class="alert alert-danger">Error starting negotiation.</div>');
-                    });
+                            alert('Error processing purchase.');
+                        });
+                    }
+                });
+                
+                // Submit offer functionality
+                $('#submitOfferBtn').click(function() {
+                    const offerAmount = parseInt($('#offerAmount').val());
+                    if (!offerAmount || offerAmount <= 0) {
+                        alert('Please enter a valid offer amount.');
+                        return;
+                    }
+                    
+                    if (confirm(`Submit offer of €${offerAmount.toLocaleString()} for ${playerName}?`)) {
+                        fetch(`/negotiate_with_cpu/${playerId}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                action: 'submit_offer',
+                                offer_amount: offerAmount
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.success) {
+                                alert(result.message);
+                                if (result.blog_posted) {
+                                    alert('Your offer has been leaked to the media!');
+                                }
+                                $('#negotiateModal').modal('hide');
+                            } else {
+                                alert(result.error);
+                            }
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    $('#negotiationContent').html('<div class="alert alert-danger">Error loading team players.</div>');
+                            alert('Error submitting offer.');
+                        });
+                    }
                 });
+            })
+            .catch(error => {
+                clearTimeout(timeoutId);
+                console.error('Error in negotiate button:', error);
+                console.error('Error details:', error.message);
+                
+                let errorMessage = 'Error loading negotiation data';
+                if (error.name === 'AbortError') {
+                    errorMessage = 'Request timed out. Please try again.';
+                } else if (error.message) {
+                    errorMessage = `Error: ${error.message}`;
+                }
+                
+                $('#negotiationContent').html(`<div class="alert alert-danger">${errorMessage}</div>`);
+                $('#negotiationFooter').html('<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>');
+            });
         });
-
-        function acceptDeal(playerId) {
-            // Implementation for accepting deal
-            alert('Accept functionality to be implemented');
-        }
-
-        function counterDeal(playerId) {
-            // Implementation for countering deal
-            alert('Counter functionality to be implemented');
-        }
     </script>
 {% endblock %}

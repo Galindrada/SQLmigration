@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Negotiate with CPU - {{ player_name }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">Negotiate with CPU Team</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h5 style="color: black;">Player Information</h5>
+                            <p style="color: black;"><strong>Name:</strong> {{ player_name }}</p>
+                            <p style="color: black;"><strong>Current Club:</strong> {{ club_name }}</p>
+                            <p style="color: black;"><strong>Market Value:</strong> €{{ "{:,}".format(market_value) }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5 style="color: black;">Negotiation Options</h5>
+                            <p style="color: black;"><strong>Buy Now Price:</strong> €{{ "{:,}".format(buy_now_price) }}</p>
+                            <p style="color: black;">(3x market value, minimum €5M)</p>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card border-primary">
+                                <div class="card-header bg-primary text-white">
+                                    <h5 class="mb-0">Buy Now</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p style="color: black;">Purchase the player immediately for €{{ "{:,}".format(buy_now_price) }}</p>
+                                    <form method="POST" action="{{ url_for('negotiate_with_cpu', player_id=player_id) }}">
+                                        <input type="hidden" name="action" value="buy_now">
+                                        <button type="submit" class="btn btn-primary btn-block" 
+                                                onclick="return confirm('Are you sure you want to buy {{ player_name }}?')">
+                                            Buy Now - €{{ "{:,}".format(buy_now_price) }}
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="card border-success">
+                                <div class="card-header bg-success text-white">
+                                    <h5 class="mb-0">Submit Offer</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p style="color: black;">Submit a custom offer to the CPU team</p>
+                                    <form method="POST" action="{{ url_for('negotiate_with_cpu', player_id=player_id) }}">
+                                        <input type="hidden" name="action" value="submit_offer">
+                                        <div class="form-group">
+                                            <label for="offer_amount" style="color: black;">Offer Amount (€)</label>
+                                            <input type="number" class="form-control" id="offer_amount" name="offer_amount" 
+                                                   max="100000000" step="100000" 
+                                                   placeholder="Enter offer amount">
+                                        </div>
+                                        <button type="submit" class="btn btn-success btn-block">
+                                            Submit Offer
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <a href="{{ url_for('team_management') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Back to Team Management
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

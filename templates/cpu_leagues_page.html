@@ -1,0 +1,1037 @@
+{% extends "base.html" %}
+
+{% block title %}CPU Leagues - PES6 League Manager{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="text-center mb-4">
+                <i class="fas fa-trophy"></i> CPU Leagues Championship
+            </h1>
+            
+            <!-- League Control Panel -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-cogs"></i> League Control</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="divisionCount" class="form-label">Number of Divisions:</label>
+                                <select class="form-select" id="divisionCount">
+                                    <option value="4">4 Divisions</option>
+                                    <option value="6">6 Divisions</option>
+                                    <option value="8">8 Divisions</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <button id="initializeBtn" class="btn btn-success me-2">
+                                <i class="fas fa-play"></i> Initialize League
+                            </button>
+                            <button id="simulateBtn" class="btn btn-warning" disabled>
+                                <i class="fas fa-forward"></i> Simulate Round
+                            </button>
+                            <button id="resetBtn" class="btn btn-danger ms-2">
+                                <i class="fas fa-refresh"></i> Reset League
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- League Status -->
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="badge bg-secondary fs-6" id="leagueStatus">
+                                        <i class="fas fa-info-circle"></i> League Not Started
+                                    </span>
+                                </div>
+                                <div>
+                                    <span id="roundInfo" class="text-muted">
+                                        <i class="fas fa-calendar"></i> Round 0 / 0
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- League Standings -->
+            <div id="leagueStandings">
+                <!-- Standings will be populated here -->
+            </div>
+
+            <!-- Leaderboards -->
+            <div id="leaderboardsSection" class="mt-4" style="display: none;">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-warning text-dark">
+                                <h5 class="mb-0"><i class="fas fa-trophy"></i> Top Goalscorers</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <table class="table table-striped mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Pos</th>
+                                            <th>Player</th>
+                                            <th>Team</th>
+                                            <th>Goals</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="topScorersTable">
+                                        <!-- Top scorers will be populated here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0"><i class="fas fa-assist"></i> Top Assists</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <table class="table table-striped mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Pos</th>
+                                            <th>Player</th>
+                                            <th>Team</th>
+                                            <th>Assists</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="topAssistsTable">
+                                        <!-- Top assists will be populated here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Winner Section -->
+            <div id="winnerSection" class="mt-4" style="display: none;">
+                <div class="card border-success">
+                    <div class="card-header bg-success text-white">
+                        <h4 class="mb-0"><i class="fas fa-trophy"></i> Championship Winner</h4>
+                    </div>
+                    <div class="card-body text-center">
+                        <div id="winnerContent">
+                            <!-- Winner content will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Playoff Section -->
+            <div id="playoffSection" class="mt-4" style="display: none;">
+                <div class="card">
+                    <div class="card-header bg-warning text-dark">
+                        <h4 class="mb-0"><i class="fas fa-crown"></i> Playoffs</h4>
+                    </div>
+                    <div class="card-body">
+                        <div id="playoffContent">
+                            <!-- Playoff content will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Revenue Section -->
+            <div id="revenueSection" class="mt-4" style="display: none;">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h4 class="mb-0"><i class="fas fa-euro-sign"></i> Revenue Distribution</h4>
+                    </div>
+                    <div class="card-body">
+                        <div id="revenueContent">
+                            <!-- Revenue content will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Matches -->
+            <div id="recentMatches" class="mt-4" style="display: none;">
+                <div class="card">
+                    <div class="card-header bg-dark text-white">
+                        <h4 class="mb-0"><i class="fas fa-futbol"></i> Recent Matches</h4>
+                    </div>
+                    <div class="card-body">
+                        <div id="matchesContent">
+                            <!-- Recent matches will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Processing...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let leagueData = null;
+let currentRound = 0;
+
+// Initialize league
+document.getElementById('initializeBtn').addEventListener('click', function() {
+    const divisionCount = document.getElementById('divisionCount').value;
+    initializeLeague(divisionCount);
+});
+
+// Simulate round
+document.getElementById('simulateBtn').addEventListener('click', function() {
+    simulateRound();
+});
+
+// Reset league
+document.getElementById('resetBtn').addEventListener('click', function() {
+    if (confirm('Are you sure you want to reset the league? This will delete all current data.')) {
+        resetLeague();
+    }
+});
+
+async function initializeLeague(divisionCount) {
+    showLoading(true);
+    
+    try {
+        const response = await fetch('/cpu_leagues/initialize', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                division_count: parseInt(divisionCount)
+            })
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+            leagueData = result.data;
+            // Add standings data if available
+            if (result.standings) {
+                leagueData.standings = result.standings;
+            }
+            updateLeagueDisplay();
+            loadLeaderboards();
+            document.getElementById('simulateBtn').disabled = false;
+            showMessage('League initialized successfully!', 'success');
+        } else {
+            showMessage('Error initializing league: ' + result.error, 'danger');
+        }
+    } catch (error) {
+        showMessage('Error: ' + error.message, 'danger');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function simulateRound() {
+    console.log('simulateRound: Starting...');
+    showLoading(true);
+    
+    try {
+        console.log('simulateRound: Making API call...');
+        const response = await fetch('/cpu_leagues/simulate_round', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        console.log('simulateRound: Got response, parsing JSON...');
+        const result = await response.json();
+        console.log('simulateRound: Result:', result);
+        
+        if (result.success) {
+            console.log('simulateRound: Success, updating data...');
+            leagueData = result.data;
+            // Merge standings data into leagueData
+            if (result.standings) {
+                leagueData.standings = result.standings;
+            }
+            // Merge playoff tree data if available (from main response or round results)
+            if (result.playoff_tree) {
+                leagueData.playoff_tree = result.playoff_tree;
+            } else if (result.round_results && result.round_results.playoff_tree) {
+                leagueData.playoff_tree = result.round_results.playoff_tree;
+            }
+            updateLeagueDisplay();
+            updateRecentMatches(result.round_results);
+            loadLeaderboards();
+            
+            if (result.round_results.league_status === 'League completed') {
+                document.getElementById('simulateBtn').disabled = true;
+                showMessage('League completed! Revenue has been distributed.', 'success');
+                showRevenueSection(result.revenue);
+            } else {
+                showMessage(`Round ${result.round_results.round} completed!`, 'info');
+            }
+        } else {
+            console.log('simulateRound: Error in result:', result.error);
+            showMessage('Error simulating round: ' + result.error, 'danger');
+        }
+    } catch (error) {
+        console.log('simulateRound: Exception caught:', error);
+        showMessage('Error: ' + error.message, 'danger');
+    } finally {
+        console.log('simulateRound: Finally block - hiding loading...');
+        showLoading(false);
+        console.log('simulateRound: Loading hidden, function complete');
+    }
+}
+
+async function resetLeague() {
+    showLoading(true);
+    
+    try {
+        const response = await fetch('/cpu_leagues/reset', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+            leagueData = null;
+            document.getElementById('leagueStandings').innerHTML = '';
+            document.getElementById('leaderboardsSection').style.display = 'none';
+            document.getElementById('playoffSection').style.display = 'none';
+            document.getElementById('revenueSection').style.display = 'none';
+            document.getElementById('recentMatches').style.display = 'none';
+            document.getElementById('simulateBtn').disabled = true;
+            document.getElementById('leagueStatus').innerHTML = '<i class="fas fa-info-circle"></i> League Not Started';
+            document.getElementById('roundInfo').innerHTML = '<i class="fas fa-calendar"></i> Round 0 / 0';
+            showMessage('League reset successfully!', 'success');
+        } else {
+            showMessage('Error resetting league: ' + result.error, 'danger');
+        }
+    } catch (error) {
+        showMessage('Error: ' + error.message, 'danger');
+    } finally {
+        showLoading(false);
+    }
+}
+
+function updateLeagueDisplay() {
+    if (!leagueData) return;
+
+    try {
+        // Update status
+        const statusElement = document.getElementById('leagueStatus');
+        const status = leagueData.status || 'not_started';
+        
+        let statusClass = 'bg-secondary';
+        let statusText = status.replace('_', ' ').toUpperCase();
+        
+        if (status === 'round_robin') {
+            statusClass = 'bg-info';
+        } else if (status === 'playoffs') {
+            statusClass = 'bg-warning text-dark';
+        } else if (status === 'completed') {
+            statusClass = 'bg-success';
+        }
+        
+        statusElement.className = `badge ${statusClass} fs-6`;
+        statusElement.innerHTML = `<i class="fas fa-info-circle"></i> ${statusText}`;
+
+        // Update round info
+        const currentRound = leagueData.current_round || 0;
+        const maxRounds = leagueData.max_rounds || 0;
+        document.getElementById('roundInfo').innerHTML = 
+            `<i class="fas fa-calendar"></i> Round ${currentRound} / ${maxRounds}`;
+
+        // Update standings (only if standings data is available and not in playoffs)
+        if (leagueData.standings && status !== 'playoffs') {
+            updateStandings();
+        } else if (status === 'playoffs') {
+            // Hide regular season standings during playoffs
+            document.getElementById('leagueStandings').innerHTML = '<div class="alert alert-info text-center"><i class="fas fa-info-circle"></i> Regular season completed. Playoffs in progress!</div>';
+        }
+        
+        // Show/hide playoff section
+        if (status === 'playoffs' || status === 'completed') {
+            document.getElementById('playoffSection').style.display = 'block';
+            updatePlayoffDisplay();
+        } else {
+            document.getElementById('playoffSection').style.display = 'none';
+        }
+        
+        // Show/hide winner section
+        if (status === 'completed') {
+            document.getElementById('winnerSection').style.display = 'block';
+            updateWinnerDisplay();
+        } else {
+            document.getElementById('winnerSection').style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Error updating league display:', error);
+    }
+}
+
+function updateStandings() {
+    const standingsContainer = document.getElementById('leagueStandings');
+    standingsContainer.innerHTML = '';
+
+    // Check if standings data exists and is properly structured
+    if (!leagueData || !leagueData.standings || typeof leagueData.standings !== 'object') {
+        console.log('No standings data available yet. leagueData:', leagueData);
+        return;
+    }
+
+    console.log('Updating standings with data:', leagueData.standings);
+
+    Object.keys(leagueData.standings).forEach(divisionId => {
+        const division = leagueData.standings[divisionId];
+        
+        const divisionCard = document.createElement('div');
+        divisionCard.className = 'card mb-3';
+        divisionCard.innerHTML = `
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-trophy"></i> Division ${divisionId}</h5>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-striped mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Pos</th>
+                            <th>Team</th>
+                            <th>GP</th>
+                            <th>W</th>
+                            <th>D</th>
+                            <th>L</th>
+                            <th>GF</th>
+                            <th>GA</th>
+                            <th>GD</th>
+                            <th>Pts</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${division.map((team, index) => `
+                            <tr>
+                                <td><strong>${index + 1}</strong></td>
+                                <td class="fw-bold text-primary">${team.team_name}</td>
+                                <td>${team.games_played}</td>
+                                <td>${team.wins}</td>
+                                <td>${team.draws}</td>
+                                <td>${team.losses}</td>
+                                <td>${team.goals_for}</td>
+                                <td>${team.goals_against}</td>
+                                <td>${team.goal_difference >= 0 ? '+' : ''}${team.goal_difference}</td>
+                                <td><span class="badge bg-success">${team.points}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        standingsContainer.appendChild(divisionCard);
+    });
+}
+
+function updatePlayoffDisplay() {
+    const playoffContent = document.getElementById('playoffContent');
+    console.log('updatePlayoffDisplay: leagueData.playoff_teams:', leagueData.playoff_teams);
+    console.log('updatePlayoffDisplay: leagueData.playoff_tree:', leagueData.playoff_tree);
+    
+    if (leagueData.playoff_teams && leagueData.playoff_teams.length > 0) {
+        let playoffHtml = `
+            <div class="row">
+                <div class="col-12">
+                    <h6>Playoff Teams:</h6>
+                    <div class="d-flex flex-wrap gap-2 mb-4">
+                        ${leagueData.playoff_teams.map(team => 
+                            `<span class="badge bg-warning text-dark fs-6">${team}</span>`
+                        ).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add playoff tree if available
+        if (leagueData.playoff_tree) {
+            console.log('Adding playoff tree to display');
+            playoffHtml += generatePlayoffTree(leagueData.playoff_tree);
+        } else {
+            console.log('No playoff tree data available');
+            playoffHtml += '<div class="alert alert-warning">Playoff tree data not available yet.</div>';
+        }
+        
+        playoffContent.innerHTML = playoffHtml;
+    } else {
+        playoffContent.innerHTML = '<div class="alert alert-info">No playoff teams available.</div>';
+    }
+}
+
+function updateWinnerDisplay() {
+    const winnerContent = document.getElementById('winnerContent');
+    
+    // Get winner from playoff tree or league data
+    let winner = null;
+    if (leagueData.playoff_tree && leagueData.playoff_tree.champion) {
+        winner = leagueData.playoff_tree.champion;
+    }
+    
+    if (winner) {
+        winnerContent.innerHTML = `
+            <div class="row">
+                <div class="col-12">
+                    <h2 class="text-success mb-3">
+                        <i class="fas fa-trophy"></i> ${winner}
+                    </h2>
+                    <p class="lead">🏆 Champions of the CPU League!</p>
+                </div>
+            </div>
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card border-warning">
+                        <div class="card-header bg-warning text-dark">
+                            <h6 class="mb-0"><i class="fas fa-futbol"></i> Top Goalscorer</h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="topGoalscorerDisplay">
+                                <div class="text-center">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-info">
+                        <div class="card-header bg-info text-white">
+                            <h6 class="mb-0"><i class="fas fa-handshake"></i> Top Assister</h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="topAssisterDisplay">
+                                <div class="text-center">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Load top performers
+        loadTopPerformers();
+    } else {
+        winnerContent.innerHTML = '<div class="alert alert-warning">Winner information not available.</div>';
+    }
+}
+
+function loadTopPerformers() {
+    // Load top goalscorer
+    fetch('/cpu_leagues/leaderboards')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.goalscorers && data.goalscorers.length > 0) {
+                const topScorer = data.goalscorers[0];
+                document.getElementById('topGoalscorerDisplay').innerHTML = `
+                    <div class="text-center">
+                        <h5 class="text-warning">${topScorer.player_name}</h5>
+                        <p class="mb-1"><strong>${topScorer.team_name}</strong></p>
+                        <span class="badge bg-warning text-dark fs-6">${topScorer.goals} goals</span>
+                    </div>
+                `;
+            } else {
+                document.getElementById('topGoalscorerDisplay').innerHTML = '<div class="text-center text-muted">No goals scored</div>';
+            }
+            
+            if (data.success && data.assists && data.assists.length > 0) {
+                const topAssister = data.assists[0];
+                document.getElementById('topAssisterDisplay').innerHTML = `
+                    <div class="text-center">
+                        <h5 class="text-info">${topAssister.player_name}</h5>
+                        <p class="mb-1"><strong>${topAssister.team_name}</strong></p>
+                        <span class="badge bg-info fs-6">${topAssister.assists} assists</span>
+                    </div>
+                `;
+            } else {
+                document.getElementById('topAssisterDisplay').innerHTML = '<div class="text-center text-muted">No assists recorded</div>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading top performers:', error);
+            document.getElementById('topGoalscorerDisplay').innerHTML = '<div class="text-center text-danger">Error loading data</div>';
+            document.getElementById('topAssisterDisplay').innerHTML = '<div class="text-center text-danger">Error loading data</div>';
+        });
+}
+
+function generatePlayoffTree(tree) {
+    let html = '<div class="row mt-3"><div class="col-12"><h6>Playoff Bracket:</h6></div></div>';
+    
+    // Round of 16
+    if (tree.round_of_16 && tree.round_of_16.length > 0) {
+        html += '<div class="row"><div class="col-12"><h6 class="text-primary">Round of 16 (Best of 7):</h6></div></div>';
+        html += generateSeriesCards(tree.round_of_16);
+    }
+    
+    // Quarterfinals
+    if (tree.quarterfinals && tree.quarterfinals.length > 0) {
+        html += '<div class="row"><div class="col-12"><h6 class="text-primary">Quarterfinals (Best of 7):</h6></div></div>';
+        html += generateSeriesCards(tree.quarterfinals);
+    }
+    
+    // Semifinals
+    if (tree.semifinals && tree.semifinals.length > 0) {
+        html += '<div class="row"><div class="col-12"><h6 class="text-primary">Semifinals (Best of 7):</h6></div></div>';
+        html += generateSeriesCards(tree.semifinals);
+    }
+    
+    // Final
+    if (tree.final) {
+        html += '<div class="row"><div class="col-12"><h6 class="text-primary">Final (Best of 7):</h6></div></div>';
+        html += generateSeriesCards([tree.final]);
+    }
+    
+    // Champion
+    if (tree.champion) {
+        html += `
+            <div class="row">
+                <div class="col-12">
+                    <div class="card border-success">
+                        <div class="card-body text-center">
+                            <h5 class="text-success mb-0">
+                                <i class="fas fa-crown"></i> Champion: ${tree.champion}
+                            </h5>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    return html;
+}
+
+function generateSeriesCards(seriesArray) {
+    let html = '';
+    seriesArray.forEach((series, index) => {
+        const seriesClass = series.complete ? 'border-success' : 'border-warning';
+        const winnerClass = series.winner ? 'text-success fw-bold' : '';
+        html += `
+            <div class="row mb-3">
+                <div class="col-12">
+                    <div class="card ${seriesClass}">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-5 text-end">
+                                    <span class="${series.winner === series.team1 ? winnerClass : ''}">${series.team1}</span>
+                                </div>
+                                <div class="col-2 text-center">
+                                    <span class="badge ${series.complete ? 'bg-success' : 'bg-warning'} fs-6">
+                                        ${series.team1_wins} - ${series.team2_wins}
+                                    </span>
+                                </div>
+                                <div class="col-5 text-start">
+                                    <span class="${series.winner === series.team2 ? winnerClass : ''}">${series.team2}</span>
+                                </div>
+                            </div>
+                            ${series.complete ? `<div class="text-center mt-2"><small class="text-success">Winner: ${series.winner}</small></div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    return html;
+}
+
+function updateRecentMatches(roundResults) {
+    const matchesContainer = document.getElementById('recentMatches');
+    const matchesContent = document.getElementById('matchesContent');
+    
+    console.log('updateRecentMatches: roundResults:', roundResults);
+    
+    // Show matches container if we have any matches
+    if (roundResults.division_results || roundResults.matches) {
+        matchesContainer.style.display = 'block';
+        
+        let matchesHtml = '';
+        
+        // Handle regular season matches
+        if (roundResults.division_results) {
+            Object.keys(roundResults.division_results).forEach(divId => {
+                const divResults = roundResults.division_results[divId];
+                if (divResults.matches && divResults.matches.length > 0) {
+                    matchesHtml += `<h6 class="text-primary">Division ${divId} - Round ${roundResults.round}</h6>`;
+                    divResults.matches.forEach(match => {
+                        matchesHtml += `
+                            <div class="border-start border-primary border-3 ps-3 mb-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>${match.home_team}</strong> vs <strong>${match.away_team}</strong>
+                                    </div>
+                                    <div class="fw-bold text-primary">
+                                        ${match.home_score} - ${match.away_score}
+                                    </div>
+                                </div>
+                                ${match.scorers ? `
+                                    <div class="text-muted small mt-1">
+                                        ${match.scorers.home.length > 0 ? 
+                                            `Home: ${match.scorers.home.map(s => `${s.player} (${s.minute}')`).join(', ')}` : 
+                                            'Home: No goals'
+                                        }<br>
+                                        ${match.scorers.away.length > 0 ? 
+                                            `Away: ${match.scorers.away.map(s => `${s.player} (${s.minute}')`).join(', ')}` : 
+                                            'Away: No goals'
+                                        }
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    });
+                }
+            });
+        }
+        
+        // Handle playoff matches
+        let playoffMatches = null;
+        if (roundResults.playoff_results && roundResults.playoff_results.matches) {
+            playoffMatches = roundResults.playoff_results.matches;
+        } else if (roundResults.matches) {
+            playoffMatches = roundResults.matches;
+        }
+        
+        if (playoffMatches && playoffMatches.length > 0) {
+            const playoffRoundNames = {
+                1: 'Round of 16',
+                2: 'Quarterfinals',
+                3: 'Semifinals',
+                4: 'Final'
+            };
+            
+            const roundName = playoffRoundNames[roundResults.playoff_round || roundResults.playoff_results?.playoff_round] || `Playoff Round ${roundResults.playoff_round || roundResults.playoff_results?.playoff_round}`;
+            matchesHtml += `<h6 class="text-warning">${roundName}</h6>`;
+            
+            playoffMatches.forEach(match => {
+                const seriesClass = match.series_complete ? 'border-success' : 'border-warning';
+                matchesHtml += `
+                    <div class="border-start ${seriesClass} border-3 ps-3 mb-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${match.home_team}</strong> vs <strong>${match.away_team}</strong>
+                                <small class="text-muted ms-2">(${match.stage})</small>
+                            </div>
+                            <div class="fw-bold text-primary">
+                                ${match.home_score} - ${match.away_score}
+                            </div>
+                        </div>
+                        <div class="text-muted small mt-1">
+                            Series: ${match.series_score}
+                            ${match.series_complete ? ' - <span class="text-success">Series Complete</span>' : ''}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        // If no matches found, show a message
+        if (!matchesHtml) {
+            matchesHtml = '<div class="alert alert-info">No recent matches to display.</div>';
+        }
+        
+        matchesContent.innerHTML = matchesHtml;
+    }
+}
+
+async function loadLeaderboards() {
+    try {
+        console.log('Loading leaderboards...');
+        const response = await fetch('/cpu_leagues/leaderboards');
+        const result = await response.json();
+        
+        console.log('Leaderboard response:', result);
+        
+        if (result.success) {
+            console.log('Updating leaderboards with data:', result.top_scorers.length, 'scorers,', result.top_assists.length, 'assists');
+            updateLeaderboards(result.top_scorers, result.top_assists);
+            document.getElementById('leaderboardsSection').style.display = 'block';
+            console.log('Leaderboards section displayed');
+        } else {
+            console.log('Leaderboard API returned error:', result.error);
+        }
+        
+        // Always show leaderboards section, even if empty
+        document.getElementById('leaderboardsSection').style.display = 'block';
+    } catch (error) {
+        console.log('Error loading leaderboards:', error);
+    }
+}
+
+function updateLeaderboards(topScorers, topAssists) {
+    console.log('Updating leaderboards with:', topScorers ? topScorers.length : 0, 'scorers,', topAssists ? topAssists.length : 0, 'assists');
+    
+    // Update top scorers table
+    const scorersTable = document.getElementById('topScorersTable');
+    if (!scorersTable) {
+        console.error('Top scorers table not found!');
+        return;
+    }
+    scorersTable.innerHTML = '';
+    
+    if (topScorers && topScorers.length > 0) {
+        topScorers.forEach((scorer, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><strong>${index + 1}</strong></td>
+                <td class="fw-bold">${scorer.name}</td>
+                <td>${scorer.team}</td>
+                <td><span class="badge bg-warning text-dark">${scorer.goals}</span></td>
+            `;
+            scorersTable.appendChild(row);
+        });
+    } else {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td colspan="4" class="text-center text-muted">No goals scored yet</td>';
+        scorersTable.appendChild(row);
+    }
+    
+    // Update top assists table
+    const assistsTable = document.getElementById('topAssistsTable');
+    if (!assistsTable) {
+        console.error('Top assists table not found!');
+        return;
+    }
+    assistsTable.innerHTML = '';
+    
+    if (topAssists && topAssists.length > 0) {
+        topAssists.forEach((assister, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><strong>${index + 1}</strong></td>
+                <td class="fw-bold">${assister.name}</td>
+                <td>${assister.team}</td>
+                <td><span class="badge bg-info">${assister.assists}</span></td>
+            `;
+            assistsTable.appendChild(row);
+        });
+    } else {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td colspan="4" class="text-center text-muted">No assists yet</td>';
+        assistsTable.appendChild(row);
+    }
+    
+    console.log('Leaderboards updated successfully');
+}
+
+function showRevenueSection(revenueData) {
+    document.getElementById('revenueSection').style.display = 'block';
+    
+    if (!revenueData || revenueData.error) {
+        document.getElementById('revenueContent').innerHTML = 
+            '<div class="alert alert-danger">Error loading revenue data: ' + (revenueData?.error || 'Unknown error') + '</div>';
+        return;
+    }
+    
+    const revenueContent = document.getElementById('revenueContent');
+    
+    // Display competitive metrics
+    let competitiveHtml = '';
+    if (revenueData.competitive_metrics) {
+        const metrics = revenueData.competitive_metrics;
+        competitiveHtml = `
+            <div class="row mb-4">
+                <div class="col-12">
+                    <h6 class="text-primary">📊 Competitive Balance Analysis</h6>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="card border-info">
+                                <div class="card-body text-center">
+                                    <h6 class="text-info">Point Differences</h6>
+                                    <p class="mb-0">${metrics.point_differences.join(', ')}</p>
+                                    <small class="text-muted">Avg: ${metrics.avg_point_difference.toFixed(1)}</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-warning">
+                                <div class="card-body text-center">
+                                    <h6 class="text-warning">Playoff Games</h6>
+                                    <p class="mb-0 fs-4">${metrics.playoff_games}</p>
+                                    <small class="text-muted">Total played</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-success">
+                                <div class="card-body text-center">
+                                    <h6 class="text-success">Competitive Score</h6>
+                                    <p class="mb-0 fs-4">${(metrics.competitive_score * 100).toFixed(1)}%</p>
+                                    <small class="text-muted">Higher = More competitive</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-primary">
+                                <div class="card-body text-center">
+                                    <h6 class="text-primary">Total Revenue</h6>
+                                    <p class="mb-0 fs-4">€${(revenueData.total_revenue / 1000000).toFixed(1)}M</p>
+                                    <small class="text-muted">€150M-€250M range</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Display team revenues
+    let teamRevenuesHtml = '';
+    if (revenueData.team_revenues) {
+        const teams = Object.entries(revenueData.team_revenues);
+        teamRevenuesHtml = `
+            <div class="row">
+                <div class="col-12">
+                    <h6 class="text-success">💰 Team Revenue Distribution</h6>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Team</th>
+                                    <th>Base Revenue</th>
+                                    <th>Position Bonus</th>
+                                    <th>Playoff Bonus</th>
+                                    <th>Championship Bonus</th>
+                                    <th>Marketing Flair</th>
+                                    <th>Total Revenue</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${teams.map(([teamName, revenue]) => `
+                                    <tr>
+                                        <td><strong>${teamName}</strong></td>
+                                        <td>€${(revenue.base_revenue / 1000000).toFixed(1)}M</td>
+                                        <td>€${(revenue.position_bonus / 1000000).toFixed(1)}M</td>
+                                        <td>€${(revenue.playoff_bonus / 1000000).toFixed(1)}M</td>
+                                        <td>€${(revenue.championship_bonus / 1000000).toFixed(1)}M</td>
+                                        <td class="text-warning">€${(revenue.marketing_flair_bonus / 1000000).toFixed(1)}M</td>
+                                        <td class="fw-bold text-success">€${(revenue.total_revenue / 1000000).toFixed(1)}M</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    revenueContent.innerHTML = competitiveHtml + teamRevenuesHtml;
+}
+
+function showLoading(show) {
+    const modal = document.getElementById('loadingModal');
+    console.log('showLoading called with:', show);
+    
+    if (show) {
+        console.log('Showing loading modal...');
+        // Show the modal using Bootstrap's data attributes
+        modal.style.display = 'block';
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
+        
+        // Add backdrop
+        const backdrop = document.createElement('div');
+        backdrop.className = 'modal-backdrop fade show';
+        backdrop.id = 'loadingBackdrop';
+        document.body.appendChild(backdrop);
+        
+        // Prevent body scroll
+        document.body.classList.add('modal-open');
+        console.log('Loading modal shown');
+    } else {
+        console.log('Hiding loading modal...');
+        // Hide the modal
+        modal.style.display = 'none';
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+        
+        // Remove backdrop
+        const backdrop = document.getElementById('loadingBackdrop');
+        if (backdrop) {
+            backdrop.remove();
+            console.log('Backdrop removed');
+        }
+        
+        // Restore body scroll
+        document.body.classList.remove('modal-open');
+        console.log('Loading modal hidden');
+    }
+}
+
+function showMessage(message, type) {
+    // Create a temporary alert
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.top = '20px';
+    alertDiv.style.right = '20px';
+    alertDiv.style.zIndex = '9999';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(alertDiv);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.parentNode.removeChild(alertDiv);
+        }
+    }, 5000);
+}
+
+// Load initial league status on page load
+window.addEventListener('load', function() {
+    loadLeagueStatus();
+});
+
+async function loadLeagueStatus() {
+    try {
+        const response = await fetch('/cpu_leagues/status');
+        const result = await response.json();
+        
+        if (result.success && result.data.status !== 'not_started') {
+            leagueData = result.data;
+            
+            // Merge playoff tree data if available
+            if (result.playoff_tree) {
+                leagueData.playoff_tree = result.playoff_tree;
+            }
+            
+            updateLeagueDisplay();
+            document.getElementById('simulateBtn').disabled = false;
+        }
+    } catch (error) {
+        console.log('No existing league found');
+    }
+}
+</script>
+{% endblock %}

@@ -22,11 +22,15 @@
 <!DOCTYPE html>
                 <li><a href="{{ url_for('blog') }}">Blog</a></li>
                 <li><a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a></li>
+                <li><a href="{{ url_for('cpu_leagues') }}">CPU Leagues</a></li>
                 <li><a href="{{ url_for('tools') }}">Tools</a></li>
                 {% if current_user.is_authenticated %}
                     <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
                     <li><a href="{{ url_for('team_management') }}">My Teams</a></li> {# Updated text #}
                     <li><a href="{{ url_for('free_agency') }}">Free Agency</a></li>
+                    <li><a href="{{ url_for('market_bazaar') }}">Market Bazaar</a></li>
+                    <li><a href="{{ url_for('colados_league') }}">Colados League</a></li>
+                    <li><a href="{{ url_for('hall_of_fame') }}">Hall of Fame</a></li>
                     <li>
                         <a href="{{ url_for('inbox') }}" class="inbox-link">
                             Inbox

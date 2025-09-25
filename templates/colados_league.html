@@ -1,0 +1,604 @@
+{% extends "base.html" %}
+
+{% block title %}Colados League{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>🏆 Colados League</h1>
+    
+    <!-- League Overview -->
+    <div class="section">
+        <h2>League Overview</h2>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="info-card">
+                    <h4>📊 League Statistics</h4>
+                    <p><strong>Total Teams:</strong> {{ total_teams }}</p>
+                    <p><strong>Total Games Played:</strong> {{ total_games_played }}</p>
+                    <p><strong>Current Season:</strong> {{ current_season }}</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="info-card">
+                    <h4>🎯 Quick Actions</h4>
+                    <button class="btn btn-success" onclick="showCreateGameModal()">Create Game</button>
+                    <button class="btn btn-info" onclick="showLeaderboards()">View Leaderboards</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Team to Division Section -->
+    <div class="section">
+        <h2>➕ Add Team to Division</h2>
+        <div class="row">
+            <div class="col-md-12">
+                <div class="info-card">
+                    <form id="addTeamForm" method="POST" action="{{ url_for('add_team_to_division') }}">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="divisionSelect">Select Division:</label>
+                                    <select class="form-control" id="divisionSelect" name="division_id" required>
+                                        <option value="">-- Select Division --</option>
+                                        {% for division in divisions %}
+                                        <option value="{{ division.id }}">{{ division.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="teamSelect">Select Team:</label>
+                                    <select class="form-control" id="teamSelect" name="team_id" required>
+                                        <option value="">-- Select Team --</option>
+                                        <!-- All teams will be loaded via AJAX -->
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>&nbsp;</label>
+                                    <button type="submit" class="btn btn-primary btn-block">Add Team to Division</button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Divisions -->
+    <div class="section">
+        <h2>🏆 Divisions</h2>
+        <div class="row">
+            {% for division in divisions %}
+            <div class="col-md-6">
+                <div class="division-card">
+                    <h3>{{ division.name }}</h3>
+                    <p>{{ division.description }}</p>
+                    
+                    <!-- Division Standings -->
+                    <div class="standings-table">
+                        <h4>📊 Standings</h4>
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Pos</th>
+                                    <th>Team</th>
+                                    <th>P</th>
+                                    <th>W</th>
+                                    <th>D</th>
+                                    <th>L</th>
+                                    <th>GF</th>
+                                    <th>GA</th>
+                                    <th>GD</th>
+                                    <th>Pts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for team in division.standings %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>{{ team.team_name }}</td>
+                                    <td>{{ team.games_played }}</td>
+                                    <td>{{ team.wins }}</td>
+                                    <td>{{ team.draws }}</td>
+                                    <td>{{ team.losses }}</td>
+                                    <td>{{ team.goals_for }}</td>
+                                    <td>{{ team.goals_against }}</td>
+                                    <td>{{ team.goal_difference }}</td>
+                                    <td><strong>{{ team.points }}</strong></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Recent Games -->
+                    <div class="recent-games">
+                        <h4>⚽ Recent Games</h4>
+                        {% for game in division.recent_games %}
+                        <div class="game-result">
+                            <span class="home-team">{{ game.home_team_name }}</span>
+                            <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
+                            <span class="away-team">{{ game.away_team_name }}</span>
+                            <span class="round">Round {{ game.round_number }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- Pending Games -->
+                    <div class="pending-games">
+                        <h4>⏳ Pending Games</h4>
+                        {% for game in division.pending_games %}
+                        <div class="game-result pending">
+                            <span class="home-team">{{ game.home_team_name }}</span>
+                            <span class="vs">vs</span>
+                            <span class="away-team">{{ game.away_team_name }}</span>
+                            <span class="round">Round {{ game.round_number }}</span>
+                            <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-primary">Manage</a>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- Division Actions -->
+                    <div class="division-actions">
+                        <button class="btn btn-sm btn-outline-primary" onclick="viewDivision({{ division.id }})">View Full Table</button>
+                        <button class="btn btn-sm btn-outline-success" onclick="createGameForDivision({{ division.id }})">Create Game</button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Leaderboards -->
+    <div class="section">
+        <h2>🏅 Leaderboards</h2>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="leaderboard-card">
+                    <h4>⚽ Top Goalscorers</h4>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Pos</th>
+                                <th>Player</th>
+                                <th>Team</th>
+                                <th>Goals</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in top_goalscorers %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ player.player_name }}</td>
+                                <td>{{ player.team_name }}</td>
+                                <td><strong>{{ player.total_goals }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="leaderboard-card">
+                    <h4>🎯 Top Assists</h4>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Pos</th>
+                                <th>Player</th>
+                                <th>Team</th>
+                                <th>Assists</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in top_assists %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ player.player_name }}</td>
+                                <td>{{ player.team_name }}</td>
+                                <td><strong>{{ player.total_assists }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Create Game Modal -->
+<div class="modal fade" id="createGameModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New Game</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="createGameForm">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="gameDivisionSelect">Division:</label>
+                                <select class="form-control" id="gameDivisionSelect" required>
+                                    <option value="">-- Select Division --</option>
+                                    {% for division in divisions %}
+                                    <option value="{{ division.id }}">{{ division.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="roundNumber">Round Number:</label>
+                                <input type="number" class="form-control" id="roundNumber" min="1" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="homeTeamSelect">Home Team:</label>
+                                <select class="form-control" id="homeTeamSelect" required>
+                                    <option value="">-- Select Home Team --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="awayTeamSelect">Away Team:</label>
+                                <select class="form-control" id="awayTeamSelect" required>
+                                    <option value="">-- Select Away Team --</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Game</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    border-radius: 10px;
+    color: white;
+}
+
+.section h2 {
+    color: #f39c12;
+    margin-bottom: 20px;
+}
+
+.info-card, .division-card, .leaderboard-card {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.info-card h4, .division-card h3, .leaderboard-card h4 {
+    color: #f39c12;
+    margin-bottom: 15px;
+}
+
+.standings-table, .recent-games {
+    margin-bottom: 20px;
+}
+
+.standings-table h4, .recent-games h4 {
+    color: #e74c3c;
+    margin-bottom: 10px;
+}
+
+.table {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table th {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    color: white;
+    border: none;
+}
+
+.table td {
+    border-color: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+.game-result {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    margin-bottom: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+}
+
+.score {
+    font-weight: bold;
+    color: #f39c12;
+}
+
+.round {
+    font-size: 0.8em;
+    color: #bdc3c7;
+}
+
+.pending-games {
+    margin-bottom: 20px;
+}
+
+.pending-games h4 {
+    color: #e74c3c;
+    margin-bottom: 10px;
+}
+
+.game-result.pending {
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+.vs {
+    font-weight: bold;
+    color: #f39c12;
+}
+
+.division-actions {
+    margin-top: 15px;
+}
+
+.btn {
+    border-radius: 20px;
+    font-weight: bold;
+    margin-right: 10px;
+}
+
+.btn-primary {
+    background: linear-gradient(145deg, #3498db, #2980b9);
+    border: none;
+}
+
+.btn-success {
+    background: linear-gradient(145deg, #27ae60, #229954);
+    border: none;
+}
+
+.btn-info {
+    background: linear-gradient(145deg, #17a2b8, #138496);
+    border: none;
+}
+
+.modal-content {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    color: white;
+}
+
+.modal-header {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    border-bottom: 2px solid #d35400;
+}
+
+.modal-title {
+    color: white;
+}
+
+.form-control {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+.form-control:focus {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #f39c12;
+    color: white;
+    box-shadow: 0 0 0 0.2rem rgba(243, 156, 18, 0.25);
+}
+
+.form-control::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.form-group label {
+    color: #f39c12;
+    font-weight: bold;
+}
+
+.form-text {
+    color: #bdc3c7 !important;
+    font-size: 0.9em;
+}
+</style>
+
+<script>
+// Load all teams on page load
+function loadUserTeams() {
+    console.log('Loading all teams...');
+    fetch('/colados_league/test_teams')
+        .then(response => {
+            console.log('Response status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Received data:', data);
+            const select = document.getElementById('teamSelect');
+            select.innerHTML = '<option value="">-- Select Team --</option>';
+            if (data.teams && data.teams.length > 0) {
+                data.teams.forEach(team => {
+                    const option = document.createElement('option');
+                    option.value = team.id;
+                    option.textContent = `${team.club_name} (${team.username})`;
+                    select.appendChild(option);
+                });
+            } else {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No teams available';
+                option.disabled = true;
+                select.appendChild(option);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading teams:', error);
+            const select = document.getElementById('teamSelect');
+            select.innerHTML = '<option value="" disabled>Error loading teams</option>';
+        });
+}
+
+function showCreateGameModal() {
+    $('#createGameModal').modal('show');
+}
+
+function showLeaderboards() {
+    // Scroll to leaderboards section
+    document.querySelector('.leaderboards').scrollIntoView({ behavior: 'smooth' });
+}
+
+function viewDivision(divisionId) {
+    // TODO: Implement division view
+    alert('Division view coming soon!');
+}
+
+function createGameForDivision(divisionId) {
+    $('#gameDivisionSelect').val(divisionId);
+    $('#createGameModal').modal('show');
+}
+
+// Load user teams on page load
+$(document).ready(function() {
+    loadUserTeams();
+});
+
+$('#gameDivisionSelect').change(function() {
+    const divisionId = $(this).val();
+    if (divisionId) {
+        loadTeamsForDivision(divisionId, '#homeTeamSelect');
+        loadTeamsForDivision(divisionId, '#awayTeamSelect');
+    }
+});
+
+
+function loadTeamsForDivision(divisionId, selectId) {
+    fetch(`/colados_league/get_division_teams/${divisionId}`)
+        .then(response => response.json())
+        .then(data => {
+            const select = $(selectId);
+            select.empty();
+            select.append('<option value="">-- Select Team --</option>');
+            data.teams.forEach(team => {
+                select.append(`<option value="${team.team_id}">${team.team_name}</option>`);
+            });
+        })
+        .catch(error => {
+            console.error('Error loading teams:', error);
+        });
+}
+
+// Handle add team form submission
+$('#addTeamForm').submit(function(e) {
+    e.preventDefault();
+    
+    const divisionId = $('#divisionSelect').val();
+    const teamId = $('#teamSelect').val();
+    
+    if (!divisionId || !teamId) {
+        alert('Please select both division and team');
+        return;
+    }
+    
+    fetch('/colados_league/add_team_to_division', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            division_id: divisionId,
+            team_id: teamId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            $('#addTeamModal').modal('hide');
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred');
+    });
+});
+
+// Handle create game form submission
+$('#createGameForm').submit(function(e) {
+    e.preventDefault();
+    
+    const divisionId = $('#gameDivisionSelect').val();
+    const roundNumber = $('#roundNumber').val();
+    const homeTeamId = $('#homeTeamSelect').val();
+    const awayTeamId = $('#awayTeamSelect').val();
+    
+    if (!divisionId || !roundNumber || !homeTeamId || !awayTeamId) {
+        alert('Please fill in all fields');
+        return;
+    }
+    
+    if (homeTeamId === awayTeamId) {
+        alert('Home and away teams must be different');
+        return;
+    }
+    
+    fetch('/colados_league/create_game', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            division_id: divisionId,
+            round_number: roundNumber,
+            home_team_id: homeTeamId,
+            away_team_id: awayTeamId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            $('#createGameModal').modal('hide');
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred');
+    });
+});
+</script>
+{% endblock %}

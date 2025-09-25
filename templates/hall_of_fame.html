@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hall of Fame - PES6 League Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .hall-of-fame-header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #3498db;
+        }
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+        .retired-player-row {
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+        .retired-player-row:hover {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+        .player-name {
+            font-weight: bold;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+        .team-badge {
+            background: #3498db;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+        .position-badge {
+            background: #e74c3c;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+        .nationality-flag {
+            font-size: 1.2rem;
+            margin-right: 0.5rem;
+        }
+        .top-performers {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .filter-section {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .sort-link {
+            color: #3498db;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .sort-link:hover {
+            color: #2980b9;
+        }
+        .sort-active {
+            color: #e74c3c;
+        }
+        .retirement-reason {
+            font-style: italic;
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+        .career-stats {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .career-stat {
+            background: #ecf0f1;
+            padding: 0.5rem;
+            border-radius: 4px;
+            text-align: center;
+            min-width: 80px;
+        }
+        .career-stat-value {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .career-stat-label {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body style="background-color: #ecf0f1;">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+                <i class="fas fa-trophy"></i> PES6 League Manager
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="{{ url_for('dashboard') }}">
+                    <i class="fas fa-home"></i> Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hall of Fame Header -->
+    <div class="hall-of-fame-header">
+        <div class="container text-center">
+            <h1><i class="fas fa-trophy"></i> Hall of Fame</h1>
+            <p class="lead">Celebrating the legendary careers of retired players</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Overall Statistics -->
+        {% if hall_stats %}
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="stat-number">{{ hall_stats[0] }}</div>
+                    <div class="stat-label">Total Retired Players</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="stat-number">{{ "%.1f"|format(hall_stats[1] if hall_stats[1] else 0) }}</div>
+                    <div class="stat-label">Average Retirement Age</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="stat-number">{{ "{:,}".format(hall_stats[2] if hall_stats[2] else 0) }}</div>
+                    <div class="stat-label">Total Goals Scored</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="stat-number">€{{ "{:,}".format(hall_stats[4] if hall_stats[4] else 0) }}</div>
+                    <div class="stat-label">Total Career Earnings</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Top Performers -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="top-performers">
+                    <h5><i class="fas fa-futbol"></i> Top Goal Scorers</h5>
+                    {% for scorer in top_scorers[:5] %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="player-name">{{ scorer[0] }}</span>
+                        <div>
+                            <span class="badge bg-success">{{ scorer[1] }} goals</span>
+                            <small class="text-muted">{{ scorer[2] }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="top-performers">
+                    <h5><i class="fas fa-hands-helping"></i> Top Assist Providers</h5>
+                    {% for assister in top_assisters[:5] %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="player-name">{{ assister[0] }}</span>
+                        <div>
+                            <span class="badge bg-info">{{ assister[1] }} assists</span>
+                            <small class="text-muted">{{ assister[2] }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="top-performers">
+                    <h5><i class="fas fa-euro-sign"></i> Top Earners</h5>
+                    {% for earner in top_earners[:5] %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="player-name">{{ earner[0] }}</span>
+                        <div>
+                            <span class="badge bg-warning text-dark">€{{ "{:,}".format(earner[1]) }}</span>
+                            <small class="text-muted">{{ earner[2] }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters and Sorting -->
+        <div class="filter-section">
+            <form method="GET" class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label">Position</label>
+                    <select name="position" class="form-select">
+                        <option value="">All Positions</option>
+                        {% for position in positions %}
+                        <option value="{{ position }}" {% if current_filters.position == position %}selected{% endif %}>
+                            {{ position }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Nationality</label>
+                    <select name="nationality" class="form-select">
+                        <option value="">All Nations</option>
+                        {% for nationality in nationalities %}
+                        <option value="{{ nationality }}" {% if current_filters.nationality == nationality %}selected{% endif %}>
+                            {{ nationality }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Min Goals</label>
+                    <input type="number" name="min_goals" class="form-control" value="{{ current_filters.min_goals }}" placeholder="0">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Min Games</label>
+                    <input type="number" name="min_games" class="form-control" value="{{ current_filters.min_games }}" placeholder="0">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Sort By</label>
+                    <select name="sort_by" class="form-select">
+                        <option value="retirement_date" {% if current_sort == 'retirement_date' %}selected{% endif %}>Retirement Date</option>
+                        <option value="player_name" {% if current_sort == 'player_name' %}selected{% endif %}>Player Name</option>
+                        <option value="total_goals" {% if current_sort == 'total_goals' %}selected{% endif %}>Total Goals</option>
+                        <option value="total_assists" {% if current_sort == 'total_assists' %}selected{% endif %}>Total Assists</option>
+                        <option value="total_games_played" {% if current_sort == 'total_games_played' %}selected{% endif %}>Games Played</option>
+                        <option value="championships_won" {% if current_sort == 'championships_won' %}selected{% endif %}>🏆 Championships</option>
+                        <option value="cups_won" {% if current_sort == 'cups_won' %}selected{% endif %}>🥇 Cups</option>
+                        <option value="career_earnings" {% if current_sort == 'career_earnings' %}selected{% endif %}>Career Earnings</option>
+                        <option value="age_at_retirement" {% if current_sort == 'age_at_retirement' %}selected{% endif %}>Retirement Age</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Order</label>
+                    <select name="order" class="form-select">
+                        <option value="desc" {% if current_order == 'desc' %}selected{% endif %}>Descending</option>
+                        <option value="asc" {% if current_order == 'asc' %}selected{% endif %}>Ascending</option>
+                    </select>
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-filter"></i> Apply Filters
+                    </button>
+                    <a href="{{ url_for('hall_of_fame') }}" class="btn btn-secondary">
+                        <i class="fas fa-undo"></i> Clear Filters
+                    </a>
+                </div>
+            </form>
+        </div>
+
+        <!-- Retired Players List -->
+        <div class="row">
+            <div class="col-12">
+                <h3><i class="fas fa-list"></i> Retired Players ({{ retired_players|length }})</h3>
+                
+                {% if retired_players %}
+                    {% for player in retired_players %}
+                    <div class="retired-player-row">
+                        <div class="row align-items-center">
+                            <div class="col-md-3">
+                                <div class="player-name">{{ player[0] }}</div>
+                                <div>
+                                    <span class="team-badge">{{ player[1] or "No Club" }}</span>
+                                    <span class="position-badge ms-2">{{ player[4] }}</span>
+                                </div>
+                                <div class="mt-1">
+                                    <small class="text-muted">{{ player[3] }}</small>
+                                    <small class="text-muted">• Retired at {{ player[2] }}</small>
+                                    {% if player[6] %}
+                                        <small class="text-muted">• Season {{ player[6] }}</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="career-stats">
+                                    <div class="career-stat">
+                                        <div class="career-stat-value">{{ player[8] }}</div>
+                                        <div class="career-stat-label">Games</div>
+                                    </div>
+                                    <div class="career-stat">
+                                        <div class="career-stat-value">{{ player[9] }}</div>
+                                        <div class="career-stat-label">Goals</div>
+                                    </div>
+                                    <div class="career-stat">
+                                        <div class="career-stat-value">{{ player[10] }}</div>
+                                        <div class="career-stat-label">Assists</div>
+                                    </div>
+                                    <div class="career-stat">
+                                        <div class="career-stat-value">{{ player[15] }}</div>
+                                        <div class="career-stat-label">🏆 Championships</div>
+                                    </div>
+                                    <div class="career-stat">
+                                        <div class="career-stat-value">{{ player[16] }}</div>
+                                        <div class="career-stat-label">🥇 Cups</div>
+                                    </div>
+                                    <div class="career-stat">
+                                        <div class="career-stat-value">{{ player[14] }}</div>
+                                        <div class="career-stat-label">Seasons</div>
+                                    </div>
+                                    <div class="career-stat">
+                                        <div class="career-stat-value">{{ "%.2f"|format(player[17]) }}</div>
+                                        <div class="career-stat-label">G/Game</div>
+                                    </div>
+                                    <div class="career-stat">
+                                        <div class="career-stat-value">{{ "%.2f"|format(player[18]) }}</div>
+                                        <div class="career-stat-label">A/Game</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 text-end">
+                                <div><strong>€{{ "{:,}".format(player[7]) }}</strong></div>
+                                <div class="text-muted">Career Earnings</div>
+                                <div class="retirement-reason mt-2">{{ player[13] }}</div>
+                                <div class="text-muted">{{ player[5][:10] }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-trophy fa-3x text-muted mb-3"></i>
+                        <h4 class="text-muted">No retired players yet</h4>
+                        <p class="text-muted">The Hall of Fame will be populated as players retire from their careers.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

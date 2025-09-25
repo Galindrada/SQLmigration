@@ -4,9 +4,101 @@ import import_pes6_data
 import update_player_finances
 from datetime import datetime
 from config import Config
+import pandas as pd
 
 SQL_SCHEMA_FILE = 'database.sql'
 DB_PATH = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
+
+def calculate_player_overall(player_data):
+    """Calculate position-weighted overall rating using position-specific number of most relevant skills"""
+    from game_mechanics import get_cached_position_averages, get_position_skill_weights_from_averages
+    
+    # Use registered_position (number) instead of game_position (string)
+    position = str(player_data.get('registered_position', ''))
+    
+    try:
+        # Get cached position averages for skill weights
+        pos_avg_df = get_cached_position_averages('pes6_league_db.sqlite')
+        
+        # Get position-specific skill weights based on position averages
+        position_weights = get_position_skill_weights_from_averages(pos_avg_df, position)
+        
+        # Filter to only include skills with positive weights and sort by weight (descending)
+        relevant_skills = [(skill, weight) for skill, weight in position_weights.items() if weight > 0]
+        relevant_skills.sort(key=lambda x: x[1], reverse=True)
+        
+        # Determine number of skills based on position
+        # Goalkeepers (0) and Defenders (2,3,4,6): 6 most relevant skills
+        # Midfielders (5,7,8,9) and Forwards (10,11,12): 8 most relevant skills
+        if position in ['0', '2', '3', '4', '6']:  # Goalkeepers and Defenders
+            num_skills = 6
+        elif position in ['5', '7', '8', '9', '10', '11', '12']:  # Midfielders and Forwards
+            num_skills = 8
+        else:
+            num_skills = 7  # Default for unknown positions
+        
+        # Take only the top N most relevant skills
+        top_skills = relevant_skills[:num_skills]
+        
+        if not top_skills:
+            return 50  # Default if no relevant skills
+        
+        # Calculate weighted average of the top skills
+        overall = 0
+        total_weight = 0
+        
+        for skill, weight in top_skills:
+            skill_value = player_data.get(skill, 50)  # Default to 50 if skill not found
+            overall += skill_value * weight
+            total_weight += weight
+        
+        # Calculate weighted average
+        if total_weight > 0:
+            overall = overall / total_weight
+        else:
+            overall = 50
+        
+        return round(overall)
+        
+    except Exception as e:
+        print(f"  ⚠️  Error calculating overall for position {position}: {e}")
+        # Fallback to simple average
+        skills = ['attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration', 
+                 'response', 'agility', 'dribble_accuracy', 'short_pass_accuracy', 
+                 'shot_accuracy', 'technique', 'mentality', 'team_work']
+        skill_values = [player_data.get(skill, 50) for skill in skills]
+        return round(sum(skill_values) / len(skill_values))
+
+def recalculate_all_overalls():
+    """Recalculate overall ratings for all players"""
+    print("\n⭐ Recalculating overall ratings for all players...")
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    try:
+        # Get all players
+        cursor.execute("SELECT * FROM players")
+        players = cursor.fetchall()
+        
+        updated_count = 0
+        for player in players:
+            player_data = dict(player)
+            overall = calculate_player_overall(player_data)
+            
+            # Update player's overall rating
+            cursor.execute("UPDATE players SET overall = ? WHERE id = ?", (overall, player['id']))
+            updated_count += 1
+        
+        conn.commit()
+        print(f"  ✅ Updated overall ratings for {updated_count} players")
+        
+    except Exception as e:
+        print(f"  ❌ Error recalculating overalls: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 def safe_refresh_database():
     """Safely refresh database schema without erasing existing data"""
@@ -78,6 +170,17 @@ def safe_refresh_database():
                 print(f"  ❌ Error adding trait_key column: {e}")
             else:
                 print("  ℹ️  trait_key column already exists")
+        
+        # Add overall column to players table
+        print("\n⭐ Adding overall column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN overall INTEGER DEFAULT 0")
+            print("  ✅ Added overall column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding overall column: {e}")
+            else:
+                print("  ℹ️  overall column already exists")
         
         # Add performance tracking columns to players table
         print("\n📊 Adding performance tracking columns to players table...")
@@ -153,6 +256,318 @@ def safe_refresh_database():
             else:
                 print("  ℹ️  receiver_team_id column already exists")
         
+        # Add career statistics columns to players table
+        print("\n🏆 Adding career statistics columns to players table...")
+        career_columns = [
+            ('players', 'career_earnings', 'INTEGER DEFAULT 0'),
+            ('players', 'championships_won', 'INTEGER DEFAULT 0'),
+            ('players', 'cups_won', 'INTEGER DEFAULT 0')
+        ]
+        
+        for table, column, definition in career_columns:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                print(f"  ✅ Added {column} column")
+            except Exception as e:
+                if 'duplicate column name' not in str(e):
+                    print(f"  ❌ Error adding {column} column: {e}")
+                else:
+                    print(f"  ℹ️  {column} column already exists")
+        
+        # Add stance column to teams table
+        print("\n🎯 Adding stance column to teams table...")
+        try:
+            cursor.execute("ALTER TABLE teams ADD COLUMN stance TEXT DEFAULT 'Tinkering'")
+            print("  ✅ Added stance column to teams table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding stance column: {e}")
+            else:
+                print("  ℹ️  stance column already exists")
+        
+        # Create CPU leagues tables
+        print("\n🏟️ Creating CPU leagues tables...")
+        
+        # CPU League Seasons table
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cpu_league_seasons (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    season_name TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'not_started',
+                    current_round INTEGER DEFAULT 0,
+                    max_rounds INTEGER DEFAULT 0,
+                    division_count INTEGER DEFAULT 4,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP NULL
+                )
+            """)
+            print("  ✅ Created cpu_league_seasons table")
+        except Exception as e:
+            print(f"  ❌ Error creating cpu_league_seasons table: {e}")
+        
+        # CPU League Divisions table
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cpu_league_divisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    season_id INTEGER NOT NULL,
+                    division_number INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    team_name TEXT NOT NULL,
+                    games_played INTEGER DEFAULT 0,
+                    wins INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    goals_for INTEGER DEFAULT 0,
+                    goals_against INTEGER DEFAULT 0,
+                    points INTEGER DEFAULT 0,
+                    FOREIGN KEY (season_id) REFERENCES cpu_league_seasons(id),
+                    FOREIGN KEY (team_id) REFERENCES teams(id),
+                    UNIQUE(season_id, division_number, team_id)
+                )
+            """)
+            print("  ✅ Created cpu_league_divisions table")
+        except Exception as e:
+            print(f"  ❌ Error creating cpu_league_divisions table: {e}")
+        
+        # CPU League Matches table
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cpu_league_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    season_id INTEGER NOT NULL,
+                    division_number INTEGER NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    home_team_id INTEGER NOT NULL,
+                    away_team_id INTEGER NOT NULL,
+                    home_score INTEGER DEFAULT 0,
+                    away_score INTEGER DEFAULT 0,
+                    played BOOLEAN DEFAULT FALSE,
+                    played_at TIMESTAMP NULL,
+                    FOREIGN KEY (season_id) REFERENCES cpu_league_seasons(id),
+                    FOREIGN KEY (home_team_id) REFERENCES teams(id),
+                    FOREIGN KEY (away_team_id) REFERENCES teams(id)
+                )
+            """)
+            print("  ✅ Created cpu_league_matches table")
+        except Exception as e:
+            print(f"  ❌ Error creating cpu_league_matches table: {e}")
+        
+        # CPU League Scorers table
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cpu_league_scorers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    match_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    minute INTEGER NOT NULL,
+                    is_goal BOOLEAN DEFAULT TRUE,
+                    is_assist BOOLEAN DEFAULT FALSE,
+                    FOREIGN KEY (match_id) REFERENCES cpu_league_matches(id),
+                    FOREIGN KEY (player_id) REFERENCES players(id),
+                    FOREIGN KEY (team_id) REFERENCES teams(id)
+                )
+            """)
+            print("  ✅ Created cpu_league_scorers table")
+        except Exception as e:
+            print(f"  ❌ Error creating cpu_league_scorers table: {e}")
+        
+        # League Seasons tracking table
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS league_seasons (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    season_name TEXT NOT NULL UNIQUE,
+                    is_current BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            print("  ✅ League seasons table created successfully")
+        except Exception as e:
+            print(f"  ❌ Error creating league_seasons table: {e}")
+        
+        # Player Historical Data table
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS player_season_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id INTEGER NOT NULL,
+                    season TEXT NOT NULL,
+                    club_id INTEGER,
+                    club_name TEXT,
+                    games_played INTEGER DEFAULT 0,
+                    goals INTEGER DEFAULT 0,
+                    assists INTEGER DEFAULT 0,
+                    salary INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (player_id) REFERENCES players(id),
+                    FOREIGN KEY (club_id) REFERENCES teams(id),
+                    UNIQUE(player_id, season)
+                )
+            """)
+            print("  ✅ Created player_season_history table")
+        except Exception as e:
+            print(f"  ❌ Error creating player_season_history table: {e}")
+        
+        # Create blog_posts table for contract renewal announcements
+        print("\n📝 Creating blog_posts table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS blog_posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    author_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (author_id) REFERENCES users (id)
+                )
+            """)
+            print("  ✅ Created blog_posts table")
+        except Exception as e:
+            print(f"  ❌ Error creating blog_posts table: {e}")
+        
+        # Create retired_players table for Hall of Fame
+        print("\n🏆 Creating retired_players table (Hall of Fame)...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS retired_players (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id INTEGER NOT NULL,
+                    player_name TEXT NOT NULL,
+                    team_name TEXT,
+                    age_at_retirement INTEGER,
+                    nationality TEXT,
+                    registered_position TEXT,
+                    retirement_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                    retirement_season TEXT,
+                    career_earnings INTEGER DEFAULT 0,
+                    total_games_played INTEGER DEFAULT 0,
+                    total_goals INTEGER DEFAULT 0,
+                    total_assists INTEGER DEFAULT 0,
+                    final_salary INTEGER DEFAULT 0,
+                    final_market_value INTEGER DEFAULT 0,
+                    retirement_reason TEXT,
+                    seasons_played INTEGER DEFAULT 0,
+                    championships_won INTEGER DEFAULT 0,
+                    cups_won INTEGER DEFAULT 0,
+                    FOREIGN KEY (player_id) REFERENCES players(id)
+                )
+            """)
+            print("  ✅ Created retired_players table")
+        except Exception as e:
+            print(f"  ❌ Error creating retired_players table: {e}")
+        
+        # Add retirement_season column to existing retired_players table if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE retired_players ADD COLUMN retirement_season TEXT")
+            print("  ✅ Added retirement_season column to retired_players table")
+        except Exception as e:
+            if "duplicate column name" in str(e).lower():
+                print("  ℹ️  retirement_season column already exists in retired_players table")
+            else:
+                print(f"  ❌ Error adding retirement_season column: {e}")
+        
+        # Create market_bazaar_listings table for player transfer listings
+        print("\n🏪 Creating market_bazaar_listings table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS market_bazaar_listings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    asking_price INTEGER NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    status TEXT DEFAULT 'active',
+                    listing_type TEXT DEFAULT 'user_sale',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (player_id) REFERENCES players (id),
+                    FOREIGN KEY (team_id) REFERENCES teams (id)
+                )
+            """)
+            print("  ✅ Created market_bazaar_listings table")
+        except Exception as e:
+            print(f"  ❌ Error creating market_bazaar_listings table: {e}")
+        
+        # Create market_bazaar_offers table for transfer offers
+        print("\n💰 Creating market_bazaar_offers table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS market_bazaar_offers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    listing_id INTEGER NOT NULL,
+                    buyer_team_id INTEGER NOT NULL,
+                    offered_price INTEGER NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    status TEXT DEFAULT 'active',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (listing_id) REFERENCES market_bazaar_listings (id),
+                    FOREIGN KEY (buyer_team_id) REFERENCES teams (id)
+                )
+            """)
+            print("  ✅ Created market_bazaar_offers table")
+        except Exception as e:
+            print(f"  ❌ Error creating market_bazaar_offers table: {e}")
+        
+        # Create user_cpu_offers table for user-to-CPU negotiations
+        print("\n🤝 Creating user_cpu_offers table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_cpu_offers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    buyer_team_id INTEGER NOT NULL,
+                    seller_team_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    offered_price INTEGER NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (buyer_team_id) REFERENCES league_teams (id),
+                    FOREIGN KEY (seller_team_id) REFERENCES teams (id),
+                    FOREIGN KEY (player_id) REFERENCES players (id)
+                )
+            """)
+            print("  ✅ Created user_cpu_offers table")
+        except Exception as e:
+            print(f"  ❌ Error creating user_cpu_offers table: {e}")
+        
+        # Create app_settings table
+        print("\n🔄 Creating app_settings table...")
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            print("  ✅ Created app_settings table")
+        except Exception as e:
+            print(f"  ❌ Error creating app_settings table: {e}")
+        
+        # Add loaned_by column to players table
+        print("\n🔄 Adding loaned_by column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN loaned_by TEXT DEFAULT NULL")
+            print("  ✅ Added loaned_by column to players table")
+        except Exception as e:
+            if "duplicate column name" in str(e).lower():
+                print("  ✅ loaned_by column already exists in players table")
+            else:
+                print(f"  ❌ Error adding loaned_by column: {e}")
+        
+        # Initialize first season if none exists
+        try:
+            cursor.execute("SELECT COUNT(*) FROM league_seasons")
+            season_count = cursor.fetchone()[0]
+            if season_count == 0:
+                cursor.execute("""
+                    INSERT INTO league_seasons (season_name, is_current) 
+                    VALUES ('00/01', 1)
+                """)
+                print("  ✅ Initialized first season: 00/01")
+        except Exception as e:
+            print(f"  ❌ Error initializing first season: {e}")
+        
         # Ensure CPU user exists
         print("\n🤖 Ensuring CPU user exists...")
         try:
@@ -168,6 +583,9 @@ def safe_refresh_database():
         
         conn.commit()
         print("\n✅ Schema updates completed successfully.")
+        
+        # Recalculate overall ratings for all players
+        recalculate_all_overalls()
         
     except Exception as e:
         print(f"❌ Error updating schema: {e}")
@@ -243,37 +661,46 @@ def create_new_database():
         conn.commit()
         print('Schema committed.')
         
-        # Ensure CPU user exists
-        try:
-            cursor.execute("SELECT id FROM users WHERE id = 1")
-            result = cursor.fetchone()
-            if not result:
-                cursor.execute("INSERT INTO users (id, username, password, email) VALUES (?, ?, ?, ?)", (1, 'CPU', '', 'cpu@localhost'))
-                conn.commit()
-                print('CPU user created.')
-            else:
-                print('CPU user already exists.')
-        except Exception as e:
-            print(f"Error ensuring CPU user: {e}")
-        
-        # Add new columns for financial data
-        try:
-            cursor.execute("ALTER TABLE teams ADD COLUMN total_salaries INTEGER DEFAULT 0")
-            cursor.execute("ALTER TABLE teams ADD COLUMN budget INTEGER DEFAULT 0")
-            cursor.execute("ALTER TABLE teams ADD COLUMN available_cap INTEGER DEFAULT 0")
-            cursor.execute("ALTER TABLE players ADD COLUMN development_key INTEGER DEFAULT 0")
-            print("Financial columns and development_key added to tables.")
-        except Exception as e:
-            print(f"Error adding columns: {e}")
-        
-        conn.commit()
-        
     except Exception as e:
-        print(f"Error executing schema script:\n{e}")
-        conn.rollback()
-    finally:
-        cursor.close()
-        conn.close()
+        print(f"Error executing schema script: {e}")
+    
+    # Ensure CPU user exists
+    try:
+        cursor.execute("SELECT id FROM users WHERE id = 1")
+        result = cursor.fetchone()
+        if not result:
+            cursor.execute("INSERT INTO users (id, username, password, email) VALUES (?, ?, ?, ?)", (1, 'CPU', '', 'cpu@localhost'))
+            conn.commit()
+            print('CPU user created.')
+        else:
+            print('CPU user already exists.')
+    except Exception as e:
+        print(f"Error ensuring CPU user: {e}")
+    
+    # Add new columns for financial data
+    try:
+        cursor.execute("ALTER TABLE teams ADD COLUMN total_salaries INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE teams ADD COLUMN budget INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE teams ADD COLUMN available_cap INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE players ADD COLUMN development_key INTEGER DEFAULT 0")
+        print("Financial columns and development_key added to tables.")
+        conn.commit()
+    except Exception as e:
+        print(f"Error adding columns: {e}")
+    
+    # Add Colados League schema
+    try:
+        print("🏆 Adding Colados League schema...")
+        with open('colados_league_schema.sql', 'r') as f:
+            colados_schema = f.read()
+        cursor.executescript(colados_schema)
+        conn.commit()
+        print("✅ Colados League schema added successfully.")
+    except Exception as e:
+        print(f"❌ Error adding Colados League schema: {e}")
+    
+    cursor.close()
+    conn.close()
     
     print('New database created.')
 
