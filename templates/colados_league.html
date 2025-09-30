@@ -4,6 +4,20 @@
 
 {% block content %}
 <div class="container">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
     <h1>🏆 Colados League</h1>
     
     <!-- League Overview -->
@@ -21,7 +35,6 @@
             <div class="col-md-6">
                 <div class="info-card">
                     <h4>🎯 Quick Actions</h4>
-                    <button class="btn btn-success" onclick="showCreateGameModal()">Create Game</button>
                     <button class="btn btn-info" onclick="showLeaderboards()">View Leaderboards</button>
                 </div>
             </div>
@@ -52,7 +65,9 @@
                                     <label for="teamSelect">Select Team:</label>
                                     <select class="form-control" id="teamSelect" name="team_id" required>
                                         <option value="">-- Select Team --</option>
-                                        <!-- All teams will be loaded via AJAX -->
+                                        {% for team in teams %}
+                                        <option value="{{ team[0] }}">{{ team[1] }}</option>
+                                        {% endfor %}
                                     </select>
                                 </div>
                             </div>
@@ -125,6 +140,7 @@
                             <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
                             <span class="away-team">{{ game.away_team_name }}</span>
                             <span class="round">Round {{ game.round_number }}</span>
+                            <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-warning">Edit</a>
                         </div>
                         {% endfor %}
                     </div>
@@ -155,8 +171,10 @@
     </div>
 
     <!-- Leaderboards -->
-    <div class="section">
-        <h2>🏅 Leaderboards</h2>
+    <!-- Division Leaderboards -->
+    {% for division in divisions %}
+    <div class="section leaderboards">
+        <h2>🏅 {{ division.name }} Leaderboards</h2>
         <div class="row">
             <div class="col-md-6">
                 <div class="leaderboard-card">
@@ -171,7 +189,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for player in top_goalscorers %}
+                            {% for player in division.top_goalscorers %}
                             <tr>
                                 <td>{{ loop.index }}</td>
                                 <td>{{ player.player_name }}</td>
@@ -179,6 +197,11 @@
                                 <td><strong>{{ player.total_goals }}</strong></td>
                             </tr>
                             {% endfor %}
+                            {% if not division.top_goalscorers %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No goals scored yet</td>
+                            </tr>
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>
@@ -196,7 +219,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for player in top_assists %}
+                            {% for player in division.top_assists %}
                             <tr>
                                 <td>{{ loop.index }}</td>
                                 <td>{{ player.player_name }}</td>
@@ -204,12 +227,18 @@
                                 <td><strong>{{ player.total_assists }}</strong></td>
                             </tr>
                             {% endfor %}
+                            {% if not division.top_assists %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No assists recorded yet</td>
+                            </tr>
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
     </div>
+    {% endfor %}
 </div>
 
 
@@ -223,13 +252,13 @@
                     <span>&times;</span>
                 </button>
             </div>
-            <form id="createGameForm">
+            <form id="createGameForm" method="post" action="{{ url_for('create_game') }}">
                 <div class="modal-body">
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label for="gameDivisionSelect">Division:</label>
-                                <select class="form-control" id="gameDivisionSelect" required>
+                                <select class="form-control" id="gameDivisionSelect" name="division_id" required>
                                     <option value="">-- Select Division --</option>
                                     {% for division in divisions %}
                                     <option value="{{ division.id }}">{{ division.name }}</option>
@@ -240,7 +269,7 @@
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label for="roundNumber">Round Number:</label>
-                                <input type="number" class="form-control" id="roundNumber" min="1" required>
+                                <input type="number" class="form-control" id="roundNumber" name="round_number" min="1" required>
                             </div>
                         </div>
                     </div>
@@ -248,16 +277,26 @@
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label for="homeTeamSelect">Home Team:</label>
-                                <select class="form-control" id="homeTeamSelect" required>
-                                    <option value="">-- Select Home Team --</option>
+                                <select class="form-control" id="homeTeamSelect" name="home_team_id" required>
+                                    <option value="">-- Select Team --</option>
+                                    {% for division in divisions %}
+                                        {% for team in division_teams[division.id] %}
+                                        <option value="{{ team[0] }}">{{ team[1] }} ({{ division.name }})</option>
+                                        {% endfor %}
+                                    {% endfor %}
                                 </select>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label for="awayTeamSelect">Away Team:</label>
-                                <select class="form-control" id="awayTeamSelect" required>
-                                    <option value="">-- Select Away Team --</option>
+                                <select class="form-control" id="awayTeamSelect" name="away_team_id" required>
+                                    <option value="">-- Select Team --</option>
+                                    {% for division in divisions %}
+                                        {% for team in division_teams[division.id] %}
+                                        <option value="{{ team[0] }}">{{ team[1] }} ({{ division.name }})</option>
+                                        {% endfor %}
+                                    {% endfor %}
                                 </select>
                             </div>
                         </div>
@@ -432,42 +471,7 @@
 </style>
 
 <script>
-// Load all teams on page load
-function loadUserTeams() {
-    console.log('Loading all teams...');
-    fetch('/colados_league/test_teams')
-        .then(response => {
-            console.log('Response status:', response.status);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('Received data:', data);
-            const select = document.getElementById('teamSelect');
-            select.innerHTML = '<option value="">-- Select Team --</option>';
-            if (data.teams && data.teams.length > 0) {
-                data.teams.forEach(team => {
-                    const option = document.createElement('option');
-                    option.value = team.id;
-                    option.textContent = `${team.club_name} (${team.username})`;
-                    select.appendChild(option);
-                });
-            } else {
-                const option = document.createElement('option');
-                option.value = '';
-                option.textContent = 'No teams available';
-                option.disabled = true;
-                select.appendChild(option);
-            }
-        })
-        .catch(error => {
-            console.error('Error loading teams:', error);
-            const select = document.getElementById('teamSelect');
-            select.innerHTML = '<option value="" disabled>Error loading teams</option>';
-        });
-}
+// Teams are now loaded server-side via Jinja2 template
 
 function showCreateGameModal() {
     $('#createGameModal').modal('show');
@@ -477,6 +481,8 @@ function showLeaderboards() {
     // Scroll to leaderboards section
     document.querySelector('.leaderboards').scrollIntoView({ behavior: 'smooth' });
 }
+
+
 
 function viewDivision(divisionId) {
     // TODO: Implement division view
@@ -488,117 +494,20 @@ function createGameForDivision(divisionId) {
     $('#createGameModal').modal('show');
 }
 
-// Load user teams on page load
+// Teams are loaded server-side, no need to load them on page load
+
+
+// Add team form submission is handled by regular HTML form POST
+// No JavaScript override needed since the route expects form data
+
+// Teams are loaded server-side, no need to load them on page load
 $(document).ready(function() {
-    loadUserTeams();
-});
-
-$('#gameDivisionSelect').change(function() {
-    const divisionId = $(this).val();
-    if (divisionId) {
-        loadTeamsForDivision(divisionId, '#homeTeamSelect');
-        loadTeamsForDivision(divisionId, '#awayTeamSelect');
-    }
-});
-
-
-function loadTeamsForDivision(divisionId, selectId) {
-    fetch(`/colados_league/get_division_teams/${divisionId}`)
-        .then(response => response.json())
-        .then(data => {
-            const select = $(selectId);
-            select.empty();
-            select.append('<option value="">-- Select Team --</option>');
-            data.teams.forEach(team => {
-                select.append(`<option value="${team.team_id}">${team.team_name}</option>`);
-            });
-        })
-        .catch(error => {
-            console.error('Error loading teams:', error);
-        });
-}
-
-// Handle add team form submission
-$('#addTeamForm').submit(function(e) {
-    e.preventDefault();
+    console.log('✅ jQuery is loaded and document is ready');
     
-    const divisionId = $('#divisionSelect').val();
-    const teamId = $('#teamSelect').val();
+    // Teams are now preloaded in the template, no need for complex JavaScript
+    console.log('✅ Teams are preloaded in template');
     
-    if (!divisionId || !teamId) {
-        alert('Please select both division and team');
-        return;
-    }
-    
-    fetch('/colados_league/add_team_to_division', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            division_id: divisionId,
-            team_id: teamId
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            $('#addTeamModal').modal('hide');
-            location.reload();
-        } else {
-            alert('Error: ' + data.error);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('An error occurred');
-    });
-});
-
-// Handle create game form submission
-$('#createGameForm').submit(function(e) {
-    e.preventDefault();
-    
-    const divisionId = $('#gameDivisionSelect').val();
-    const roundNumber = $('#roundNumber').val();
-    const homeTeamId = $('#homeTeamSelect').val();
-    const awayTeamId = $('#awayTeamSelect').val();
-    
-    if (!divisionId || !roundNumber || !homeTeamId || !awayTeamId) {
-        alert('Please fill in all fields');
-        return;
-    }
-    
-    if (homeTeamId === awayTeamId) {
-        alert('Home and away teams must be different');
-        return;
-    }
-    
-    fetch('/colados_league/create_game', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            division_id: divisionId,
-            round_number: roundNumber,
-            home_team_id: homeTeamId,
-            away_team_id: awayTeamId
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            $('#createGameModal').modal('hide');
-            location.reload();
-        } else {
-            alert('Error: ' + data.error);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('An error occurred');
-    });
+    // Form will submit normally with action="{{ url_for('create_game') }}"
 });
 </script>
 {% endblock %}

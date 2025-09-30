@@ -23,32 +23,10 @@
         </div>
     </div>
 
-    {% if not game.is_played %}
-    <!-- Game Setup Form -->
-    <div class="game-setup-section">
-        <h3>🎮 Set Up Game</h3>
+    <!-- Player Stats Form -->
+    <div class="player-stats-section">
+        <h3>⚽ Player Statistics (14 Players per Team)</h3>
         <form id="gameSetupForm">
-            <div class="row">
-                <div class="col-md-6">
-                    <h4>🏠 {{ game.home_team_name }} Lineup</h4>
-                    <div class="lineup-section">
-                        <h5>Starting XI</h5>
-                        <div id="homeLineup" class="lineup-container">
-                            <!-- Home team lineup will be loaded here -->
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <h4>✈️ {{ game.away_team_name }} Lineup</h4>
-                    <div class="lineup-section">
-                        <h5>Starting XI</h5>
-                        <div id="awayLineup" class="lineup-container">
-                            <!-- Away team lineup will be loaded here -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
             <!-- Match Result -->
             <div class="match-result-section">
                 <h4>📊 Match Result</h4>
@@ -56,115 +34,76 @@
                     <div class="col-md-4">
                         <div class="form-group">
                             <label for="homeScore">{{ game.home_team_name }} Goals:</label>
-                            <input type="number" class="form-control" id="homeScore" min="0" value="0" required>
+                            <input type="number" class="form-control" id="homeScore" min="0" value="{{ game.home_score if game.is_played else 0 }}" required>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <div class="form-group">
                             <label for="awayScore">{{ game.away_team_name }} Goals:</label>
-                            <input type="number" class="form-control" id="awayScore" min="0" value="0" required>
+                            <input type="number" class="form-control" id="awayScore" min="0" value="{{ game.away_score if game.is_played else 0 }}" required>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <div class="form-group">
                             <label for="matchDate">Match Date:</label>
-                            <input type="datetime-local" class="form-control" id="matchDate" required>
+                            <input type="datetime-local" class="form-control" id="matchDate" value="{{ game.game_date if game.is_played else '' }}" required>
                         </div>
                     </div>
                 </div>
             </div>
             
             <!-- Player Stats -->
-            <div class="player-stats-section">
-                <h4>⚽ Player Statistics</h4>
-                <div class="row">
-                    <div class="col-md-6">
-                        <h5>{{ game.home_team_name }} Players</h5>
-                        <div id="homePlayerStats" class="player-stats-container">
-                            <!-- Home team player stats will be loaded here -->
-                        </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <h5>{{ game.home_team_name }} Players</h5>
+                    <div class="player-stats-table">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Player</th>
+                                    <th>Played?</th>
+                                    <th>Goals</th>
+                                    <th>Assists</th>
+                                </tr>
+                            </thead>
+                            <tbody id="homePlayerStats">
+                                <!-- Home team player stats will be loaded here -->
+                            </tbody>
+                        </table>
                     </div>
-                    <div class="col-md-6">
-                        <h5>{{ game.away_team_name }} Players</h5>
-                        <div id="awayPlayerStats" class="player-stats-container">
-                            <!-- Away team player stats will be loaded here -->
-                        </div>
+                </div>
+                <div class="col-md-6">
+                    <h5>{{ game.away_team_name }} Players</h5>
+                    <div class="player-stats-table">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Player</th>
+                                    <th>Played?</th>
+                                    <th>Goals</th>
+                                    <th>Assists</th>
+                                </tr>
+                            </thead>
+                            <tbody id="awayPlayerStats">
+                                <!-- Away team player stats will be loaded here -->
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
             
             <div class="form-actions">
-                <button type="submit" class="btn btn-success btn-lg">✅ Confirm Match Result</button>
+                <button type="submit" class="btn btn-success btn-lg">
+                    {% if game.is_played %}
+                        ✅ Update Match Result
+                    {% else %}
+                        ✅ Confirm Match Result
+                    {% endif %}
+                </button>
                 <button type="button" class="btn btn-secondary btn-lg" onclick="window.history.back()">❌ Cancel</button>
             </div>
         </form>
     </div>
-    {% else %}
-    <!-- Game Results Display -->
-    <div class="game-results-section">
-        <h3>📊 Match Result</h3>
-        <div class="result-display">
-            <div class="score-display">
-                <span class="home-team">{{ game.home_team_name }}</span>
-                <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
-                <span class="away-team">{{ game.away_team_name }}</span>
-            </div>
-        </div>
-        
-        <!-- Player Statistics -->
-        <div class="player-stats-display">
-            <h4>⚽ Player Statistics</h4>
-            <div class="row">
-                <div class="col-md-6">
-                    <h5>{{ game.home_team_name }}</h5>
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>Player</th>
-                                <th>Goals</th>
-                                <th>Assists</th>
-                                <th>Minutes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for player in home_player_stats %}
-                            <tr>
-                                <td>{{ player.player_name }}</td>
-                                <td>{{ player.goals }}</td>
-                                <td>{{ player.assists }}</td>
-                                <td>{{ player.minutes_played }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <h5>{{ game.away_team_name }}</h5>
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>Player</th>
-                                <th>Goals</th>
-                                <th>Assists</th>
-                                <th>Minutes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for player in away_player_stats %}
-                            <tr>
-                                <td>{{ player.player_name }}</td>
-                                <td>{{ player.goals }}</td>
-                                <td>{{ player.assists }}</td>
-                                <td>{{ player.minutes_played }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
 </div>
 
 <style>
@@ -200,49 +139,7 @@
     margin-bottom: 30px;
 }
 
-.lineup-section {
-    background: rgba(255, 255, 255, 0.1);
-    padding: 15px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-}
-
-.lineup-container {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin-top: 15px;
-}
-
-.player-card {
-    background: rgba(255, 255, 255, 0.1);
-    padding: 10px;
-    border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.player-card:hover {
-    background: rgba(255, 255, 255, 0.2);
-    transform: translateY(-2px);
-}
-
-.player-card.selected {
-    background: linear-gradient(145deg, #27ae60, #229954);
-    border-color: #27ae60;
-}
-
-.player-card h6 {
-    margin: 0;
-    color: white;
-    font-weight: bold;
-}
-
-.player-card .position {
-    font-size: 0.8em;
-    color: #bdc3c7;
-}
+// Removed lineup-related CSS since we no longer use lineup selection
 
 .match-result-section {
     background: rgba(255, 255, 255, 0.1);
@@ -258,24 +155,119 @@
     margin: 20px 0;
 }
 
-.player-stats-container {
+.player-stats-table {
     max-height: 400px;
     overflow-y: auto;
 }
 
-.player-stat-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px;
-    margin-bottom: 5px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 5px;
+.player-stats-table .table {
+    margin-bottom: 0;
 }
 
-.player-stat-row input {
-    width: 60px;
+.player-stats-table .table th {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    color: white;
+    border: none;
+    font-size: 0.85em;
+    padding: 6px 8px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.player-stats-table .table td {
+    border-color: rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 4px 6px;
+    font-size: 0.85em;
+    vertical-align: middle;
+}
+
+.player-name {
+    font-weight: bold;
+    font-size: 0.9em;
+    line-height: 1.2;
+}
+
+.player-details {
+    font-size: 0.75em;
+    color: #bdc3c7;
+    line-height: 1.1;
+    margin-top: 2px;
+}
+
+/* Toggle Switch Styles */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 20px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: .4s;
+}
+
+input:checked + .slider {
+    background-color: #27ae60;
+}
+
+input:focus + .slider {
+    box-shadow: 0 0 1px #27ae60;
+}
+
+input:checked + .slider:before {
+    transform: translateX(20px);
+}
+
+.slider.round {
+    border-radius: 20px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
+
+.player-stats-table .table td input[type="number"] {
+    width: 50px;
     text-align: center;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 2px 4px;
+    font-size: 0.8em;
+    height: 28px;
+}
+
+.player-stats-table .table td input[type="number"]:focus {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #f39c12;
+    color: white;
+    box-shadow: 0 0 0 0.1rem rgba(243, 156, 18, 0.25);
 }
 
 .form-actions {
@@ -369,47 +361,18 @@ let awayTeamId = {{ game.away_team_id }};
 
 // Load team lineups when page loads
 document.addEventListener('DOMContentLoaded', function() {
+    loadTeamPlayers(homeTeamId, 'homePlayerStats', 'home');
+    loadTeamPlayers(awayTeamId, 'awayPlayerStats', 'away');
+    
+    // Set current date and time if game is not played
     if (!{{ game.is_played|lower }}) {
-        loadTeamLineup(homeTeamId, 'homeLineup', 'home');
-        loadTeamLineup(awayTeamId, 'awayLineup', 'away');
-        loadTeamPlayers(homeTeamId, 'homePlayerStats', 'home');
-        loadTeamPlayers(awayTeamId, 'awayPlayerStats', 'away');
-        
-        // Set current date and time
         const now = new Date();
         const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
         document.getElementById('matchDate').value = localDateTime;
     }
 });
 
-function loadTeamLineup(teamId, containerId, teamType) {
-    fetch(`/colados_league/get_team_players/${teamId}`)
-        .then(response => response.json())
-        .then(data => {
-            const container = document.getElementById(containerId);
-            container.innerHTML = '';
-            
-            data.players.forEach(player => {
-                const playerCard = document.createElement('div');
-                playerCard.className = 'player-card';
-                playerCard.dataset.playerId = player.id;
-                playerCard.dataset.teamType = teamType;
-                playerCard.innerHTML = `
-                    <h6>${player.player_name}</h6>
-                    <div class="position">${player.position} - ${player.overall}</div>
-                `;
-                
-                playerCard.addEventListener('click', function() {
-                    togglePlayerSelection(this, teamType);
-                });
-                
-                container.appendChild(playerCard);
-            });
-        })
-        .catch(error => {
-            console.error('Error loading team lineup:', error);
-        });
-}
+// Removed lineup function since we no longer use lineup selection
 
 function loadTeamPlayers(teamId, containerId, teamType) {
     fetch(`/colados_league/get_team_players/${teamId}`)
@@ -418,25 +381,40 @@ function loadTeamPlayers(teamId, containerId, teamType) {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
             
+            // Sort players by registered position number
+            data.players.sort((a, b) => a.registered_position - b.registered_position);
+            
+            // Get existing player stats if game is played
+            const existingStats = {{ game.is_played|lower }} ? 
+                (teamType === 'home' ? {{ home_player_stats|tojson }} : {{ away_player_stats|tojson }}) : [];
+            
             data.players.forEach(player => {
-                const playerRow = document.createElement('div');
-                playerRow.className = 'player-stat-row';
+                // Find existing stats for this player
+                const existingStat = existingStats.find(stat => stat.player_name === player.player_name);
+                const played = existingStat ? true : false;
+                const goals = existingStat ? existingStat.goals : 0;
+                const assists = existingStat ? existingStat.assists : 0;
+                
+                const playerRow = document.createElement('tr');
                 playerRow.innerHTML = `
-                    <div>
-                        <strong>${player.player_name}</strong>
-                        <small class="text-muted">${player.position}</small>
-                    </div>
-                    <div>
-                        <label>Goals:</label>
-                        <input type="number" class="form-control" min="0" value="0" 
+                    <td>
+                        <div class="player-name">${player.player_name}</div>
+                        <div class="player-details">${player.position} - ${player.overall}</div>
+                    </td>
+                    <td class="text-center">
+                        <label class="switch">
+                            <input type="checkbox" data-player-id="${player.id}" data-team-type="${teamType}" ${played ? 'checked' : ''}>
+                            <span class="slider round"></span>
+                        </label>
+                    </td>
+                    <td class="text-center">
+                        <input type="number" class="form-control form-control-sm" min="0" value="${goals}" 
                                data-player-id="${player.id}" data-stat="goals" data-team-type="${teamType}">
-                        <label>Assists:</label>
-                        <input type="number" class="form-control" min="0" value="0" 
+                    </td>
+                    <td class="text-center">
+                        <input type="number" class="form-control form-control-sm" min="0" value="${assists}" 
                                data-player-id="${player.id}" data-stat="assists" data-team-type="${teamType}">
-                        <label>Minutes:</label>
-                        <input type="number" class="form-control" min="0" max="90" value="90" 
-                               data-player-id="${player.id}" data-stat="minutes" data-team-type="${teamType}">
-                    </div>
+                    </td>
                 `;
                 
                 container.appendChild(playerRow);
@@ -447,18 +425,7 @@ function loadTeamPlayers(teamId, containerId, teamType) {
         });
 }
 
-function togglePlayerSelection(playerCard, teamType) {
-    const container = playerCard.parentElement;
-    const selectedPlayers = container.querySelectorAll('.player-card.selected');
-    
-    if (playerCard.classList.contains('selected')) {
-        playerCard.classList.remove('selected');
-    } else if (selectedPlayers.length < 11) {
-        playerCard.classList.add('selected');
-    } else {
-        alert('You can only select 11 players for the starting lineup');
-    }
-}
+// Removed togglePlayerSelection function since we no longer use lineup selection
 
 // Handle form submission
 document.getElementById('gameSetupForm').addEventListener('submit', function(e) {
@@ -468,11 +435,9 @@ document.getElementById('gameSetupForm').addEventListener('submit', function(e) 
     const awayScore = parseInt(document.getElementById('awayScore').value);
     const matchDate = document.getElementById('matchDate').value;
     
-    // Collect selected lineups
-    const homeLineup = Array.from(document.querySelectorAll('#homeLineup .player-card.selected'))
-        .map(card => parseInt(card.dataset.playerId));
-    const awayLineup = Array.from(document.querySelectorAll('#awayLineup .player-card.selected'))
-        .map(card => parseInt(card.dataset.playerId));
+    // No lineup collection needed since we removed the lineup selection
+    const homeLineup = [];
+    const awayLineup = [];
     
     // Collect player stats
     const playerStats = [];
@@ -482,19 +447,41 @@ document.getElementById('gameSetupForm').addEventListener('submit', function(e) 
         const playerId = parseInt(input.dataset.playerId);
         const stat = input.dataset.stat;
         const value = parseInt(input.value) || 0;
+        const isPlayed = input.type === 'checkbox' ? input.checked : true;
         
-        let playerStat = playerStats.find(ps => ps.player_id === playerId);
-        if (!playerStat) {
-            playerStat = {
-                player_id: playerId,
-                team_id: homeTeamId,
-                goals: 0,
-                assists: 0,
-                minutes_played: 90
-            };
-            playerStats.push(playerStat);
+        if (input.type === 'checkbox') {
+            // Only process if player played
+            if (isPlayed) {
+                let playerStat = playerStats.find(ps => ps.player_id === playerId);
+                if (!playerStat) {
+                    playerStat = {
+                        player_id: playerId,
+                        team_id: homeTeamId,
+                        played: true,
+                        goals: 0,
+                        assists: 0
+                    };
+                    playerStats.push(playerStat);
+                }
+            }
+        } else {
+            // Goals and assists - only if player is marked as played
+            const playedCheckbox = document.querySelector(`input[type="checkbox"][data-player-id="${playerId}"][data-team-type="home"]`);
+            if (playedCheckbox && playedCheckbox.checked) {
+                let playerStat = playerStats.find(ps => ps.player_id === playerId);
+                if (!playerStat) {
+                    playerStat = {
+                        player_id: playerId,
+                        team_id: homeTeamId,
+                        played: true,
+                        goals: 0,
+                        assists: 0
+                    };
+                    playerStats.push(playerStat);
+                }
+                playerStat[stat] = value;
+            }
         }
-        playerStat[stat] = value;
     });
     
     // Away team stats
@@ -502,29 +489,54 @@ document.getElementById('gameSetupForm').addEventListener('submit', function(e) 
         const playerId = parseInt(input.dataset.playerId);
         const stat = input.dataset.stat;
         const value = parseInt(input.value) || 0;
+        const isPlayed = input.type === 'checkbox' ? input.checked : true;
         
-        let playerStat = playerStats.find(ps => ps.player_id === playerId);
-        if (!playerStat) {
-            playerStat = {
-                player_id: playerId,
-                team_id: awayTeamId,
-                goals: 0,
-                assists: 0,
-                minutes_played: 90
-            };
-            playerStats.push(playerStat);
+        if (input.type === 'checkbox') {
+            // Only process if player played
+            if (isPlayed) {
+                let playerStat = playerStats.find(ps => ps.player_id === playerId);
+                if (!playerStat) {
+                    playerStat = {
+                        player_id: playerId,
+                        team_id: awayTeamId,
+                        played: true,
+                        goals: 0,
+                        assists: 0
+                    };
+                    playerStats.push(playerStat);
+                }
+            }
+        } else {
+            // Goals and assists - only if player is marked as played
+            const playedCheckbox = document.querySelector(`input[type="checkbox"][data-player-id="${playerId}"][data-team-type="away"]`);
+            if (playedCheckbox && playedCheckbox.checked) {
+                let playerStat = playerStats.find(ps => ps.player_id === playerId);
+                if (!playerStat) {
+                    playerStat = {
+                        player_id: playerId,
+                        team_id: awayTeamId,
+                        played: true,
+                        goals: 0,
+                        assists: 0
+                    };
+                    playerStats.push(playerStat);
+                }
+                playerStat[stat] = value;
+            }
         }
-        playerStat[stat] = value;
     });
     
-    // Validate lineups
-    if (homeLineup.length !== 11) {
-        alert('Please select exactly 11 players for the home team');
+    // Validate that 11-14 players are selected for each team
+    const homePlayedCount = document.querySelectorAll('#homePlayerStats input[type="checkbox"]:checked').length;
+    const awayPlayedCount = document.querySelectorAll('#awayPlayerStats input[type="checkbox"]:checked').length;
+    
+    if (homePlayedCount < 11 || homePlayedCount > 14) {
+        alert(`Please select between 11 and 14 players for the home team. Currently selected: ${homePlayedCount}`);
         return;
     }
     
-    if (awayLineup.length !== 11) {
-        alert('Please select exactly 11 players for the away team');
+    if (awayPlayedCount < 11 || awayPlayedCount > 14) {
+        alert(`Please select between 11 and 14 players for the away team. Currently selected: ${awayPlayedCount}`);
         return;
     }
     
@@ -543,18 +555,23 @@ document.getElementById('gameSetupForm').addEventListener('submit', function(e) 
             player_stats: playerStats
         })
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.success) {
             alert('Match result submitted successfully!');
             location.reload();
         } else {
-            alert('Error: ' + data.error);
+            alert('Error: ' + (data.error || 'Unknown error'));
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('An error occurred while submitting the match result');
+        alert('An error occurred while submitting the match result: ' + error.message);
     });
 });
 </script>
