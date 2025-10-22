@@ -235,9 +235,9 @@
         
         <div class="row mt-3">
             <div class="col-md-12">
-                <h5>🤖 CPU AI Market Bazaar Activity</h5>
-                <p>Trigger CPU teams to make intelligent transfer decisions in the market bazaar. CPU teams will analyze their needs and either list players for sale or make offers on available players.</p>
-                <form method="post" action="{{ url_for('trigger_cpu_ai') }}" onsubmit="return confirm('Trigger CPU AI market bazaar activity?\n\nThis will:\n- Analyze CPU team composition needs\n- List overpaid/surplus players for sale\n- Make offers on suitable players\n- Consider budget constraints and toxic contracts\n- Create blog post with activity summary\n- 25% chance per CPU team to take action\n\nThis action cannot be undone!')">
+                <h5>🤖 CPU AI Market Activity</h5>
+                <p>Trigger CPU teams to make intelligent transfer decisions in the market bazaar. CPU teams will analyze their needs and either list players for sale or make offers on available players. This also processes expired offers, user offers to CPU teams, and cleans up the market.</p>
+                <form method="post" action="{{ url_for('scheduled_market_activity') }}" onsubmit="return confirm('Trigger CPU AI market activity?\n\nThis will:\n- Analyze CPU team composition needs\n- List overpaid/surplus players for sale\n- Make offers on suitable players\n- Process user offers to CPU teams\n- Process expired offers and clean up market\n- Consider budget constraints and toxic contracts\n- Create blog post with activity summary\n- 40% chance per CPU team to take action\n\nThis action cannot be undone!')">
                     <button type="submit" class="button" style="background-color: #9b59b6; font-weight: bold;">🤖 Trigger CPU AI Activity</button>
                 </form>
                 
@@ -271,15 +271,6 @@
             </div>
         </div>
         
-        <div class="row mt-3">
-            <div class="col-md-12">
-                <h5>🔄 Scheduled Market Activity</h5>
-                <p>Trigger scheduled market activity including CPU AI actions, expired offer processing, and market updates. This simulates regular market activity that would normally run automatically.</p>
-                <form method="post" action="{{ url_for('scheduled_market_activity') }}" onsubmit="return confirm('Trigger scheduled market activity?\n\nThis will:\n- Trigger CPU AI activity (transfers, offers, etc.)\n- Process expired offers and clean up\n- Update market status\n- Create a blog post about the activity\n\nThis action cannot be undone!')">
-                    <button type="submit" class="button" style="background-color: #337ab7; font-weight: bold;">🔄 Trigger Market Activity</button>
-                </form>
-            </div>
-        </div>
         
         <div class="row mt-3">
             <div class="col-md-12">
@@ -315,6 +306,20 @@
         <h3>Money Allocator</h3>
         <p>Add or subtract money from user budgets. All transactions will be recorded in the user's financial movements.</p>
         <a href="{{ url_for('money_allocator') }}" class="button" style="background-color: #5bc0de;">Open Money Allocator</a>
+    </div>
+
+    {# --- Beginning of Season Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>🏆 Beginning of Season</h3>
+        <p>Generate comprehensive blog posts for the start of the new season.</p>
+        <form method="post" action="{{ url_for('beginning_of_season') }}">
+            <button type="submit" class="button" style="background-color: #2196F3;">
+                📰 Generate Season Start Posts
+            </button>
+        </form>
+        {% if season_message %}
+            <div style="color: green; margin-top: 10px;">{{ season_message }}</div>
+        {% endif %}
     </div>
 
 

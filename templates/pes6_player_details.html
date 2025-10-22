@@ -31,6 +31,16 @@
                 </div>
             </div>
 
+            {% if player.loaned_by and player.loaned_by != '' %}
+            <h3>📋 Loan Status</h3>
+            <div class="player-details-section" style="background: linear-gradient(145deg, #e3f2fd, #bbdefb); border-color: #2196f3;">
+                <div class="skills-grid">
+                    <p><strong>🔄 Currently On Loan To:</strong> {{ player.loaned_by }}</p>
+                    <p><strong>🏠 Parent Club:</strong> {{ basic_info.Club }}</p>
+                </div>
+            </div>
+            {% endif %}
+
             <h3>Career Achievements</h3>
             <div class="player-details-section">
                 <div class="skills-grid">

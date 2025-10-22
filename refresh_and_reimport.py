@@ -468,6 +468,124 @@ def safe_refresh_database():
             else:
                 print(f"  ❌ Error adding retirement_season column: {e}")
         
+        # Create Colados League tables
+        print("\n🏆 Creating Colados League tables...")
+        try:
+            # Leagues table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS leagues (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1
+                )
+            """)
+            print("  ✅ Created leagues table")
+            
+            # Divisions table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS divisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    league_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    FOREIGN KEY (league_id) REFERENCES leagues(id)
+                )
+            """)
+            print("  ✅ Created divisions table")
+            
+            # Division teams table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS division_teams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    division_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    team_name TEXT NOT NULL,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    FOREIGN KEY (division_id) REFERENCES divisions(id),
+                    FOREIGN KEY (team_id) REFERENCES teams(id),
+                    UNIQUE(division_id, team_id)
+                )
+            """)
+            print("  ✅ Created division_teams table")
+            
+            # League games table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS league_games (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    division_id INTEGER NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    home_team_id INTEGER NOT NULL,
+                    away_team_id INTEGER NOT NULL,
+                    home_team_name TEXT NOT NULL,
+                    away_team_name TEXT NOT NULL,
+                    home_score INTEGER DEFAULT 0,
+                    away_score INTEGER DEFAULT 0,
+                    game_date TIMESTAMP,
+                    is_played BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (division_id) REFERENCES divisions(id),
+                    FOREIGN KEY (home_team_id) REFERENCES teams(id),
+                    FOREIGN KEY (away_team_id) REFERENCES teams(id)
+                )
+            """)
+            print("  ✅ Created league_games table")
+            
+            # Player game stats table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS player_game_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    player_name TEXT NOT NULL,
+                    goals INTEGER DEFAULT 0,
+                    assists INTEGER DEFAULT 0,
+                    minutes_played INTEGER DEFAULT 90,
+                    is_starter BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES league_games(id),
+                    FOREIGN KEY (player_id) REFERENCES players(id),
+                    FOREIGN KEY (team_id) REFERENCES teams(id)
+                )
+            """)
+            print("  ✅ Created player_game_stats table")
+            
+            # Division standings table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS division_standings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    division_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    team_name TEXT NOT NULL,
+                    games_played INTEGER DEFAULT 0,
+                    wins INTEGER DEFAULT 0,
+                    draws INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    goals_for INTEGER DEFAULT 0,
+                    goals_against INTEGER DEFAULT 0,
+                    goal_difference INTEGER DEFAULT 0,
+                    points INTEGER DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (division_id) REFERENCES divisions(id),
+                    FOREIGN KEY (team_id) REFERENCES teams(id),
+                    UNIQUE(division_id, team_id)
+                )
+            """)
+            print("  ✅ Created division_standings table")
+            
+            # Insert default league and divisions
+            cursor.execute("INSERT OR IGNORE INTO leagues (id, name, description) VALUES (1, 'Colados League', 'The premier user league competition')")
+            cursor.execute("INSERT OR IGNORE INTO divisions (id, league_id, name, description) VALUES (1, 1, 'Division 1', 'Top division of Colados League'), (2, 1, 'Division 2', 'Second division of Colados League')")
+            print("  ✅ Inserted default league and divisions")
+            
+        except Exception as e:
+            print(f"  ❌ Error creating Colados League tables: {e}")
+        
         # Create market_bazaar_listings table for player transfer listings
         print("\n🏪 Creating market_bazaar_listings table...")
         try:

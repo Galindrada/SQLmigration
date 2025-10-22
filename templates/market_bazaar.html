@@ -112,7 +112,7 @@
                                                 {% if offer.offer_type == 'listed' %}
                                                     <button type="button" class="btn btn-success btn-sm" 
                                                             onclick="acceptOffer({{ offer.id }}, '{{ offer.player_name }}', {{ offer.offered_price }})">
-                                                        Sell
+                                                        Accept
                                                     </button>
                                                     <button type="button" class="btn btn-danger btn-sm" 
                                                             onclick="rejectOffer({{ offer.id }}, '{{ offer.player_name }}')">
@@ -882,6 +882,7 @@
         
         // Market Activity Timer (using same pattern as free_agency.html)
         let marketActivityTriggered = false; // Flag to prevent multiple triggers
+        let timerInterval = null; // Store interval ID to clear it when needed
         
         function updateMarketTimers() {
             const timers = document.querySelectorAll('.timer');
@@ -897,6 +898,15 @@
                     // Timer expired - trigger market activity only once
                     if (!marketActivityTriggered) {
                         marketActivityTriggered = true;
+                        console.log('🔄 Timer expired, triggering market activity...');
+                        
+                        // Clear the interval to prevent further checks
+                        if (timerInterval) {
+                            clearInterval(timerInterval);
+                            timerInterval = null;
+                        }
+                        
+                        // Trigger market activity
                         triggerMarketActivity();
                     }
                 } else {
@@ -923,12 +933,20 @@
         }
         
         // Update timers every second
-        setInterval(updateMarketTimers, 1000);
+        timerInterval = setInterval(updateMarketTimers, 1000);
         updateMarketTimers(); // Initial call
         
         function triggerMarketActivity() {
             // Set flag to prevent multiple triggers
             marketActivityTriggered = true;
+            
+            console.log('🔄 Triggering market activity...');
+            
+            // Clear the timer interval to prevent further checks
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
             
             // Show processing status
             document.getElementById('timer-status').innerHTML = '<span class="badge badge-warning">🔄 Processing...</span>';
@@ -994,5 +1012,143 @@
             });
         }
         
+    </script>
+
+    <!-- Jorge Mendes Quick Sell Section -->
+    <div class="card mt-4" style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white;">
+        <div class="card-header">
+            <div class="row align-items-center">
+                <div class="col-md-2">
+                    <div class="text-center">
+                        <div style="width: 80px; height: 80px; background: #ecf0f1; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center; color: #2c3e50; font-size: 2rem; font-weight: bold;">
+                            JM
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-10">
+                    <h4 class="mb-1">🎯 Jorge Mendes - Super Agent</h4>
+                    <p class="mb-0" style="font-size: 0.9rem;">Quick sell your players to 50 clubs worldwide. Get instant offers based on club budgets and player value.</p>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-8">
+                    <form id="mendesForm">
+                        <div class="form-group">
+                            <label for="mendesPlayerSelect" style="color: white; font-weight: bold;">Select Player to Sell:</label>
+                            <select class="form-control" id="mendesPlayerSelect" required>
+                                <option value="">-- Choose a player --</option>
+                                {% for player in user_players %}
+                                <option value="{{ player.id }}" data-name="{{ player.player_name }}" data-position="{{ player.registered_position }}" data-overall="{{ player.overall }}">
+                                    {{ player.player_name }} ({{ player.registered_position }}, {{ player.overall }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="mt-2">
+                                <small style="color: #bdc3c7;">Players available: {{ user_players|length }}</small>
+                            </div>
+                        </div>
+                        <div id="playerInfo" class="alert alert-info" style="display: none;">
+                            <strong>Player Details:</strong>
+                            <div id="playerDetails"></div>
+                        </div>
+                    </form>
+                </div>
+                <div class="col-md-4 text-center">
+                    <button type="button" class="btn btn-warning btn-lg" id="mendesSellBtn" onclick="sellToMendes()" disabled>
+                        🚀 Sell Now Mendinhos!
+                    </button>
+                    <div class="mt-2">
+                        <small style="color: #bdc3c7;">Agent fee: 25% of sale price</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Jorge Mendes functionality
+        document.getElementById('mendesPlayerSelect').addEventListener('change', function() {
+            const select = this;
+            const sellBtn = document.getElementById('mendesSellBtn');
+            const playerInfo = document.getElementById('playerInfo');
+            const playerDetails = document.getElementById('playerDetails');
+            
+            if (select.value) {
+                const option = select.options[select.selectedIndex];
+                const playerName = option.dataset.name;
+                const position = option.dataset.position;
+                const overall = option.dataset.overall;
+                
+                playerDetails.innerHTML = `
+                    <strong>${playerName}</strong><br>
+                    Position: ${position}<br>
+                    Overall: ${overall}
+                `;
+                playerInfo.style.display = 'block';
+                sellBtn.disabled = false;
+            } else {
+                playerInfo.style.display = 'none';
+                sellBtn.disabled = true;
+            }
+        });
+
+        function sellToMendes() {
+            console.log('sellToMendes function called');
+            const playerId = document.getElementById('mendesPlayerSelect').value;
+            const playerName = document.getElementById('mendesPlayerSelect').options[document.getElementById('mendesPlayerSelect').selectedIndex].dataset.name;
+            
+            console.log('Player ID:', playerId);
+            console.log('Player Name:', playerName);
+            
+            if (!playerId) {
+                alert('Please select a player first.');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to sell ${playerName} through Jorge Mendes? This will generate offers from 50 clubs worldwide. Jorge Mendes takes a 25% commission on any sale.`)) {
+                return;
+            }
+            
+            console.log('Proceeding with sale...');
+            
+            // Disable button and show loading
+            const sellBtn = document.getElementById('mendesSellBtn');
+            const originalText = sellBtn.innerHTML;
+            sellBtn.disabled = true;
+            sellBtn.innerHTML = '⏳ Processing...';
+            
+            fetch('/market_bazaar/mendes_sell', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    player_id: playerId
+                })
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Response data:', data);
+                if (data.success) {
+                    alert(`✅ Jorge Mendes secured the best deal!\n\n${playerName} sold to ${data.buyer_team} for €${data.best_offer.toLocaleString()}\n\nNet amount: €${data.net_amount.toLocaleString()} (after €${data.commission.toLocaleString()} commission)`);
+                    location.reload(); // Refresh to show updated team
+                } else {
+                    alert(`❌ Error: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('❌ Network error. Please try again.');
+            })
+            .finally(() => {
+                sellBtn.disabled = false;
+                sellBtn.innerHTML = originalText;
+            });
+        }
     </script>
 {% endblock %}

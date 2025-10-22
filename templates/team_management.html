@@ -5,6 +5,7 @@
 {% block content %}
     <h2>My Managed Teams</h2>
     <p>You can manage multiple teams for the league.</p>
+    
 
     <!-- Team Selector -->
     {% if managed_teams|length > 1 %}
@@ -674,4 +675,71 @@
             addPlayerHoverFunctionality();
         });
     </script>
+
+    <style>
+        .player-link {
+            color: #007bff;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        
+        .player-link:hover {
+            color: #0056b3;
+            text-decoration: underline;
+        }
+        
+        .player-link strong {
+            font-weight: 600;
+        }
+    </style>
+
+    <!-- Loaned Players Section -->
+    {% if loaned_players %}
+    <div class="team-section">
+        <h3>🔄 Loaned Players</h3>
+        <p>Players currently out on loan from your teams:</p>
+        
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="thead-dark">
+                    <tr>
+                        <th>Player Name</th>
+                        <th>Age</th>
+                        <th>Position</th>
+                        <th>Loaned From</th>
+                        <th>Currently At</th>
+                        <th>Salary</th>
+                        <th>Market Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for player in loaned_players %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('pes6_player_details', player_id=player.id) }}" class="player-link">
+                                <strong>{{ player.player_name }}</strong>
+                            </a>
+                        </td>
+                        <td>{{ player.age }}</td>
+                        <td>
+                            <span class="position-badge position-{{ player.game_position|lower|replace('-', '_')|replace(' ', '_') }}">
+                                {{ player.game_position }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="team-badge">{{ player.loaned_by }}</span>
+                        </td>
+                        <td>
+                            <span class="team-badge">{{ player.current_team }}</span>
+                        </td>
+                        <td>€{{ "{:,}".format(player.salary) if player.salary else 'N/A' }}</td>
+                        <td>€{{ "{:,}".format(player.market_value) if player.market_value else 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
 {% endblock %}

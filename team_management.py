@@ -606,7 +606,6 @@ class TeamManager:
                 
                 if updated_count % 100 == 0:
                     print(f"   Processed {updated_count}/{len(players)} players...")
-            
             # Commit overall updates to database
             self.conn.commit()
             print(f"✅ Updated overall ratings for {updated_count} players in database")
@@ -1187,9 +1186,87 @@ class TeamManager:
             return True
             
         except Exception as e:
-            print(f"❌ Error updating player manually: {e}")
+            print(f"❌ Error replacing player manually: {e}")
             self.conn.rollback()
             return False
+
+    def refresh_league_standings(self, division_id: int):
+        """Manually refresh and display league standings for a division"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # Get division name
+            cursor.execute("SELECT name FROM divisions WHERE id = ?", (division_id,))
+            division = cursor.fetchone()
+            if not division:
+                print(f"❌ Division ID {division_id} not found.")
+                return
+            
+            division_name = division['name']
+            print(f"\n🏆 Updated Standings for {division_name}")
+            print("-" * 80)
+            print(f"{'Pos':<4} {'Team':<25} {'P':<3} {'W':<3} {'D':<3} {'L':<3} {'GF':<3} {'GA':<3} {'GD':<4} {'Pts':<4}")
+            print("-" * 80)
+            
+            # Calculate standings (similar to app.py)
+            cursor.execute("SELECT team_id FROM division_teams WHERE division_id = ?", (division_id,))
+            teams = cursor.fetchall()
+            
+            standings = []
+            for team in teams:
+                team_id = team['team_id']
+                
+                # Get team name
+                cursor.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+                team_name = cursor.fetchone()['club_name']
+                
+                # Calculate stats from games
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as games_played,
+                        SUM(CASE WHEN (home_team_id = ? AND home_score > away_score) OR (away_team_id = ? AND away_score > home_score) THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN home_score = away_score THEN 1 ELSE 0 END) as draws,
+                        SUM(CASE WHEN (home_team_id = ? AND home_score < away_score) OR (away_team_id = ? AND away_score < home_score) THEN 1 ELSE 0 END) as losses,
+                        SUM(CASE WHEN home_team_id = ? THEN home_score ELSE away_score END) as goals_for,
+                        SUM(CASE WHEN home_team_id = ? THEN away_score ELSE home_score END) as goals_against
+                    FROM league_games
+                    WHERE (home_team_id = ? OR away_team_id = ?) AND is_played = 1 AND division_id = ?
+                """, (team_id, team_id, team_id, team_id, team_id, team_id, team_id, team_id, division_id))
+                
+                stats = cursor.fetchone()
+                
+                games_played = stats['games_played'] or 0
+                wins = stats['wins'] or 0
+                draws = stats['draws'] or 0
+                losses = stats['losses'] or 0
+                goals_for = stats['goals_for'] or 0
+                goals_against = stats['goals_against'] or 0
+                goal_difference = goals_for - goals_against
+                points = wins * 3 + draws
+                
+                standings.append({
+                    'team_name': team_name,
+                    'games_played': games_played,
+                    'wins': wins,
+                    'draws': draws,
+                    'losses': losses,
+                    'goals_for': goals_for,
+                    'goals_against': goals_against,
+                    'goal_difference': goal_difference,
+                    'points': points
+                })
+            
+            # Sort standings
+            standings.sort(key=lambda x: (x['points'], x['goal_difference'], x['goals_for']), reverse=True)
+            
+            # Print standings
+            for i, team in enumerate(standings, 1):
+                print(f"{i:<4} {team['team_name']:<25} {team['games_played']:<3} {team['wins']:<3} {team['draws']:<3} {team['losses']:<3} {team['goals_for']:<3} {team['goals_against']:<3} {team['goal_difference']:<4} {team['points']:<4}")
+            
+            print(f"\n✅ Standings refreshed for {division_name}.")
+            
+        except Exception as e:
+            print(f"❌ Error refreshing standings: {e}")
 
 def display_menu():
     """Display the main menu"""
@@ -1210,7 +1287,10 @@ def display_menu():
     print("12. Fix team ID mismatches")
     print("13. Replace player from CSV by ID")
     print("14. Replace player manually (field by field)")
-    print("15. Exit")
+    print("15. Rename players with long names (16+ characters)")
+    print("16. Duplicate player stats for a team")
+    print("17. Delete a game from Colados League")
+    print("18. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -1546,6 +1626,256 @@ def replace_player_manually(manager: TeamManager):
     except Exception as e:
         print(f"❌ Error in replace_player_manually: {e}")
 
+def rename_long_names(manager: TeamManager):
+    """Rename players with 16+ character names one by one"""
+    print("\n✏️ RENAME LONG PLAYER NAMES")
+    print("-" * 40)
+    
+    try:
+        cursor = manager.conn.cursor()
+        renamed_count = 0
+        skipped_count = 0
+        
+        while True:
+            # Find the next player with 16+ character name
+            cursor.execute("""
+                SELECT id, player_name, club_id
+                FROM players 
+                WHERE LENGTH(player_name) >= 16
+                ORDER BY LENGTH(player_name) DESC, player_name
+                LIMIT 1
+            """)
+            player = cursor.fetchone()
+            
+            if not player:
+                print(f"\n🎉 All done! No more players with 16+ character names.")
+                print(f"📊 Summary: {renamed_count} renamed, {skipped_count} skipped")
+                break
+            
+            player_id = player['id']
+            current_name = player['player_name']
+            
+            print(f"\n📝 Player found with long name:")
+            print(f"   ID: {player_id}")
+            print(f"   Name: {current_name}")
+            print(f"   Length: {len(current_name)} characters")
+            
+            while True:
+                new_name = input(f"\n   Enter new name (or 'skip' to skip, 'quit' to exit): ").strip()
+                
+                if new_name.lower() == 'quit':
+                    print(f"\n👋 Exiting... Summary: {renamed_count} renamed, {skipped_count} skipped")
+                    return
+                
+                if new_name.lower() == 'skip':
+                    print("   ⏭️  Skipped.")
+                    skipped_count += 1
+                    break
+                
+                if not new_name:
+                    print("   ❌ Name cannot be empty. Please try again.")
+                    continue
+                
+                if len(new_name) > 50:
+                    print("   ❌ Name too long (max 50 characters). Please try again.")
+                    continue
+                
+                # Confirm the change
+                confirm = input(f"   Confirm change '{current_name}' → '{new_name}'? (y/n): ").strip().lower()
+                
+                if confirm == 'y':
+                    # Update the player name
+                    cursor.execute("UPDATE players SET player_name = ? WHERE id = ?", (new_name, player_id))
+                    manager.conn.commit()
+                    
+                    print(f"   ✅ Successfully updated: '{current_name}' → '{new_name}'")
+                    renamed_count += 1
+                    break
+                elif confirm == 'n':
+                    print("   ❌ Change cancelled. Please try again.")
+                    continue
+                else:
+                    print("   ❌ Please enter 'y' or 'n'.")
+                    continue
+        
+    except KeyboardInterrupt:
+        print(f"\n👋 Exiting... Summary: {renamed_count} renamed, {skipped_count} skipped")
+    except Exception as e:
+        print(f"❌ Database error: {e}")
+
+def duplicate_player_stats(manager: TeamManager):
+    """Duplicate player stats (games_played, goals, assists) for all players on a selected team"""
+    print("\n📊 DUPLICATE PLAYER STATS")
+    print("-" * 40)
+    
+    try:
+        # Get team ID
+        team_id_input = input("Enter team ID to duplicate stats for: ").strip()
+        if not team_id_input:
+            print("❌ Team ID is required")
+            return
+        
+        try:
+            team_id = int(team_id_input)
+        except ValueError:
+            print("❌ Team ID must be a number")
+            return
+        
+        # Check if team exists
+        cursor = manager.conn.cursor()
+        cursor.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+        team_info = cursor.fetchone()
+        
+        if not team_info:
+            print(f"❌ Team ID {team_id} not found in database")
+            return
+        
+        team_name = team_info['club_name']
+        print(f"\n📊 Team found:")
+        print(f"     Name: {team_name}")
+        print(f"   ID: {team_id}")
+        
+        # Get all players on the team
+        cursor.execute("SELECT id, player_name, games_played, goals, assists FROM players WHERE club_id = ?", (team_id,))
+        players = cursor.fetchall()
+        
+        if not players:
+            print(f"❌ No players found on team '{team_name}'")
+            return
+        
+        print(f"\n📊 Found {len(players)} players on team '{team_name}':")
+        print("-" * 80)
+        print(f"{'ID':<6} {'Name':<25} {'Games':<6} {'Goals':<6} {'Assists':<8}")
+        print("-" * 80)
+        
+        for player in players:
+            print(f"{player['id']:<6} {player['player_name']:<25} {player['games_played'] or 0:<6} {player['goals'] or 0:<6} {player['assists'] or 0:<8}")
+        
+        # Confirm duplication
+        confirm = input(f"\n⚠️  Are you sure you want to DUPLICATE stats for all {len(players)} players on '{team_name}'? (y/N): ").strip().lower()
+        if confirm != 'y':
+            print("❌ Operation cancelled")
+            return
+        
+        # Perform duplication
+        updated_count = 0
+        for player in players:
+            player_id = player['id']
+            current_games = player['games_played'] or 0
+            current_goals = player['goals'] or 0
+            current_assists = player['assists'] or 0
+            
+            new_games = current_games * 2
+            new_goals = current_goals * 2
+            new_assists = current_assists * 2
+            
+            cursor.execute("""
+                UPDATE players 
+                SET games_played = ?, goals = ?, assists = ? 
+                WHERE id = ?
+            """, (new_games, new_goals, new_assists, player_id))
+            
+            updated_count += 1
+            print(f"   ✅ {player['player_name']}: Games {current_games}→{new_games}, Goals {current_goals}→{new_goals}, Assists {current_assists}→{new_assists}")
+        
+        manager.conn.commit()
+        
+        print(f"\n🎉 Successfully duplicated stats for {updated_count} players on team '{team_name}'!")
+        
+    except Exception as e:
+        print(f"❌ Error duplicating player stats: {e}")
+        if manager.conn:
+            manager.conn.rollback()
+
+def delete_colados_game(manager: TeamManager):
+    """Delete a game from Colados League"""
+    print("\n🗑️ DELETE GAME FROM COLADOS LEAGUE")
+    print("-" * 40)
+    
+    try:
+        cursor = manager.conn.cursor()
+        
+        # Fetch all played games
+        cursor.execute("""
+            SELECT lg.id, lg.home_team_name, lg.away_team_name, lg.home_score, lg.away_score, lg.round_number, d.name as division_name, lg.division_id
+            FROM league_games lg
+            JOIN divisions d ON lg.division_id = d.id
+            WHERE lg.is_played = 1
+            ORDER BY lg.id DESC
+        """)
+        
+        games = cursor.fetchall()
+        
+        if not games:
+            print("❌ No played games found in Colados League.")
+            return
+        
+        print(f"\n📊 Found {len(games)} played games:")
+        print("-" * 100)
+        print(f"{'ID':<5} {'Division':<15} {'Home Team':<20} {'Score':<8} {'Away Team':<20} {'Round':<6}")
+        print("-" * 100)
+        
+        for game in games:
+            print(f"{game['id']:<5} {game['division_name']:<15} {game['home_team_name']:<20} {game['home_score']}-{game['away_score']:<8} {game['away_team_name']:<20} {game['round_number']:<6}")
+        
+        # Prompt user to select a game to delete
+        while True:
+            try:
+                game_id_input = input("\nEnter the ID of the game to delete (or 'cancel' to exit): ").strip()
+                if game_id_input.lower() == 'cancel':
+                    print("❌ Operation cancelled.")
+                    return
+                
+                game_id = int(game_id_input)
+                
+                # Check if the game ID exists in the list
+                game_ids = [game['id'] for game in games]
+                if game_id not in game_ids:
+                    print("❌ Invalid game ID. Please try again.")
+                    continue
+                
+                # Confirm deletion
+                confirm = input(f"Are you sure you want to delete game ID {game_id}? (y/N): ").strip().lower()
+                if confirm != 'y':
+                    print("❌ Deletion cancelled.")
+                    return
+                
+                # Reverse player scorers (goals and assists)
+                # Get player stats from the game
+                cursor.execute("""
+                    SELECT player_id, goals, assists 
+                    FROM player_game_stats 
+                    WHERE game_id = ?
+                """, (game_id,))
+                
+                player_stats = cursor.fetchall()
+                for stat in player_stats:
+                    cursor.execute("""
+                        UPDATE players 
+                        SET goals = goals - ?, assists = assists - ? 
+                        WHERE id = ?
+                    """, (stat['goals'], stat['assists'], stat['player_id']))
+                
+                # Delete player game stats
+                cursor.execute("DELETE FROM player_game_stats WHERE game_id = ?", (game_id,))
+                
+                # Delete the game
+                cursor.execute("DELETE FROM league_games WHERE id = ?", (game_id,))
+                
+                manager.conn.commit()
+                print(f"✅ Game ID {game_id} deleted successfully, standings and scorers updated.")
+                break
+                
+            except ValueError:
+                print("❌ Please enter a valid number.")
+            except Exception as e:
+                print(f"❌ Error deleting game: {e}")
+                manager.conn.rollback()
+                break
+    
+    except Exception as e:
+        print(f"❌ Error fetching games: {e}")
+
 def main():
     """Main function"""
     print("🏆 Team Management System")
@@ -1560,7 +1890,7 @@ def main():
     try:
         while True:
             display_menu()
-            choice = input("\nEnter your choice (1-12): ").strip()
+            choice = input("\nEnter your choice (1-18): ").strip()
             
             if choice == '1':
                 list_users(manager)
@@ -1591,17 +1921,21 @@ def main():
             elif choice == '14':
                 replace_player_manually(manager)
             elif choice == '15':
+                rename_long_names(manager)
+            elif choice == '16':
+                duplicate_player_stats(manager)
+            elif choice == '17':
+                delete_colados_game(manager)
+            elif choice == '18':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-15.")
-            
-            input("\nPress Enter to continue...")
+                print("❌ Invalid choice. Please enter 1-18.")
     
     except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
+        print("\n👋 Exiting...")
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+        print(f"❌ Error: {e}")
     finally:
         manager.disconnect()
 

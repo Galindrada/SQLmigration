@@ -117,7 +117,7 @@ class CPULeagueManager:
             cur = conn.cursor()
             
             cur.execute("""
-                SELECT id, player_name, registered_position, attack, defense, balance, 
+                SELECT id, player_name, registered_position, game_position, attack, defense, balance, 
                        stamina, top_speed, acceleration, response, agility, 
                        dribble_accuracy, dribble_speed, short_pass_accuracy, 
                        short_pass_speed, long_pass_accuracy, long_pass_speed,
@@ -130,7 +130,10 @@ class CPULeagueManager:
                 ORDER BY RANDOM()
             """, (team_id,))
             
-            return [dict(player) for player in cur.fetchall()]
+            rows = [dict(player) for player in cur.fetchall()]
+            for row in rows:
+                row.setdefault('game_position', row.get('registered_position'))
+            return rows
             
         except Exception as e:
             print(f"Error loading players for team {team_id}: {e}")
@@ -925,10 +928,31 @@ class CPULeagueManager:
         if not players:
             return {}
         
-        # Calculate scoring probability for each player with extreme position weighting
+        def normalize_position(pos: Optional[str]) -> str:
+            return (pos or "").replace("-", "").replace("_", "").replace(" ", "").lower()
+        
+        attacking_positions = {
+            "striker", "shadowstriker", "forward", "cf", "ss",
+            "winger", "rightwingforward", "leftwingforward", "rwf", "lwf",
+            "attackingmidfielder", "amf"
+        }
+        support_positions = {
+            "centermidfielder", "centremidfielder", "cmf",
+            "sidemidfielder", "widmidfielder", "rmf", "lmf", "midfielder"
+        }
+        defensive_positions = {
+            "centreback", "centerback", "cb",
+            "sideback", "fullback", "sb", "fb", "rb", "lb",
+            "wingback", "wb", "sweeper", "defender", "df"
+        }
+        
+        has_attackers = any(
+            normalize_position(p.get('game_position') or p.get('registered_position')) in attacking_positions
+            for p in players
+        )
+        
         scoring_weights = []
         for player in players:
-            # Weight based on attack skills
             attack_weight = (
                 player.get('shot_accuracy', 50) * 0.5 +
                 player.get('shot_power', 50) * 0.3 +
@@ -936,44 +960,45 @@ class CPULeagueManager:
                 player.get('heading', 50) * 0.05
             )
             
-            # EXTREME position bonus for forwards (much stronger than before)
-            position = player.get('game_position', '')
-            if position in ['Striker', 'Shadow Striker']:
-                attack_weight *= 8.0  # Increased from 3x to 8x - strikers dominate scoring
-            elif position in ['Winger']:
-                attack_weight *= 4.0  # Increased from 2x to 4x - wingers score often
-            elif position in ['Attacking Midfielder']:
-                attack_weight *= 2.5  # Attacking midfielders can score
-            elif position in ['Center-Midfielder', 'Side-Midfielder']:
-                attack_weight *= 1.0  # Regular midfielders occasional goals
-            elif position in ['Defensive Midfielder']:
-                attack_weight *= 0.5  # Defensive midfielders rarely score
-            elif position in ['Centre-Back', 'Side-Back']:
-                attack_weight *= 0.3  # Defenders very rarely score
-            elif position == 'Goal-Keeper':
-                attack_weight *= 0.01  # Goalkeepers almost never score
+            position_key = normalize_position(player.get('game_position') or player.get('registered_position'))
+            position_multiplier = {
+                "striker": 8.0, "shadowstriker": 8.0, "forward": 8.0, "cf": 8.0, "ss": 8.0,
+                "winger": 4.0, "rightwingforward": 4.0, "leftwingforward": 4.0, "rwf": 4.0, "lwf": 4.0,
+                "attackingmidfielder": 2.5, "amf": 2.5,
+                "centermidfielder": 1.0, "centremidfielder": 1.0, "cmf": 1.0,
+                "sidemidfielder": 1.0, "widmidfielder": 1.0, "rmf": 1.0, "lmf": 1.0,
+                "defensivemidfielder": 0.5, "dmf": 0.5,
+                "centreback": 0.3, "centerback": 0.3, "cb": 0.3,
+                "sideback": 0.3, "fullback": 0.3, "sb": 0.3, "fb": 0.3, "rb": 0.3, "lb": 0.3,
+                "wingback": 0.3, "wb": 0.3, "sweeper": 0.3, "defender": 0.3, "df": 0.3,
+                "goalkeeper": 0.01, "gk": 0.01
+            }.get(position_key, 1.0)
+            attack_weight *= position_multiplier
             
-            # Add overall player quality bonus (better players more likely to score)
+            if has_attackers:
+                if position_key in defensive_positions:
+                    attack_weight *= 0.02
+                elif position_key in support_positions:
+                    attack_weight *= 0.2
+            
             overall_rating = self._calculate_player_overall(player)
-            quality_bonus = (overall_rating / 50) ** 2.5  # Increased power to amplify differences
+            quality_bonus = (overall_rating / 50) ** 2.5
             
             final_weight = attack_weight * quality_bonus
-            scoring_weights.append(max(0.01, final_weight))  # Ensure minimum weight
+            scoring_weights.append(max(0.001, final_weight))
         
-        # Select player based on weighted probability
         total_weight = sum(scoring_weights)
         if total_weight == 0:
-            return random.choice(players)
+            return max(zip(scoring_weights, players), key=lambda item: item[0])[1]
         
         random_value = random.uniform(0, total_weight)
         current_weight = 0
-        
         for i, weight in enumerate(scoring_weights):
             current_weight += weight
             if random_value <= current_weight:
                 return players[i]
         
-        return players[-1]  # Fallback
+        return max(zip(scoring_weights, players), key=lambda item: item[0])[1]
     
     def _select_realistic_assister(self, players: List[Dict]) -> Dict:
         """Select a realistic assister based on player skills with stronger weighting."""
@@ -1567,8 +1592,8 @@ class CPULeagueManager:
         
         # Revenue range: €200M (competitive) to €100M (non-competitive)
         # Competitive leagues get more revenue (harder to win, more reward)
-        min_revenue = 100000000  # €100M for non-competitive leagues
-        max_revenue = 200000000  # €200M for competitive leagues
+        min_revenue = 50000000  # €100M for non-competitive leagues
+        max_revenue = 100000000  # €200M for competitive leagues
         
         # Higher competitive score = higher revenue (more competitive = more money)
         base_revenue = min_revenue + (competitive_score * (max_revenue - min_revenue))
@@ -1605,7 +1630,7 @@ class CPULeagueManager:
                 
                 # Superstar bonus (market value > €100M) - 2% of value
                 if market_value > 100000000:
-                    player_superstar_bonus = int(market_value * 0.02)
+                    player_superstar_bonus = int(market_value * 0.08)
                     superstar_bonus += player_superstar_bonus
                     print(f"  ⭐ Superstar {player_name}: €{market_value:,} → +€{player_superstar_bonus:,} marketing bonus")
             
@@ -1751,13 +1776,13 @@ class CPULeagueManager:
         
         # Allocate goals
         for player_id, stats in self.top_scorers.items():
-            goals = stats['goals']
+            adjusted_goals = math.ceil(stats['goals'] / 2)
             cur.execute("""
                 UPDATE players 
                 SET goals = COALESCE(goals, 0) + ?
                 WHERE id = ?
-            """, (goals, player_id))
-            print(f"  ⚽ {stats['name']} ({stats['team']}): +{goals} goals")
+            """, (adjusted_goals, player_id))
+            print(f"  ⚽ {stats['name']} ({stats['team']}): +{adjusted_goals} goals")
         
         # Allocate assists
         for player_id, stats in self.top_assists.items():
@@ -1768,6 +1793,13 @@ class CPULeagueManager:
                 WHERE id = ?
             """, (assists, player_id))
             print(f"  🅰️ {stats['name']} ({stats['team']}): +{assists} assists")
+        
+        cur.execute("""
+            UPDATE players
+            SET goals = 0
+            WHERE registered_position = 0
+        """)
+        print("  🧤 Goalkeeper goals reset to 0")
     
     def _allocate_games_played(self, cur):
         """Allocate games played based on team participation and player overall ratings."""
@@ -1799,7 +1831,7 @@ class CPULeagueManager:
                 continue
                 
             # Calculate games for this team
-            base_games = 30  # Regular season games
+            base_games = 20  # Regular season games
             
             # Check if team made playoffs (simplified - could be enhanced)
             # For now, assume all teams get base_games, playoff teams get extra
@@ -1813,45 +1845,46 @@ class CPULeagueManager:
         if not team_players:
             return
             
-        # Core 11 players (80-95% of games)
         core_players = team_players[:11]
-        bench_players = team_players[11:14] if len(team_players) > 11 else []
-        reserves = team_players[14:] if len(team_players) > 14 else []
+        bench_players = team_players[11:15] if len(team_players) > 11 else []
+        reserves = team_players[15:] if len(team_players) > 15 else []
         
-        print(f"  🏟️ {team_name}: {len(core_players)} core, {len(bench_players)} bench, {len(reserves)} reserves")
+        print(f"  🏟️ {team_name}: {len(core_players)} core, {len(bench_players)} bench, {len(reserves)} reserves (total games: {total_games})")
         
-        # Distribute games
+        total_slots = total_games * 14  # 11 starters + 1 rotation spot per match
+        total_allocated = 0
+        
         for i, player in enumerate(core_players):
-            # Core players get 80-95% of games (24-29 games out of 30)
-            # Best players get more games
-            games_percentage = 0.95 - (i * 0.015)  # 95% for best, decreasing by 1.5% each
-            games_percentage = max(0.80, games_percentage)  # Minimum 80%
-            
-            games = int(total_games * games_percentage)
-            games = min(games, total_games)  # Cap at total games
-            
+            games_percentage = max(0.10, 0.90 - (i * 0.05))
+            games = max(1, min(total_games, int(round(total_games * games_percentage))))
+            total_allocated += games
             cur.execute("""
                 UPDATE players 
                 SET games_played = COALESCE(games_played, 0) + ?
                 WHERE id = ?
             """, (games, player['id']))
-            
             print(f"    🎮 {player['player_name']} (Overall: {player['overall']}): +{games} games ({games_percentage:.1%})")
         
-        # Bench players get remaining games (distributed among them)
-        remaining_games = total_games * 14 - sum(int(total_games * max(0.80, 0.95 - (i * 0.015))) for i in range(len(core_players)))
-        remaining_games = max(0, remaining_games)
-        
-        if bench_players and remaining_games > 0:
-            games_per_bench = max(1, int(remaining_games / len(bench_players)))
-            for player in bench_players:
+        rotation_players = bench_players + reserves
+        if rotation_players:
+            remaining_slots = max(0, total_slots - total_allocated)
+            rotation_slots = max(len(rotation_players), min(remaining_slots, total_games * len(rotation_players)))
+            max_rotation_games = max(1, int(total_games * 0.25))
+            base = rotation_slots // len(rotation_players)
+            remainder = rotation_slots % len(rotation_players)
+            
+            for idx, player in enumerate(rotation_players):
+                games = base + (1 if idx < remainder else 0)
+                games = max(1, min(max_rotation_games, games))
+                total_allocated += games
                 cur.execute("""
                     UPDATE players 
                     SET games_played = COALESCE(games_played, 0) + ?
                     WHERE id = ?
-                """, (games_per_bench, player['id']))
+                """, (games, player['id']))
                 
-                print(f"    🪑 {player['player_name']} (Overall: {player['overall']}): +{games_per_bench} games (bench)")
+                marker = "🪑" if idx < len(bench_players) else "📋"
+                print(f"    {marker} {player['player_name']} (Overall: {player['overall']}): +{games} games (rotation)")
     
     def _batch_update_player_stats_in_database(self):
         """Batch update player statistics in the main players table (goals and assists only)."""
@@ -2090,4 +2123,5 @@ class CPULeagueManager:
         self.current_season_id = None
 
 # Global league manager instance
+league_manager = CPULeagueManager()
 league_manager = CPULeagueManager()

@@ -22,7 +22,7 @@ MARKET_BAZAAR_ENABLED = True  # Set to False to disable automatic market activit
 
 def get_next_market_activity_time():
     """Get the next market activity time (3 hours from now)"""
-    return (datetime.now() + timedelta(minutes=180)).isoformat()
+    return (datetime.now() + timedelta(minutes=120)).isoformat()
 
 def update_market_activity_timer():
     """Update the market activity timer in the database"""
@@ -33,6 +33,90 @@ def update_market_activity_timer():
     db_helper.commit()
     cur.close()
     return next_time
+
+def check_and_run_scheduled_market_activity():
+    """Check if it's time to run scheduled market activity and execute it once"""
+    cur = db_helper.get_cursor()
+    try:
+        # Get current time and stored times
+        now = datetime.now()
+        cur.execute("SELECT value FROM app_settings WHERE key = 'next_market_activity'")
+        next_time_row = cur.fetchone()
+        cur.execute("SELECT value FROM app_settings WHERE key = 'last_market_activity_run'")
+        last_run_row = cur.fetchone()
+        
+        if not next_time_row:
+            return False
+        
+        next_time = datetime.fromisoformat(next_time_row[0])
+        last_run = datetime.fromisoformat(last_run_row[0]) if last_run_row else datetime.min
+        
+        # Check if it's time to run and hasn't run yet for this cycle
+        if now >= next_time and last_run < next_time:
+            # Check lock to prevent simultaneous runs
+            cur.execute("SELECT value FROM app_settings WHERE key = 'market_activity_running'")
+            running_check = cur.fetchone()
+            
+            if running_check and running_check[0] == 'true':
+                return False  # Already running
+            
+            # Set lock
+            cur.execute("""
+                INSERT OR REPLACE INTO app_settings (key, value, updated_at) 
+                VALUES ('market_activity_running', 'true', CURRENT_TIMESTAMP)
+            """)
+            db_helper.commit()
+            
+            try:
+                # Run the scheduled activity
+                from cpu_ai import cpu_ai
+                
+                # Trigger CPU AI activity
+                cpu_result = cpu_ai.process_cpu_ai_actions()
+                
+                # Process expired offers
+                from app import check_expired_offers
+                check_expired_offers()
+                
+                # Create blog post
+                actions_count = cpu_result.get('actions_count', 0)
+                actions_taken = cpu_result.get('actions_taken', [])
+                
+                if actions_count > 0:
+                    actions_taken = cpu_result.get('actions_taken', [])
+                    blog_title = f"⚡ Scheduled Market Activity - {actions_count} Actions Taken"
+                    blog_content = f"🤖 <strong>Automated Market Activity Report</strong><br><br>The scheduled market activity has completed with <strong>{actions_count}</strong> CPU actions taken.<br><br>"
+                    if actions_taken:
+                        blog_content += "<strong>Actions:</strong><br><ul>"
+                        for action in actions_taken[:10]:  # Limit to 10 for brevity
+                            blog_content += f"<li>{action}</li>"
+                        blog_content += "</ul>"
+                    blog_content += "<br><em>This activity runs automatically every 3 hours.</em>"
+                    post_transfer_news(blog_title, blog_content, user_id=1)
+                
+                # Update last run time
+                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('last_market_activity_run', ?)", (now.isoformat(),))
+                
+                # Update next activity time
+                next_activity_time = get_next_market_activity_time()
+                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('next_market_activity', ?)", (next_activity_time,))
+                
+                db_helper.commit()
+                app.logger.info(f"Scheduled market activity completed at {now}, next at {next_activity_time}")
+                return True
+                
+            finally:
+                # Unlock
+                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('market_activity_running', 'false')")
+                db_helper.commit()
+        
+        return False
+        
+    except Exception as e:
+        app.logger.error(f"Error in check_and_run_scheduled_market_activity: {e}")
+        return False
+    finally:
+        cur.close()
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -417,7 +501,7 @@ def finances():
     total_salaries = salary_result['total_salaries'] if salary_result else 0
     
     # Calculate available cap
-    available_cap = current_budget - total_salaries
+    available_cap = current_budget - int(total_salaries/2) # UPDATE HERE BY THE END OF SEASON TO FULL SALARY
     
     # Get transaction movements
     cur.execute("""
@@ -851,7 +935,12 @@ def pes6_team_details(team_id):
     cur.execute("SELECT COALESCE(SUM(salary), 0) as total_salaries FROM players WHERE club_id = ?", (team_id,))
     salary_result = cur.fetchone()
     total_salaries = salary_result[0] if salary_result else 0
-    
+
+    # Calculate total market value
+    cur.execute("SELECT SUM(market_value) as total_market_value FROM players WHERE club_id = ?", (team_id,))
+    total_market_value_result = cur.fetchone()
+    total_market_value = total_market_value_result['total_market_value'] or 0
+
     if user_managed:
         # For user-managed teams, don't show individual team budget (use unified budget)
         budget = 0  # Hide budget for user teams
@@ -897,7 +986,8 @@ def pes6_team_details(team_id):
                          total_salaries=total_salaries,
                          budget=budget,
                          available_cap=available_cap,
-                         is_user_team=is_user_team))
+                         is_user_team=is_user_team,
+                         total_market_value=total_market_value))
     
     # Add headers to prevent caching
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -6372,6 +6462,10 @@ def create_user_season_blog_posts():
         users = cur.fetchall()
         
         for user in users:
+            # ...existing code...
+            total_salaries = salary_result['total_salaries'] if salary_result else 0
+            salary_amount = int(total_salaries)  # conversion here crops decimals
+            # ...existing code...
             user_id = user['id']
             username = user['username']
             
@@ -7229,6 +7323,7 @@ def pay_current_salary_bill():
             """, (user['id'],))
             result = cur.fetchone()
             total_salary = result['total_salary'] if result and result['total_salary'] else 0
+            total_salary = int(total_salary/2)  # Ensure it's an integer
             
             if total_salary <= 0:
                 print(f"  - {user['username']}: No salary bill to pay")
@@ -7305,6 +7400,7 @@ def pay_current_salary_bill():
             team_id = team['id']
             club_name = team['club_name']
             total_salaries = team['total_salaries']
+            total_salaries = int(total_salaries/2)  # Ensure it's an integer
             current_budget = team['budget'] or 400000000  # Default if budget is NULL
             
             if total_salaries > 0:
@@ -8049,7 +8145,7 @@ def colados_league():
                 FROM league_games
                 WHERE division_id = ? AND is_played = 1
                 ORDER BY game_date DESC
-                LIMIT 5
+                LIMIT 100
             """, (division['id'],))
             recent_games = cur.fetchall()
             

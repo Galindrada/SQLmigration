@@ -17,34 +17,36 @@ def trigger_scheduled_market_activity():
     try:
         # Import required modules
         from cpu_ai import cpu_ai
-        from app import check_expired_offers, post_transfer_news
+        from app import app, check_expired_offers, post_transfer_news
         
         print(f"🔄 Starting scheduled market activity at {datetime.now()}")
         
-        # Trigger CPU AI activity
-        cpu_result = cpu_ai.process_cpu_ai_actions()
-        print(f"🤖 CPU AI activity: {cpu_result.get('actions_taken', 0)} actions taken")
-        
-        # Process expired offers
-        check_expired_offers()
-        print("⏰ Expired offers processed")
-        
-        # Create a blog post about the market activity
-        blog_title = f"🔄 Scheduled Market Activity Complete"
-        
-        blog_content = f"""
-        <p><strong>📊 Automated Market Activity</strong></p>
-        <p>The league has completed scheduled market activity processing.</p>
-        <ul>
-        <li><strong>🤖 CPU AI Activity:</strong> {cpu_result.get('actions_taken', 0)} actions taken</li>
-        <li><strong>⏰ Expired Offers:</strong> Processed and cleaned up</li>
-        <li><strong>🔄 Market Updates:</strong> All pending transactions processed</li>
-        </ul>
-        <p><strong>✅ Market activity processing completed successfully!</strong></p>
-        """
-        
-        post_transfer_news(blog_title, blog_content, user_id=1)
-        print("📝 Blog post created")
+        # Create Flask application context
+        with app.app_context():
+            # Trigger CPU AI activity
+            cpu_result = cpu_ai.process_cpu_ai_actions()
+            print(f"🤖 CPU AI activity: {len(cpu_result.get('actions_taken', []))} actions taken")
+            
+            # Process expired offers
+            check_expired_offers()
+            print("⏰ Expired offers processed")
+            
+            # Create a blog post about the market activity
+            blog_title = f"🔄 Scheduled Market Activity Complete"
+            
+            blog_content = f"""
+            <p><strong>📊 Automated Market Activity</strong></p>
+            <p>The league has completed scheduled market activity processing.</p>
+            <ul>
+            <li><strong>🤖 CPU AI Activity:</strong> {len(cpu_result.get('actions_taken', []))} actions taken</li>
+            <li><strong>⏰ Expired Offers:</strong> Processed and cleaned up</li>
+            <li><strong>🔄 Market Updates:</strong> All pending transactions processed</li>
+            </ul>
+            <p><strong>✅ Market activity processing completed successfully!</strong></p>
+            """
+            
+            post_transfer_news(blog_title, blog_content, user_id=1)
+            print("📝 Blog post created")
         
         print(f"✅ Scheduled market activity completed successfully at {datetime.now()}")
         return True

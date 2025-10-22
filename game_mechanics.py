@@ -1652,6 +1652,7 @@ NATIONALITY_DATA = {
     'Bosnia and Herzegovina': {'skin_color': 1, 'weight': 0.005, 'names': ['Adnan', 'Benjamin', 'Dino', 'Emir', 'Faruk', 'Goran', 'Haris', 'Ivan', 'Jasmin', 'Kenan']},
     'Bulgaria': {'skin_color': 1, 'weight': 0.005, 'names': ['Aleksandar', 'Boris', 'Dimitar', 'Emil', 'Georgi', 'Hristo', 'Ivan', 'Jordan', 'Krasimir', 'Lyubomir']},
     'Burkina Faso': {'skin_color': 4, 'weight': 0.005, 'names': ['Abdoulaye', 'Boureima', 'Cheick', 'Daouda', 'Emmanuel', 'François', 'Gérard', 'Hervé', 'Issouf', 'Jean']},
+    'Cape Verde': {'skin_color': 4, 'weight': 0.005, 'names': ['Adilson', 'Bruno', 'Carlos', 'Domingos', 'Eduardo', 'Fernando', 'Gilberto', 'Helder', 'Ivan', 'João']},
     'Congo': {'skin_color': 4, 'weight': 0.005, 'names': ['Alain', 'Boris', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
     'Costa Rica': {'skin_color': 3, 'weight': 0.005, 'names': ['Alejandro', 'Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge', 'Luis']},
     'Cote d\'Ivoire': {'skin_color': 4, 'weight': 0.005, 'names': ['Abou', 'Bakary', 'Cheick', 'Didier', 'Emmanuel', 'Franck', 'Gervinho', 'Hervé', 'Ibrahim', 'Jean']},
@@ -1762,6 +1763,7 @@ SURNAME_DATA = {
     'Angola': ['Santos', 'Fernandes', 'Silva', 'Costa', 'Pereira', 'Oliveira', 'Rodrigues', 'Ferreira', 'Alves', 'Gomes'],
     'Armenia': ['Grigoryan', 'Khachatryan', 'Harutyunyan', 'Sargsyan', 'Vardanyan', 'Petrosyan', 'Karapetyan', 'Ghazaryan', 'Mkrtchyan', 'Avetisyan'],
     'Belarus': ['Ivanov', 'Petrov', 'Sidorov', 'Kozlov', 'Morozov', 'Volkov', 'Alekseev', 'Lebedev', 'Semenov', 'Egorov'],
+    'Cape Verde': ['Santos', 'Fernandes', 'Silva', 'Costa', 'Pereira', 'Oliveira', 'Rodrigues', 'Ferreira', 'Alves', 'Gomes'],
     'Benin': ['Adjanohoun', 'Agbessi', 'Akplogan', 'Bokonon', 'Dossou', 'Gbaguidi', 'Houngbédji', 'Kouassi', 'Migan', 'Tchibozo'],
     'Bolivia': ['García', 'Rodríguez', 'González', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
     'Bosnia and Herzegovina': ['Kovačević', 'Petrović', 'Nikolić', 'Marković', 'Đorđević', 'Stojanović', 'Ilić', 'Stanković', 'Pavlović', 'Milošević'],
@@ -2259,7 +2261,7 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
         for skill in special_fields:
             if skill in special_abilities:
                 # 10% chance to get the ability as 1, 90% chance to get 0
-                special_attributes[skill] = 1 if random.random() < 0.1 else 0
+                special_attributes[skill] = 1 if random.random() < 0.05 else 0
             else:
                 # For other skills, inherit from retiring player or set to 0
                 if skill in retired_player_data:

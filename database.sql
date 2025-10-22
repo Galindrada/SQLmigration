@@ -177,6 +177,28 @@ CREATE TABLE IF NOT EXISTS player_performance (
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
 );
 
+-- Table for Retired Players (Hall of Fame)
+CREATE TABLE IF NOT EXISTS retired_players (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id INTEGER NOT NULL,
+    player_name TEXT NOT NULL,
+    team_name TEXT,
+    age_at_retirement INTEGER,
+    nationality TEXT,
+    registered_position TEXT,
+    retirement_date TEXT DEFAULT CURRENT_TIMESTAMP,
+    retirement_season TEXT,
+    career_earnings INTEGER DEFAULT 0,
+    total_games_played INTEGER DEFAULT 0,
+    total_goals INTEGER DEFAULT 0,
+    total_assists INTEGER DEFAULT 0,
+    final_salary INTEGER DEFAULT 0,
+    final_market_value INTEGER DEFAULT 0,
+    retirement_reason TEXT,
+    seasons_played INTEGER DEFAULT 0,
+    FOREIGN KEY (player_id) REFERENCES players(id)
+);
+
 -- Table for user-managed teams in your league
 CREATE TABLE IF NOT EXISTS league_teams (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
