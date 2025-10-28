@@ -1588,59 +1588,59 @@ from typing import Dict, List, Tuple
 
 # Nationality data with skin color mapping (PES6 numbering: 1python 4=dark)
 NATIONALITY_DATA = {
-    'Brazil': {'skin_color': 3, 'weight': 0.10, 'names': ['Yago', 'Diamante', 'Cobrinha', 'Pedrão', 'Vascão', 'Guti', 'Biscão', 'Carlinhos', 'João', 'Pedro', 'Lucas', 'Gabriel', 'Matheus', 'Rafael', 'Bruno', 'Carlos', 'André', 'Felipe', 'Diego', 'Thiago', 'Marcos', 'Rodrigo', 'Fernando', 'Ricardo', 'Alexandre', 'Daniel', 'Leonardo', 'Eduardo', 'Fábio', 'Gustavo', 'Henrique', 'Igor', 'Juliano', 'Leandro', 'Marcelo', 'Nelson', 'Otávio', 'Paulo', 'Renato', 'Sérgio', 'Tiago', 'Vitor', 'Wagner', 'Yuri', 'Zeca', 'Adriano', 'Bernardo', 'Caio', 'Davi', 'Emanuel', 'Felipe', 'Guilherme', 'Hugo', 'Ivan', 'João', 'Kaique', 'Luan', 'Miguel']},
-    'Argentina': {'skin_color': 1, 'weight': 0.07, 'names': ['Pablito', 'Pato', 'Cholo', 'Guari', 'Santiago', 'Mateo', 'Benjamín', 'Lucas', 'Nicolás', 'Alejandro', 'Diego', 'Martín', 'Javier', 'Gonzalo', 'Facundo', 'Agustín', 'Tomás', 'Sebastián', 'Emiliano', 'Matías', 'Franco', 'Ignacio', 'Valentín', 'Thiago', 'Bautista', 'Santino', 'Dante', 'Ian', 'Lautaro', 'Máximo', 'Simón', 'Bruno', 'Leonardo', 'Gael', 'Lorenzo', 'Benicio', 'Samuel', 'Emilio', 'Rafael', 'Damián', 'Joaquín', 'Luciano', 'Milo', 'Ezequiel', 'Ciro', 'Antonio', 'Ángel', 'Liam', 'Noah', 'Mateo', 'Sebastián', 'Emiliano', 'Matías', 'Franco', 'Ignacio']},
-    'Spain': {'skin_color': 1, 'weight': 0.05, 'names': ['Pedrito', 'Carlitos', 'Carlos', 'Miguel', 'Javier', 'Antonio', 'David', 'Daniel', 'Francisco', 'José', 'Manuel', 'Luis', 'Alejandro', 'Álvaro', 'Adrián', 'Sergio', 'Pablo', 'Rafael', 'Fernando', 'Ángel', 'Rubén', 'Iván', 'Marcos', 'Jorge', 'Roberto', 'Víctor', 'Andrés', 'Gabriel', 'Raúl', 'Diego', 'Sergio', 'César', 'Eduardo', 'Alberto', 'Ramón', 'Enrique', 'Jesús', 'Ignacio', 'Ricardo', 'Óscar', 'Héctor', 'Nicolás', 'Gonzalo', 'Martín', 'Tomás', 'Emilio', 'Felipe', 'Lorenzo', 'Sebastián', 'Guillermo', 'Rodrigo', 'Santiago', 'Hugo']},
-    'France': {'skin_color': 1, 'weight': 0.04, 'names': ['Arcille', 'Napoleon', 'Jordain', 'Thomas', 'Pierre', 'Nicolas', 'Alexandre', 'Maxime', 'Antoine', 'Raphaël', 'Vincent', 'Julien', 'Baptiste', 'Lucas', 'Louis', 'Arthur', 'Victor', 'Adam', 'Nathan', 'Gabriel', 'Hugo', 'Léo', 'Raphaël', 'Paul', 'Ethan', 'Noah', 'Liam', 'Lucas', 'Gabriel', 'Arthur', 'Louis', 'Raphaël', 'Paul', 'Hugo', 'Victor', 'Adam', 'Nathan', 'Antoine', 'Maxime', 'Jules', 'Léon', 'Marcel', 'Émile', 'Henri', 'Charles', 'François', 'Jean', 'Philippe', 'Michel', 'Alain', 'Bernard', 'Claude', 'Daniel', 'Éric', 'Fabien']},
-    'England': {'skin_color': 1, 'weight': 0.03, 'names': ['Jermaine', 'Doyle', 'Cole', 'James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles', 'Thomas']},
-    'Germany': {'skin_color': 1, 'weight': 0.03, 'names': ['Buhler', 'Mads', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas', 'David', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard', 'Albert', 'Bernd']},
-    'Italy': {'skin_color': 1, 'weight': 0.03, 'names': ['Martino', 'Domenico', 'Salvatore', 'Bombardini', 'Dino', 'Marco', 'Alessandro', 'Matteo', 'Luca', 'Andrea', 'Giuseppe', 'Roberto', 'Antonio', 'Giovanni', 'Francesco', 'Francesco', 'Alessandro', 'Lorenzo', 'Leonardo', 'Gabriele', 'Tommaso', 'Riccardo', 'Edoardo', 'Davide', 'Federico', 'Simone', 'Michele', 'Stefano', 'Paolo', 'Cristian', 'Daniele', 'Manuel', 'Diego', 'Samuele', 'Nicolò', 'Mattia', 'Emanuele', 'Giacomo', 'Pietro', 'Elia', 'Christian', 'Gianluca', 'Lorenzo', 'Sebastiano', 'Valerio', 'Fabio', 'Dario', 'Enrico', 'Massimo', 'Vincenzo', 'Salvatore', 'Angelo', 'Carmine', 'Raffaele', 'Domenico']},
-    'Portugal': {'skin_color': 1, 'weight': 0.03, 'names': ['Bruninho', 'Aníbal', 'Josué', 'Sá', 'Bufo', 'Zequinha', 'Litos', 'Néné', 'João', 'Miguel', 'Diogo', 'Tiago', 'André', 'Pedro', 'Ricardo', 'Nuno', 'Rui', 'Carlos', 'Francisco', 'António', 'José', 'Manuel', 'Luís', 'Fernando', 'Paulo', 'Bruno', 'Daniel', 'Filipe', 'Gonçalo', 'Hugo', 'Ivo', 'João', 'Kiko', 'Leandro', 'Mário', 'Nelson', 'Óscar', 'Pedro', 'Quim', 'Rafael', 'Sérgio', 'Tomás', 'Úrsulo', 'Vasco', 'Xavier', 'Zé', 'Afonso', 'Bernardo', 'Carlos', 'Duarte', 'Eduardo', 'Fábio', 'Gabriel', 'Henrique', 'Igor', 'João', 'Kiko', 'Lucas', 'Miguel']},
-    'Netherlands': {'skin_color': 1, 'weight': 0.03, 'names': ['Van', 'Van der', 'Daan', 'Sem', 'Lucas', 'Milan', 'Levi', 'Finn', 'Jesse', 'Luuk', 'Bram', 'Thijs']},
-    'Belgium': {'skin_color': 1, 'weight': 0.03, 'names': ['Mertens', 'Lucas', 'Louis', 'Arthur', 'Victor', 'Adam', 'Nathan', 'Thomas', 'Maxime', 'Antoine', 'Raphaël']},
-    'Croatia': {'skin_color': 1, 'weight': 0.03, 'names': ['Davor', 'Ivan', 'Marko', 'Luka', 'Petar', 'Ante', 'Josip', 'Matej', 'Filip', 'Domagoj', 'Borna']},
-    'Serbia': {'skin_color': 1, 'weight': 0.03, 'names': ['Piko', 'Stefan', 'Nikola', 'Marko', 'Aleksandar', 'Milan', 'Petar', 'Dragan', 'Bojan', 'Dejan', 'Nemanja']},
-    'Poland': {'skin_color': 1, 'weight': 0.03, 'names': ['Gdansko', 'Jakub', 'Kacper', 'Filip', 'Szymon', 'Michał', 'Jan', 'Piotr', 'Tomasz', 'Marek', 'Adam']},
-    'Ukraine': {'skin_color': 1, 'weight': 0.03, 'names': ['Volodymyr', 'Oleksandr', 'Andriy', 'Mykhailo', 'Vitaliy', 'Serhiy', 'Ihor', 'Vasyl', 'Roman', 'Yuriy', 'Dmytro']},
-    'Russia': {'skin_color': 1, 'weight': 0.03, 'names': ['Fedor', 'Ilya', 'Alexander', 'Dmitri', 'Sergei', 'Andrei', 'Vladimir', 'Igor', 'Nikolai', 'Mikhail', 'Aleksei', 'Denis']},
-    'Turkey': {'skin_color': 3, 'weight': 0.03, 'names': ['Hakan', 'Mehmet', 'Mustafa', 'Ahmet', 'Ali', 'Hasan', 'Hüseyin', 'İbrahim', 'Murat', 'Ömer', 'Yusuf']},
-    'Morocco': {'skin_color': 3, 'weight': 0.03, 'names': ['Sarni', 'Youssef', 'Ahmad', 'Karim', 'Hassan', 'Omar', 'Khalid', 'Rachid', 'Nabil', 'Samir', 'Tariq']},
-    'Algeria': {'skin_color': 3, 'weight': 0.03, 'names': ['Ghilas', 'Karim', 'Yacine', 'Sofiane', 'Riyad', 'Islam', 'Adel', 'Samir', 'Nabil', 'Hakim', 'Farid']},
-    'Senegal': {'skin_color': 4, 'weight': 0.03, 'names': ['Mamadou', 'Ibrahima', 'Ousmane', 'Sadio', 'Kalidou', 'Cheikhou', 'Idrissa', 'Moussa', 'Pape', 'Youssouf']},
-    'Nigeria': {'skin_color': 4, 'weight': 0.03, 'names': ['Victor', 'Kelechi', 'Alex', 'Wilfred', 'Oghenekaro', 'John', 'Ahmed', 'Emmanuel', 'Odion', 'Moses']},
-    'Ghana': {'skin_color': 4, 'weight': 0.03, 'names': ['André', 'Thomas', 'Jordan', 'Daniel', 'Christian', 'Jeffrey', 'Mubarak', 'Emmanuel', 'Kwadwo', 'Asamoah']},
-    'Ivory Coast': {'skin_color': 4, 'weight': 0.03, 'names': ['Yaya', 'Wilfried', 'Serge', 'Salomon', 'Didier', 'Kolo', 'Emmanuel', 'Gervinho', 'Cheick', 'Seydou']},
-    'Cameroon': {'skin_color': 4, 'weight': 0.03, 'names': ['Samuel', 'Joel', 'Vincent', 'Eric', 'Pierre', 'Achille', 'Benjamin', 'Georges', 'Roger', 'Patrick']},
-    'Egypt': {'skin_color': 3, 'weight': 0.03, 'names': ['Mohamed', 'Ahmed', 'Mahmoud', 'Omar', 'Karim', 'Amr', 'Hossam', 'Tarek', 'Wael', 'Hassan']},
-    'Tunisia': {'skin_color': 3, 'weight': 0.02, 'names': ['Youssef', 'Wahbi', 'Hamza', 'Ferjani', 'Aymen', 'Naim', 'Saber', 'Karim', 'Oussama', 'Anis']},
-    'South Africa': {'skin_color': 4, 'weight': 0.02, 'names': ['Percy', 'Steven', 'Dean', 'Bongani', 'Siyabonga', 'Thulani', 'Kagisho', 'Teko', 'Siphiwe', 'Katlego']},
-    'Japan': {'skin_color': 3, 'weight': 0.02, 'names': ['Hideki', 'Hiroshima', 'Koji', 'Keisuke', 'Shinji', 'Yuto', 'Maya', 'Hiroshi', 'Takashi', 'Yasuhito', 'Makoto', 'Yoshinori', 'Eiji']},
-    'South Korea': {'skin_color': 3, 'weight': 0.02, 'names': ['Son', 'Ki', 'Park', 'Lee', 'Kim', 'Jung', 'Choi', 'Kwon', 'Yoon', 'Han']},
-    'China': {'skin_color': 2, 'weight': 0.02, 'names': ['Wu', 'Zhang', 'Li', 'Wang', 'Chen', 'Liu', 'Yang', 'Huang', 'Zhao', 'Zhou']},
-    'Australia': {'skin_color': 1, 'weight': 0.02, 'names': ['Tim', 'Mathew', 'Mark', 'Joshua', 'Aaron', 'Mile', 'Tom', 'Jackson', 'Adam', 'Ryan']},
-    'USA': {'skin_color': 1, 'weight': 0.03, 'names': ['Keith', 'Auston', 'Christian', 'Michael', 'Clint', 'Jozy', 'Brad', 'Tim', 'Geoff', 'Alejandro', 'Graham', 'Bobby']},
-    'Mexico': {'skin_color': 3, 'weight': 0.03, 'names': ['Serdo', 'Javier', 'Carlos', 'Andrés', 'Guillermo', 'Rafael', 'Jorge', 'Luis', 'Miguel', 'Diego', 'Eduardo']},
-    'Colombia': {'skin_color': 3, 'weight': 0.03, 'names': ['Bucho', 'James', 'Radamel', 'Juan', 'Carlos', 'David', 'Abel', 'Jackson', 'Luis', 'Fredy', 'Teófilo']},
-    'Chile': {'skin_color': 3, 'weight': 0.02, 'names': ['Cisternas', 'Arturo', 'Alexis', 'Eduardo', 'Gary', 'Claudio', 'Jorge', 'Mauricio', 'Matías', 'Charles', 'Felipe']},
-    'Uruguay': {'skin_color': 1, 'weight': 0.02, 'names': ['Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Cristian', 'Walter', 'Egidio', 'Nicolás']},
-    'Paraguay': {'skin_color': 3, 'weight': 0.02, 'names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio', 'Carlos']},
-    'Peru': {'skin_color': 3, 'weight': 0.02, 'names': ['Paolo', 'Jefferson', 'André', 'Christian', 'Yoshimar', 'Renato', 'Luis', 'Carlos', 'Miguel', 'Raúl']},
-    'Ecuador': {'skin_color': 3, 'weight': 0.02, 'names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Luis', 'Gabriel', 'Walter']},
-    'Venezuela': {'skin_color': 3, 'weight': 0.02, 'names': ['Salomón', 'Tomás', 'Rómulo', 'Alejandro', 'Luis', 'Fernando', 'Carlos', 'Roberto', 'José', 'Manuel']},
-    'Canada': {'skin_color': 1, 'weight': 0.02, 'names': ['Mitch', 'Alphonso', 'Jonathan', 'Atiba', 'Scott', 'Samuel', 'Cyle', 'Mark', 'Tosaint', 'Russell', 'Will']},
+    'Brazil': {'skin_color': 3, 'weight': 0.10, 'names': ['Yago', 'Diamante', 'Cobrinha', 'Pedrão', 'Vascão', 'Guti', 'Biscão', 'Carlinhos', 'João', 'Pedro', 'Lucas', 'Gabriel', 'Matheus', 'Rafael', 'Bruno', 'Carlos', 'André', 'Felipe', 'Diego', 'Thiago', 'Marcos', 'Rodrigo', 'Fernando', 'Ricardo', 'Alexandre', 'Daniel', 'Leonardo', 'Eduardo', 'Fábio', 'Gustavo', 'Henrique', 'Igor', 'Juliano', 'Leandro', 'Marcelo', 'Nelson', 'Otávio', 'Paulo', 'Renato', 'Sérgio', 'Tiago', 'Vitor', 'Wagner', 'Yuri', 'Zeca', 'Adriano', 'Bernardo', 'Caio', 'Davi', 'Emanuel', 'Guilherme', 'Hugo', 'Ivan', 'Kaique', 'Luan', 'Miguel', 'Antônio', 'Bento', 'César', 'Dário', 'Elias', 'Geraldo', 'Hélio', 'Ítalo', 'Júlio']},
+    'Argentina': {'skin_color': 1, 'weight': 0.07, 'names': ['Pablito', 'Pato', 'Cholo', 'Guari', 'Santiago', 'Mateo', 'Benjamín', 'Lucas', 'Nicolás', 'Alejandro', 'Diego', 'Martín', 'Javier', 'Gonzalo', 'Facundo', 'Agustín', 'Tomás', 'Sebastián', 'Emiliano', 'Matías', 'Franco', 'Ignacio', 'Valentín', 'Thiago', 'Bautista', 'Santino', 'Dante', 'Ian', 'Lautaro', 'Máximo', 'Simón', 'Bruno', 'Leonardo', 'Gael', 'Lorenzo', 'Benicio', 'Samuel', 'Emilio', 'Rafael', 'Damián', 'Joaquín', 'Luciano', 'Milo', 'Ezequiel', 'Ciro', 'Antonio', 'Ángel', 'Liam', 'Noah', 'Cristian', 'Hernán']},
+    'Spain': {'skin_color': 1, 'weight': 0.05, 'names': ['Pedrito', 'Carlitos', 'Carlos', 'Miguel', 'Javier', 'Antonio', 'David', 'Daniel', 'Francisco', 'José', 'Manuel', 'Luis', 'Alejandro', 'Álvaro', 'Adrián', 'Sergio', 'Pablo', 'Rafael', 'Fernando', 'Ángel', 'Rubén', 'Iván', 'Marcos', 'Jorge', 'Roberto', 'Víctor', 'Andrés', 'Gabriel', 'Raúl', 'Diego', 'César', 'Eduardo', 'Alberto', 'Ramón', 'Enrique', 'Jesús', 'Ignacio', 'Ricardo', 'Óscar', 'Héctor', 'Nicolás', 'Gonzalo', 'Martín', 'Tomás', 'Emilio', 'Felipe', 'Lorenzo', 'Sebastián', 'Guillermo', 'Rodrigo', 'Santiago', 'Hugo', 'Benito', 'Cristóbal', 'Domingo', 'Esteban', 'Fermín', 'Gregorio', 'Hilario', 'Isidro', 'Julián']},
+    'France': {'skin_color': 1, 'weight': 0.04, 'names': ['Arcille', 'Napoleon', 'Jordain', 'Thomas', 'Pierre', 'Nicolas', 'Alexandre', 'Maxime', 'Antoine', 'Raphaël', 'Vincent', 'Julien', 'Baptiste', 'Lucas', 'Louis', 'Arthur', 'Victor', 'Adam', 'Nathan', 'Gabriel', 'Hugo', 'Léo', 'Paul', 'Ethan', 'Noah', 'Liam', 'Jules', 'Léon', 'Marcel', 'Émile', 'Henri', 'Charles', 'François', 'Jean', 'Philippe', 'Michel', 'Alain', 'Bernard', 'Claude', 'Daniel', 'Éric', 'Fabien', 'Denis', 'Étienne', 'Gérard', 'Ivan', 'Jacques']},
+    'England': {'skin_color': 1, 'weight': 0.03, 'names': ['Jermaine', 'Doyle', 'Cole', 'James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles', 'Thomas', 'Alexander', 'Benjamin', 'Dominic', 'Edward', 'Frederick', 'Geoffrey', 'Harrison', 'Jacob']},
+    'Germany': {'skin_color': 1, 'weight': 0.03, 'names': ['Buhler', 'Mads', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas', 'David', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard', 'Albert', 'Bernd', 'Adolf', 'Bernhard', 'Conrad', 'Dietrich', 'Eberhard', 'Günther', 'Heinrich', 'Ingo', 'Jürgen']},
+    'Italy': {'skin_color': 1, 'weight': 0.03, 'names': ['Martino', 'Domenico', 'Salvatore', 'Bombardini', 'Dino', 'Marco', 'Alessandro', 'Matteo', 'Luca', 'Andrea', 'Giuseppe', 'Roberto', 'Antonio', 'Giovanni', 'Francesco', 'Lorenzo', 'Leonardo', 'Gabriele', 'Tommaso', 'Riccardo', 'Edoardo', 'Davide', 'Federico', 'Simone', 'Michele', 'Stefano', 'Paolo', 'Cristian', 'Daniele', 'Manuel', 'Diego', 'Samuele', 'Nicolò', 'Mattia', 'Emanuele', 'Giacomo', 'Pietro', 'Elia', 'Christian', 'Gianluca', 'Sebastiano', 'Valerio', 'Fabio', 'Dario', 'Enrico', 'Massimo', 'Vincenzo', 'Angelo', 'Carmine', 'Raffaele', 'Alberto', 'Benito', 'Cesare', 'Enzo', 'Gianni', 'Hugo', 'Italo', 'Jacopo']},
+    'Portugal': {'skin_color': 1, 'weight': 0.03, 'names': ['Bruninho', 'Aníbal', 'Josué', 'Sá', 'Bufo', 'Zequinha', 'Litos', 'Néné', 'João', 'Miguel', 'Diogo', 'Tiago', 'André', 'Pedro', 'Ricardo', 'Nuno', 'Rui', 'Carlos', 'Francisco', 'António', 'José', 'Manuel', 'Luís', 'Fernando', 'Paulo', 'Bruno', 'Daniel', 'Filipe', 'Gonçalo', 'Hugo', 'Ivo', 'Kiko', 'Leandro', 'Mário', 'Nelson', 'Óscar', 'Quim', 'Rafael', 'Sérgio', 'Tomás', 'Úrsulo', 'Vasco', 'Xavier', 'Zé', 'Afonso', 'Bernardo', 'Duarte', 'Eduardo', 'Fábio', 'Gabriel', 'Henrique', 'Igor', 'Lucas']},
+    'Netherlands': {'skin_color': 1, 'weight': 0.03, 'names': ['Van', 'Van der', 'Daan', 'Sem', 'Lucas', 'Milan', 'Levi', 'Finn', 'Jesse', 'Luuk', 'Bram', 'Thijs', 'Adriaan', 'Cornelis', 'Dirk', 'Erik', 'Frits', 'Gerard', 'Hendrik', 'Ivo', 'Jeroen']},
+    'Belgium': {'skin_color': 1, 'weight': 0.03, 'names': ['Mertens', 'Lucas', 'Louis', 'Arthur', 'Victor', 'Adam', 'Nathan', 'Thomas', 'Maxime', 'Antoine', 'Raphaël', 'Adrien', 'Benoît', 'Cédric', 'Damien', 'Étienne', 'Fabien', 'Gaëtan', 'Hugo', 'Ivan', 'Jérôme']},
+    'Croatia': {'skin_color': 1, 'weight': 0.03, 'names': ['Davor', 'Ivan', 'Marko', 'Luka', 'Petar', 'Ante', 'Josip', 'Matej', 'Filip', 'Domagoj', 'Borna', 'Branko', 'Cvitan', 'Emil', 'Goran', 'Hrvoje']},
+    'Serbia': {'skin_color': 1, 'weight': 0.03, 'names': ['Piko', 'Stefan', 'Nikola', 'Marko', 'Aleksandar', 'Milan', 'Petar', 'Dragan', 'Bojan', 'Dejan', 'Nemanja', 'Čedomir', 'Emil', 'Filip', 'Goran', 'Hristijan', 'Ivan', 'Jovan']},
+    'Poland': {'skin_color': 1, 'weight': 0.03, 'names': ['Gdansko', 'Jakub', 'Kacper', 'Filip', 'Szymon', 'Michał', 'Jan', 'Piotr', 'Tomasz', 'Marek', 'Adam', 'Bartosz', 'Czesław', 'Dariusz', 'Emil', 'Grzegorz', 'Henryk', 'Igor']},
+    'Ukraine': {'skin_color': 1, 'weight': 0.03, 'names': ['Volodymyr', 'Oleksandr', 'Andriy', 'Mykhailo', 'Vitaliy', 'Serhiy', 'Ihor', 'Vasyl', 'Roman', 'Yuriy', 'Dmytro', 'Bohdan', 'Cyril', 'Eugene', 'Fedor', 'Gregory', 'Hryhoriy', 'Ivan', 'Jaroslav']},
+    'Russia': {'skin_color': 1, 'weight': 0.03, 'names': ['Fedor', 'Ilya', 'Alexander', 'Dmitri', 'Sergei', 'Andrei', 'Vladimir', 'Igor', 'Nikolai', 'Mikhail', 'Aleksei', 'Denis', 'Anatoly', 'Boris', 'Cyril', 'Dmitry', 'Eugene', 'Gregory', 'Herman', 'Josef']},
+    'Turkey': {'skin_color': 3, 'weight': 0.03, 'names': ['Hakan', 'Mehmet', 'Mustafa', 'Ahmet', 'Ali', 'Hasan', 'Hüseyin', 'İbrahim', 'Murat', 'Ömer', 'Yusuf', 'Burak', 'Cem', 'Deniz', 'Emre', 'Fatih', 'Gökhan', 'Jale']},
+    'Morocco': {'skin_color': 3, 'weight': 0.03, 'names': ['Sarni', 'Youssef', 'Ahmad', 'Karim', 'Hassan', 'Omar', 'Khalid', 'Rachid', 'Nabil', 'Samir', 'Tariq', 'Abdel', 'Brahim', 'Chakib', 'Driss', 'El Mehdi', 'Fouad', 'Ghassan', 'Hicham', 'Ilyas', 'Jalal']},
+    'Algeria': {'skin_color': 3, 'weight': 0.03, 'names': ['Ghilas', 'Karim', 'Yacine', 'Sofiane', 'Riyad', 'Islam', 'Adel', 'Samir', 'Nabil', 'Hakim', 'Farid', 'Abdel', 'Brahim', 'Chakib', 'Driss', 'El Mehdi', 'Fouad', 'Ghassan', 'Hicham', 'Ilyas', 'Jalal']},
+    'Senegal': {'skin_color': 4, 'weight': 0.03, 'names': ['Mamadou', 'Ibrahima', 'Ousmane', 'Sadio', 'Kalidou', 'Cheikhou', 'Idrissa', 'Moussa', 'Pape', 'Youssouf', 'Abdoulaye', 'Boubacar', 'Cheikh', 'Demba', 'El Hadji', 'Fallou', 'Gorgui', 'Habib', 'Jules']},
+    'Nigeria': {'skin_color': 4, 'weight': 0.03, 'names': ['Victor', 'Kelechi', 'Alex', 'Wilfred', 'Oghenekaro', 'John', 'Ahmed', 'Emmanuel', 'Odion', 'Moses', 'Abiodun', 'Babatunde', 'Chidi', 'Dare', 'Emeka', 'Femi', 'Gbenga', 'Hakeem', 'Ikenna', 'Jide']},
+    'Ghana': {'skin_color': 4, 'weight': 0.03, 'names': ['André', 'Thomas', 'Jordan', 'Daniel', 'Christian', 'Jeffrey', 'Mubarak', 'Emmanuel', 'Kwadwo', 'Asamoah', 'Abena', 'Baffour', 'Charles', 'Francis', 'George', 'Henry', 'Isaac', 'John']},
+    'Ivory Coast': {'skin_color': 4, 'weight': 0.03, 'names': ['Yaya', 'Wilfried', 'Serge', 'Salomon', 'Didier', 'Kolo', 'Emmanuel', 'Gervinho', 'Cheick', 'Seydou', 'Abou', 'Bakary', 'Franck', 'Hervé', 'Ibrahim', 'Jean']},
+    'Cameroon': {'skin_color': 4, 'weight': 0.03, 'names': ['Samuel', 'Joel', 'Vincent', 'Eric', 'Pierre', 'Achille', 'Benjamin', 'Georges', 'Roger', 'Patrick', 'Abel', 'Benoît', 'Célestin', 'Désiré', 'Emmanuel', 'Félix', 'Gabriel', 'Henri', 'Ignace', 'Jean']},
+    'Egypt': {'skin_color': 3, 'weight': 0.03, 'names': ['Mohamed', 'Ahmed', 'Mahmoud', 'Omar', 'Karim', 'Amr', 'Hossam', 'Tarek', 'Wael', 'Hassan', 'Badr', 'Cherif', 'Diaa', 'Emad', 'Fady', 'Gamal', 'Ibrahim', 'Jalal']},
+    'Tunisia': {'skin_color': 3, 'weight': 0.02, 'names': ['Youssef', 'Wahbi', 'Hamza', 'Ferjani', 'Aymen', 'Naim', 'Saber', 'Karim', 'Oussama', 'Anis', 'Abdel', 'Brahim', 'Chakib', 'Driss', 'El Mehdi', 'Fouad', 'Ghassan', 'Hicham', 'Ilyas', 'Jalal']},
+    'South Africa': {'skin_color': 4, 'weight': 0.02, 'names': ['Percy', 'Steven', 'Dean', 'Bongani', 'Siyabonga', 'Thulani', 'Kagisho', 'Teko', 'Siphiwe', 'Katlego', 'Abel', 'Cedric', 'Dumisani', 'Eugene', 'Fikile', 'Gareth', 'Hendrik', 'Ivan', 'Johan']},
+    'Japan': {'skin_color': 3, 'weight': 0.02, 'names': ['Hideki', 'Hiroshima', 'Koji', 'Keisuke', 'Shinji', 'Yuto', 'Maya', 'Hiroshi', 'Takashi', 'Yasuhito', 'Makoto', 'Yoshinori', 'Eiji', 'Akira', 'Bunta', 'Chihiro', 'Daiki', 'Fumio', 'Goro', 'Ichiro', 'Jiro']},
+    'South Korea': {'skin_color': 3, 'weight': 0.02, 'names': ['Son', 'Ki', 'Park', 'Lee', 'Kim', 'Jung', 'Choi', 'Kwon', 'Yoon', 'Han', 'Ahn', 'Bae', 'Dong', 'Eun', 'Feng', 'Gang', 'Hoon', 'In', 'Jae']},
+    'China': {'skin_color': 2, 'weight': 0.02, 'names': ['Wu', 'Zhang', 'Li', 'Wang', 'Chen', 'Liu', 'Yang', 'Huang', 'Zhao', 'Zhou', 'An', 'Bao', 'Dong', 'En', 'Feng', 'Gang', 'Hao', 'In', 'Jian']},
+    'Australia': {'skin_color': 1, 'weight': 0.02, 'names': ['Tim', 'Mathew', 'Mark', 'Joshua', 'Aaron', 'Mile', 'Tom', 'Jackson', 'Adam', 'Ryan', 'Blake', 'Connor', 'Declan', 'Ethan', 'Flynn', 'George', 'Harrison', 'Isaac', 'Jake']},
+    'USA': {'skin_color': 1, 'weight': 0.03, 'names': ['Keith', 'Auston', 'Christian', 'Michael', 'Clint', 'Jozy', 'Brad', 'Tim', 'Geoff', 'Alejandro', 'Graham', 'Bobby', 'Aaron', 'Blake', 'Connor', 'Declan', 'Ethan', 'Flynn', 'George', 'Harrison', 'Isaac', 'Jake']},
+    'Mexico': {'skin_color': 3, 'weight': 0.03, 'names': ['Serdo', 'Javier', 'Carlos', 'Andrés', 'Guillermo', 'Rafael', 'Jorge', 'Luis', 'Miguel', 'Diego', 'Eduardo', 'Alejandro', 'Benito', 'Fernando', 'Gabriel', 'Héctor', 'Iván']},
+    'Colombia': {'skin_color': 3, 'weight': 0.03, 'names': ['Bucho', 'James', 'Radamel', 'Juan', 'Carlos', 'David', 'Abel', 'Jackson', 'Luis', 'Fredy', 'Teófilo', 'Alejandro', 'Benito', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge']},
+    'Chile': {'skin_color': 3, 'weight': 0.02, 'names': ['Cisternas', 'Arturo', 'Alexis', 'Eduardo', 'Gary', 'Claudio', 'Jorge', 'Mauricio', 'Matías', 'Charles', 'Felipe', 'Alejandro', 'Benito', 'Carlos', 'Diego', 'Fernando', 'Gabriel', 'Héctor', 'Iván']},
+    'Uruguay': {'skin_color': 1, 'weight': 0.02, 'names': ['Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Cristian', 'Walter', 'Egidio', 'Nicolás', 'Alejandro', 'Benito', 'Carlos', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge']},
+    'Paraguay': {'skin_color': 3, 'weight': 0.02, 'names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio', 'Carlos', 'Alejandro', 'Benito', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge']},
+    'Peru': {'skin_color': 3, 'weight': 0.02, 'names': ['Paolo', 'Jefferson', 'André', 'Christian', 'Yoshimar', 'Renato', 'Luis', 'Carlos', 'Miguel', 'Raúl', 'Alejandro', 'Benito', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge']},
+    'Ecuador': {'skin_color': 3, 'weight': 0.02, 'names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Luis', 'Gabriel', 'Walter', 'Alejandro', 'Benito', 'Diego', 'Eduardo', 'Fernando', 'Héctor', 'Iván', 'Jorge']},
+    'Venezuela': {'skin_color': 3, 'weight': 0.02, 'names': ['Salomón', 'Tomás', 'Rómulo', 'Alejandro', 'Luis', 'Fernando', 'Carlos', 'Roberto', 'José', 'Manuel', 'Benito', 'Diego', 'Eduardo', 'Gabriel', 'Héctor', 'Iván', 'Jorge']},
+    'Canada': {'skin_color': 1, 'weight': 0.02, 'names': ['Mitch', 'Alphonso', 'Jonathan', 'Atiba', 'Scott', 'Samuel', 'Cyle', 'Mark', 'Tosaint', 'Russell', 'Will', 'Aaron', 'Blake', 'Connor', 'Declan', 'Ethan', 'Flynn', 'George', 'Harrison', 'Isaac', 'Jake']},
     
     # Additional countries from database
-    'Austria': {'skin_color': 1, 'weight': 0.02, 'names': ['David', 'Lukas', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard']},
-    'Switzerland': {'skin_color': 1, 'weight': 0.02, 'names': ['David', 'Lukas', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Lukas', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard', 'Albert']},
-    'Sweden': {'skin_color': 1, 'weight': 0.02, 'names': ['Mats', 'Rasmus', 'William', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
-    'Norway': {'skin_color': 1, 'weight': 0.02, 'names': ['Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
-    'Denmark': {'skin_color': 1, 'weight': 0.02, 'names': ['Fredrik', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
-    'Finland': {'skin_color': 1, 'weight': 0.02, 'names': ['Mikko', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
-    'Iceland': {'skin_color': 1, 'weight': 0.02, 'names': ['Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam']},
-    'Ireland': {'skin_color': 1, 'weight': 0.02, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles']},
-    'Scotland': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles']},
-    'Wales': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles']},
-    'Northern Ireland': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles']},
+    'Austria': {'skin_color': 1, 'weight': 0.02, 'names': ['David', 'Lukas', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard', 'Adolf', 'Bernhard', 'Conrad', 'Dietrich', 'Eberhard', 'Günther', 'Heinrich', 'Ingo', 'Jürgen']},
+    'Switzerland': {'skin_color': 1, 'weight': 0.02, 'names': ['David', 'Lukas', 'Maximilian', 'Alexander', 'Felix', 'Leon', 'Paul', 'Jonas', 'Julian', 'Niklas', 'Tim', 'Sebastian', 'Daniel', 'Matthias', 'Michael', 'Thomas', 'Simon', 'Florian', 'Andreas', 'Stefan', 'Markus', 'Christoph', 'Martin', 'Peter', 'Wolfgang', 'Klaus', 'Hans', 'Franz', 'Josef', 'Karl', 'Robert', 'Manfred', 'Gerhard', 'Walter', 'Ernst', 'Friedrich', 'Otto', 'Rudolf', 'Heinz', 'Kurt', 'Fritz', 'Alfred', 'Bruno', 'Erich', 'Gustav', 'Hermann', 'Johann', 'Leopold', 'Richard', 'Albert', 'Adolf', 'Bernhard', 'Conrad', 'Dietrich', 'Eberhard', 'Günther', 'Heinrich', 'Ingo', 'Jürgen']},
+    'Sweden': {'skin_color': 1, 'weight': 0.02, 'names': ['Mats', 'Rasmus', 'William', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Adolf', 'Bernhard', 'Conrad', 'Dietrich', 'Eberhard', 'Friedrich', 'Günther', 'Heinrich', 'Ingo', 'Jürgen']},
+    'Norway': {'skin_color': 1, 'weight': 0.02, 'names': ['Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Adolf', 'Bernhard', 'Conrad', 'Dietrich', 'Eberhard', 'Friedrich', 'Günther', 'Heinrich', 'Ingo', 'Jürgen']},
+    'Denmark': {'skin_color': 1, 'weight': 0.02, 'names': ['Fredrik', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Adolf', 'Bernhard', 'Conrad', 'Dietrich', 'Eberhard', 'Friedrich', 'Günther', 'Heinrich', 'Ingo', 'Jürgen']},
+    'Finland': {'skin_color': 1, 'weight': 0.02, 'names': ['Mikko', 'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Adolf', 'Bernhard', 'Conrad', 'Dietrich', 'Eberhard', 'Friedrich', 'Günther', 'Heinrich', 'Ingo', 'Jürgen']},
+    'Iceland': {'skin_color': 1, 'weight': 0.02, 'names': ['Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Gustav', 'Oscar', 'Axel', 'Elias', 'William', 'Hugo', 'Arvid', 'Emil', 'Viktor', 'Leo', 'Noah', 'Liam', 'Oliver', 'Lucas', 'Adolf', 'Bernhard', 'Conrad', 'Dietrich', 'Eberhard', 'Friedrich', 'Günther', 'Heinrich', 'Ingo', 'Jürgen']},
+    'Ireland': {'skin_color': 1, 'weight': 0.02, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles', 'Blake', 'Declan', 'Flynn', 'Harrison', 'Jake']},
+    'Scotland': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles', 'Blake', 'Declan', 'Flynn', 'Harrison', 'Jake']},
+    'Wales': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles', 'Blake', 'Declan', 'Flynn', 'Harrison', 'Jake']},
+    'Northern Ireland': {'skin_color': 1, 'weight': 0.01, 'names': ['James', 'William', 'Oliver', 'Harry', 'Jack', 'Noah', 'Charlie', 'Oscar', 'George', 'Ethan', 'Liam', 'Lucas', 'Mason', 'Logan', 'Sebastian', 'Jackson', 'Aiden', 'Owen', 'Samuel', 'Matthew', 'Joseph', 'Levi', 'Mateo', 'David', 'Wyatt', 'John', 'Luke', 'Henry', 'Andrew', 'Isaac', 'Joshua', 'Christopher', 'Grayson', 'Caleb', 'Ryan', 'Nathan', 'Adrian', 'Miles', 'Eli', 'Nolan', 'Christian', 'Aaron', 'Cameron', 'Ezekiel', 'Colton', 'Luca', 'Landon', 'Hunter', 'Jonathan', 'Connor', 'Charles', 'Blake', 'Declan', 'Flynn', 'Harrison', 'Jake']},
     
     # Additional missing countries from database
     'Albania': {'skin_color': 1, 'weight': 0.005, 'names': ['Arben', 'Bardh', 'Dritan', 'Endrit', 'Flamur', 'Genti', 'Hasan', 'Ilir', 'Jeton', 'Kastriot']},
@@ -1685,7 +1685,7 @@ NATIONALITY_DATA = {
     'Martinique': {'skin_color': 4, 'weight': 0.001, 'names': ['Alain', 'Bruno', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
     'Mozambique': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Bruno', 'Carlos', 'Daniel', 'Emmanuel', 'Fernando', 'Gabriel', 'Henri', 'Ivan', 'João']},
     'Netherlands Antilles': {'skin_color': 3, 'weight': 0.001, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
-    'New Zealand': {'skin_color': 1, 'weight': 0.002, 'names': ['Aaron', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'New Zealand': {'skin_color': 1, 'weight': 0.002, 'names': ['Aaron', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John', 'Blake', 'Connor', 'Declan', 'Ethan', 'Flynn', 'Harrison', 'Isaac', 'Jake']},
     'Oman': {'skin_color': 2, 'weight': 0.001, 'names': ['Ahmed', 'Badr', 'Fahad', 'Hamed', 'Ibrahim', 'Jaber', 'Khalid', 'Majid', 'Nasser', 'Omar']},
     'Panama': {'skin_color': 3, 'weight': 0.001, 'names': ['Alejandro', 'Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge', 'Luis']},
     'Romania': {'skin_color': 1, 'weight': 0.01, 'names': ['Alexandru', 'Bogdan', 'Cristian', 'Daniel', 'Eduard', 'Florin', 'Gabriel', 'Horia', 'Ionut', 'Johan']},
@@ -1696,7 +1696,7 @@ NATIONALITY_DATA = {
     'Slovenia': {'skin_color': 1, 'weight': 0.001, 'names': ['Aleš', 'Bojan', 'Dejan', 'Erik', 'Filip', 'Gregor', 'Henrik', 'Igor', 'Jure', 'Klemen']},
     'Togo': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Benoît', 'Célestin', 'Désiré', 'Emmanuel', 'Félix', 'Gabriel', 'Henri', 'Ignace', 'Jean']},
     'Trinidad and Tobago': {'skin_color': 4, 'weight': 0.001, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
-    'United States': {'skin_color': 1, 'weight': 0.001, 'names': ['Aaron', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
+    'United States': {'skin_color': 1, 'weight': 0.001, 'names': ['Aaron', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John', 'Blake', 'Connor', 'Declan', 'Ethan', 'Flynn', 'Harrison', 'Isaac', 'Jake']},
     'Uzbekistan': {'skin_color': 2, 'weight': 0.001, 'names': ['Akmal', 'Bakhtiyor', 'Dilshod', 'Eldor', 'Farrukh', 'Gulom', 'Hikmat', 'Ibrohim', 'Javlon', 'Karim']},
     'Zambia': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
     'Zimbabwe': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']}
@@ -1938,6 +1938,162 @@ def calculate_bundled_skill_ratings(skill_attributes: Dict) -> Dict:
         'goalkeeping_rating': (skill_attributes['defense'] + skill_attributes['goal_keeping'] + 
                              skill_attributes['response'] + skill_attributes['agility']) // 4
     }
+
+def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict:
+    """
+    Modify regen_data by using attributes from a base player in original.sqlite.
+    For testing purposes, always uses player ID 3226.
+    
+    Args:
+        regen_data: The regen data dictionary to modify
+        db_path: Path to the database (optional)
+    
+    Returns:
+        Modified regen_data dictionary
+    """
+    import sqlite3
+    import random
+    
+    # Randomly select a base player ID from 1 to 4783
+    base_player_id = random.randint(1, 4783)
+    
+    try:
+        # Connect to original.sqlite database
+        original_db_path = '/home/anibalgalindro/SQLiteMigration/original.sqlite'
+        conn = sqlite3.connect(original_db_path)
+        cursor = conn.cursor()
+        
+        # Get base player data
+        cursor.execute("SELECT * FROM players WHERE id = ?", (base_player_id,))
+        base_player = cursor.fetchone()
+        
+        if not base_player:
+            print(f"Warning: Base player with ID {base_player_id} not found in original.sqlite")
+            conn.close()
+            return regen_data
+        
+        # Get column names
+        cursor.execute("PRAGMA table_info(players)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        # Create base player dictionary
+        base_player_dict = dict(zip(columns, base_player))
+        
+        conn.close()
+        
+        # Generate random age between 15-20
+        age = random.randint(15, 20)
+        regen_data['age'] = age
+        
+        # Calculate age-based skill modifier
+        age_modifier = 0
+        if age == 15:
+            age_modifier = 4 + random.randint(-2, 2)  # Youngest = most penalty
+        elif age == 16:
+            age_modifier = 2 + random.randint(-2, 2)
+        elif age == 17:
+            age_modifier = 1 + random.randint(-2, 2)
+        elif age == 18:
+            age_modifier = -2 + random.randint(-2, 2)  # Baseline
+        elif age == 19:
+            age_modifier = -4 + random.randint(-2, 2)   # Older = less penalty
+        elif age == 20:
+            age_modifier = -6 + random.randint(-2, 2)   # Oldest = least penalty
+        
+        # Get inner_strength from regen_data (should be set previously)
+        inner_strength = regen_data.get('inner_strength', 5)  # Default to 5 if not set
+        
+        # Calculate inner_strength-based penalty
+        if inner_strength == 9:
+            inner_strength_penalty = 15 + random.randint(-3, 3)
+        elif inner_strength == 1:
+            inner_strength_penalty = 30
+        else:
+            # Linear interpolation between 1 and 9
+            inner_strength_penalty = 30 - ((inner_strength - 1) / 8) * 15 + random.randint(-3, 3)
+        
+        # Define positional attributes (overwrite with base player values)
+        positional_attributes = {
+            'gk': base_player_dict.get('gk', 0),
+            'cwp': base_player_dict.get('cwp', 0),
+            'cbt': base_player_dict.get('cbt', 0),
+            'sb': base_player_dict.get('sb', 0),
+            'dmf': base_player_dict.get('dmf', 0),
+            'wb': base_player_dict.get('wb', 0),
+            'cmf': base_player_dict.get('cmf', 0),
+            'smf': base_player_dict.get('smf', 0),
+            'amf': base_player_dict.get('amf', 0),
+            'wf': base_player_dict.get('wf', 0),
+            'ss': base_player_dict.get('ss', 0),
+            'cf': base_player_dict.get('cf', 0)
+        }
+        
+        # Inherit registered position from base player
+        regen_data['registered_position'] = base_player_dict.get('registered_position', 'CMF')
+        regen_data['game_position'] = base_player_dict.get('registered_position', 'CMF')
+        
+        # Define special attributes (overwrite with base player values)
+        special_attributes = {
+            'dribbling_skill': base_player_dict.get('dribbling_skill', 0),
+            'tactical_dribble': base_player_dict.get('tactical_dribble', 0),
+            'positioning': base_player_dict.get('positioning', 0),
+            'reaction': base_player_dict.get('reaction', 0),
+            'playmaking': base_player_dict.get('playmaking', 0),
+            'passing': base_player_dict.get('passing', 0),
+            'scoring': base_player_dict.get('scoring', 0),
+            'one_one_scoring': base_player_dict.get('one_one_scoring', 0),
+            'post_player': base_player_dict.get('post_player', 0),
+            'lines': base_player_dict.get('lines', 0),
+            'middle_shooting': base_player_dict.get('middle_shooting', 0),
+            'side': base_player_dict.get('side', 0),
+            'centre': base_player_dict.get('centre', 0),
+            'penalties': base_player_dict.get('penalties', 0),
+            'one_touch_pass': base_player_dict.get('one_touch_pass', 0),
+            'outside': base_player_dict.get('outside', 0),
+            'marking': base_player_dict.get('marking', 0),
+            'sliding': base_player_dict.get('sliding', 0),
+            'covering': base_player_dict.get('covering', 0),
+            'd_line_control': base_player_dict.get('d_line_control', 0),
+            'penalty_stopper': base_player_dict.get('penalty_stopper', 0),
+            'one_on_one_stopper': base_player_dict.get('one_on_one_stopper', 0),
+            'long_throw': base_player_dict.get('long_throw', 0)
+        }
+        
+        # Define skill attributes (apply penalties based on inner_strength and age, except consistency)
+        skill_attributes = {}
+        skill_fields = [
+            'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+            'response', 'agility', 'dribble_accuracy', 'dribble_speed', 'short_pass_accuracy',
+            'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed', 'shot_accuracy',
+            'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve', 'heading',
+            'jump', 'technique', 'aggression', 'goal_keeping', 'team_work', 'mentality'
+        ]
+        
+        for skill in skill_fields:
+            base_value = base_player_dict.get(skill, 0)
+            if base_value is not None:
+                # Apply inner_strength penalty + age modifier, but ensure minimum value of 1
+                total_penalty = inner_strength_penalty + age_modifier
+                skill_attributes[skill] = max(1, int(base_value - total_penalty))
+            else:
+                skill_attributes[skill] = 1
+        
+        # Keep consistency unchanged
+        skill_attributes['consistency'] = int(base_player_dict.get('consistency', 50))
+        skill_attributes['condition_fitness'] = int(base_player_dict.get('condition_fitness', 50))
+        
+        # Update regen_data with modified attributes
+        regen_data.update(positional_attributes)
+        regen_data.update(special_attributes)
+        regen_data.update(skill_attributes)
+        
+        print(f"Modified regen using base player ID {base_player_id} ({base_player_dict.get('player_name', 'Unknown')})")
+        print(f"Age: {age}, Inner Strength: {inner_strength}, Total penalty: {inner_strength_penalty + age_modifier}")
+        
+    except Exception as e:
+        print(f"Error modifying regen with base player: {e}")
+    
+    return regen_data
 
 def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dict:
     """
@@ -2409,6 +2565,7 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
         'yearly_wage_rise': yearly_wage_rise,
         'development_key': development_key,
         'trait_key': trait_key,
+        'inner_strength': inner_strength,  # Store inner_strength for modify_regen_with_base_player
         'games_played': 0,
         'goals': 0,
         'assists': 0,
@@ -2421,6 +2578,9 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
         **style_attributes,
         **bundled_ratings
     }
+    
+    # Modify regen_data using base player from original.sqlite
+    regen_data = modify_regen_with_base_player(regen_data, db_path)
     
     return regen_data
 
