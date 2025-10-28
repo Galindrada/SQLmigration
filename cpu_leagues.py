@@ -962,16 +962,16 @@ class CPULeagueManager:
             
             position_key = normalize_position(player.get('game_position') or player.get('registered_position'))
             position_multiplier = {
-                "striker": 8.0, "shadowstriker": 8.0, "forward": 8.0, "cf": 8.0, "ss": 8.0,
-                "winger": 4.0, "rightwingforward": 4.0, "leftwingforward": 4.0, "rwf": 4.0, "lwf": 4.0,
+                "striker": 7.0, "shadowstriker": 7.0, "forward": 7.0, "cf": 7.0, "ss": 7.0,
+                "winger": 3.5, "rightwingforward": 3.5, "leftwingforward": 3.5, "rwf": 3.5, "lwf": 4.0,
                 "attackingmidfielder": 2.5, "amf": 2.5,
-                "centermidfielder": 1.0, "centremidfielder": 1.0, "cmf": 1.0,
-                "sidemidfielder": 1.0, "widmidfielder": 1.0, "rmf": 1.0, "lmf": 1.0,
-                "defensivemidfielder": 0.5, "dmf": 0.5,
-                "centreback": 0.3, "centerback": 0.3, "cb": 0.3,
-                "sideback": 0.3, "fullback": 0.3, "sb": 0.3, "fb": 0.3, "rb": 0.3, "lb": 0.3,
+                "centermidfielder": 1.5, "centremidfielder": 1.5, "cmf": 1.5,
+                "sidemidfielder": 1.25, "widmidfielder": 1.25, "rmf": 1.25, "lmf": 1.25,
+                "defensivemidfielder": 0.75, "dmf": 0.75,
+                "centreback": 0.5, "centerback": 0.5, "cb": 0.5,
+                "sideback": 0.5, "fullback": 0.3, "sb": 0.5, "fb": 0.5, "rb": 0.5, "lb": 0.5,
                 "wingback": 0.3, "wb": 0.3, "sweeper": 0.3, "defender": 0.3, "df": 0.3,
-                "goalkeeper": 0.01, "gk": 0.01
+                "goalkeeper": 0.001, "gk": 0.001
             }.get(position_key, 1.0)
             attack_weight *= position_multiplier
             
@@ -1869,13 +1869,15 @@ class CPULeagueManager:
         if rotation_players:
             remaining_slots = max(0, total_slots - total_allocated)
             rotation_slots = max(len(rotation_players), min(remaining_slots, total_games * len(rotation_players)))
-            max_rotation_games = max(1, int(total_games * 0.25))
+            max_rotation_games = max(1, int(total_games * 0.5))
             base = rotation_slots // len(rotation_players)
             remainder = rotation_slots % len(rotation_players)
             
             for idx, player in enumerate(rotation_players):
                 games = base + (1 if idx < remainder else 0)
-                games = max(1, min(max_rotation_games, games))
+                # Add variance to make distribution more realistic (±1 game)
+                games += random.randint(-5, 5)
+                games = max(0, min(max_rotation_games, games))
                 total_allocated += games
                 cur.execute("""
                     UPDATE players 
@@ -2123,5 +2125,4 @@ class CPULeagueManager:
         self.current_season_id = None
 
 # Global league manager instance
-league_manager = CPULeagueManager()
 league_manager = CPULeagueManager()

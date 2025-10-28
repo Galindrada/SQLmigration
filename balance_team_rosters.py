@@ -110,7 +110,7 @@ def balance_team_rosters():
             print(f"  • {team['club_name']}: {team['player_count']} players (need to release {excess})")
         
         if not overloaded_teams:
-            print("✅ All CPU teams already have 30 or fewer players!")
+            print("✅ All CPU teams already have 31 or fewer players!")
             return
         
         # Get CPU teams with available slots

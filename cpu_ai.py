@@ -726,8 +726,13 @@ class CPUAI:
                 is_cpu_to_cpu = player['listing_type'] == 'cpu_sale'
                 player_market_value = player['market_value'] or 1000000
                 is_reasonable_price = player['asking_price'] <= player_market_value * 1.2  # Within 120% of market value
+                
+                # More lenient criteria for CPU-to-CPU to encourage trading
+                is_minor_improvement = is_cpu_to_cpu and player_overall > (current_best_overall - 2)  # Allow -2 overall for CPU trades
+                is_position_fill = is_cpu_to_cpu and current_best_overall == 0  # Fill empty positions from CPU
+                is_cpu_reasonable_deal = is_cpu_to_cpu and player['asking_price'] <= player_market_value * 1.5  # 150% for CPU-to-CPU
 
-                if is_improvement or (is_cpu_to_cpu and is_reasonable_price):
+                if is_improvement or (is_cpu_to_cpu and is_reasonable_price) or is_minor_improvement or is_position_fill or is_cpu_reasonable_deal:
                     # Apply the same sophisticated contract evaluation as CPU offers
                     asking_price = player['asking_price']
                     market_value = player['market_value'] or 1000000
@@ -763,12 +768,16 @@ class CPUAI:
                         adjusted_min = base_min + contract_bonus
                         adjusted_max = min(base_max + contract_bonus, market_value * 1.2)  # Cap at 120% of market value
 
-                    # Check if asking price is within acceptable range OR is a great deal OR is CPU-to-CPU with reasonable price
+                    # Check if asking price is within acceptable range OR is a great deal OR is CPU-to-CPU with lenient criteria
                     is_great_deal = asking_price < market_value * 0.5  # Less than 50% of market value
                     is_acceptable_price = adjusted_min <= asking_price <= adjusted_max
-                    is_cpu_to_cpu_reasonable = is_cpu_to_cpu and asking_price <= market_value * 1.2
+                    is_cpu_to_cpu_reasonable = is_cpu_to_cpu and asking_price <= market_value * 1.5  # More lenient for CPU-to-CPU
+                    
+                    # Additional CPU-to-CPU criteria for more active trading
+                    is_cpu_position_need = is_cpu_to_cpu and str(player['registered_position']) in [str(p) for p in self.get_team_position_needs(team_id)]
+                    is_cpu_squad_building = is_cpu_to_cpu and asking_price <= market_value * 1.3 and player_overall >= 70  # Squad building trades
 
-                    if is_acceptable_price or is_great_deal or is_cpu_to_cpu_reasonable:
+                    if is_acceptable_price or is_great_deal or is_cpu_to_cpu_reasonable or is_cpu_position_need or is_cpu_squad_building:
                         selected_player = player
                         break
 
@@ -1031,6 +1040,564 @@ class CPUAI:
         except Exception as e:
             print(f"Error making CPU offer for user player: {e}")
             return None
+
+    def make_cpu_free_agency_offer(self, team_id: int) -> Optional[Dict]:
+        """CPU team makes intelligent offers on free agents based on team needs"""
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            cur = conn.cursor()
+
+            # Get team analysis to understand needs
+            analysis = self.analyze_team_composition(team_id)
+            if not analysis:
+                return None
+
+            # Check squad size - don't make offers if at maximum capacity (32 players)
+            total_players = analysis['total_players']
+            if total_players >= 32:
+                print(f"Team {team_id} has {total_players} players (max capacity) - skipping free agency")
+                return None
+
+            needs = analysis['needs']
+            budget = analysis['needs'].budget_available
+            needed_positions = self.get_team_position_needs(team_id)
+
+            # Minimum budget check for free agency (need money for signing bonus)
+            # Allow teams with at least 1M or teams with negative budget but not too negative (above -50M)
+            if budget < 1000000 and budget < -50000000:  # At least 1M or not worse than -50M
+                return None
+
+            if not needed_positions:
+                return None
+
+            # Get team's current players by position for improvement analysis
+            cur.execute("""
+                SELECT registered_position, MAX(overall) as best_overall, AVG(overall) as avg_overall
+                FROM players
+                WHERE club_id = ?
+                GROUP BY registered_position
+            """, (team_id,))
+
+            position_analysis = {row['registered_position']: {
+                'best': row['best_overall'],
+                'average': row['avg_overall']
+            } for row in cur.fetchall()}
+
+            # Find available free agents (club_id = 141) in needed positions
+            positions_str = ','.join([f"'{pos}'" for pos in needed_positions])
+            cur.execute(f"""
+                SELECT p.*, 
+                       CASE WHEN fao.player_id IS NOT NULL THEN 1 ELSE 0 END as has_active_offer
+                FROM players p
+                LEFT JOIN free_agent_offers fao ON p.id = fao.player_id AND fao.status = 'active'
+                WHERE p.club_id = 141
+                AND p.registered_position IN ({positions_str})
+                AND p.overall >= 70  -- Only consider decent free agents
+                AND fao.player_id IS NULL  -- No active offers
+                ORDER BY p.overall DESC, p.salary ASC
+                LIMIT 20
+            """)
+
+            free_agents = cur.fetchall()
+            if not free_agents:
+                return None
+
+            # Intelligently evaluate free agents
+            agent_candidates = []
+            for agent in free_agents:
+                player_position = agent['registered_position']
+                player_overall = agent['overall']
+                player_age = agent['age']
+                current_salary = agent['salary']
+                
+                # Calculate interest score
+                interest_score = 0
+                
+                # Position need bonus (highest priority)
+                if player_position in needed_positions:
+                    interest_score += 60
+                
+                # Improvement bonus
+                if player_position in position_analysis:
+                    best_in_position = position_analysis[player_position]['best']
+                    avg_in_position = position_analysis[player_position]['average']
+                    
+                    if player_overall > best_in_position:
+                        interest_score += 40  # Better than current best
+                    elif player_overall > (avg_in_position + 5):
+                        interest_score += 30  # Significantly better than average
+                    elif player_overall > avg_in_position:
+                        interest_score += 20  # Better than average
+                else:
+                    # No player in this position - any decent player is valuable
+                    interest_score += 50
+                
+                # Age bonus (free agency good for experienced players)
+                if player_age <= 25:
+                    interest_score += 20  # Young talent
+                elif player_age <= 28:
+                    interest_score += 15  # Prime age
+                elif player_age <= 31:
+                    interest_score += 10  # Still good
+                elif player_age <= 34:
+                    interest_score += 5   # Experienced
+                # No bonus for very old players
+                
+                # Overall rating bonus
+                if player_overall >= 85:
+                    interest_score += 25  # Excellent player
+                elif player_overall >= 80:
+                    interest_score += 20  # Very good player
+                elif player_overall >= 75:
+                    interest_score += 15  # Good player
+                elif player_overall >= 70:
+                    interest_score += 10  # Decent player
+                
+                # Salary consideration (lower salary = more attractive)
+                if current_salary < 2000000:  # Less than 2M
+                    interest_score += 15
+                elif current_salary < 5000000:  # Less than 5M
+                    interest_score += 10
+                elif current_salary < 10000000:  # Less than 10M
+                    interest_score += 5
+                # Penalty for very expensive players
+                elif current_salary > 20000000:
+                    interest_score -= 10
+                
+                # Only consider players with meaningful interest
+                if interest_score >= 40:  # Minimum threshold
+                    agent_candidates.append({
+                        'agent': agent,
+                        'score': interest_score,
+                        'reason': 'position_needed' if player_position in needed_positions else 'improvement'
+                    })
+
+            if not agent_candidates:
+                return None
+
+            # Sort by interest score and select the best candidate
+            agent_candidates.sort(key=lambda x: x['score'], reverse=True)
+            
+            # Add some randomness - pick from top 3 candidates
+            top_candidates = agent_candidates[:3]
+            selected_candidate = random.choice(top_candidates)
+            selected_agent = selected_candidate['agent']
+            
+            # Calculate competitive offer
+            base_salary = selected_agent['salary']
+            player_age = selected_agent['age']
+            
+            # CPU offers 90-110% of current salary (competitive but not overpaying)
+            offer_multiplier = random.uniform(0.90, 1.10)
+            offered_salary = int(base_salary * offer_multiplier)
+            
+            # Contract years based on age
+            if player_age <= 25:
+                contract_years = random.choice([3, 4, 5])  # Longer for young players
+            elif player_age <= 30:
+                contract_years = random.choice([2, 3, 4])  # Medium for prime
+            else:
+                contract_years = random.choice([1, 2, 3])  # Shorter for older
+            
+            # Create the free agency offer
+            from datetime import datetime, timedelta
+            expires_at = datetime.now() + timedelta(minutes=5)  # 5 minutes like user offers
+            
+            cur.execute("""
+                INSERT INTO free_agent_offers (player_id, user_id, offered_salary, offered_contract_years, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (selected_agent['id'], 1, offered_salary, contract_years, expires_at.isoformat()))  # user_id = 1 for CPU
+            
+            # Get team name
+            cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+            team_result = cur.fetchone()
+            team_name = team_result['club_name'] if team_result else f"Team {team_id}"
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"Team {team_id} ({team_name}) made free agency offer: {selected_agent['player_name']} (Pos {selected_agent['registered_position']}, {selected_agent['overall']} OVR) - €{offered_salary:,}/year for {contract_years} years - Score: {selected_candidate['score']} ({selected_candidate['reason']})")
+            
+            return {
+                'action': 'free_agency_offer',
+                'team': team_name,
+                'details': {
+                    'player_name': selected_agent['player_name'],
+                    'offered_salary': offered_salary,
+                    'contract_years': contract_years,
+                    'player_id': selected_agent['id'],
+                    'cpu_team_id': team_id
+                }
+            }
+
+        except Exception as e:
+            print(f"Error making CPU free agency offer: {e}")
+            return None
+
+    def raise_cpu_free_agency_offer(self, team_id: int) -> Optional[Dict]:
+        """CPU team raises an existing free agency offer to compete with other bidders"""
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            cur = conn.cursor()
+
+            # Get team analysis to check budget
+            analysis = self.analyze_team_composition(team_id)
+            if not analysis:
+                return None
+
+            budget = analysis['needs'].budget_available
+            
+            # Find active offers from other teams (users or other CPU teams) that this team might want to outbid
+            cur.execute("""
+                SELECT fao.*, p.*
+                FROM free_agent_offers fao
+                JOIN players p ON fao.player_id = p.id
+                WHERE fao.status = 'active'
+                AND fao.user_id != 1  -- Only compete against user offers
+                AND p.overall >= 75   -- Only compete for quality players
+                ORDER BY p.overall DESC, fao.offered_salary ASC
+                LIMIT 20
+            """)
+            
+            competing_offers = cur.fetchall()
+            if not competing_offers:
+                return None
+
+            # Check if this team needs any of these players
+            needed_positions = self.get_team_position_needs(team_id)
+            if not needed_positions:
+                return None
+
+            # Find offers for players in positions we need
+            target_offers = []
+            for offer in competing_offers:
+                if offer['registered_position'] in needed_positions:
+                    # Calculate if we can afford to outbid (add 10-25% to current offer)
+                    raise_amount = random.randint(100000, 500000)  # 100k-500k raise
+                    new_salary = offer['offered_salary'] + raise_amount
+                    
+                    # Check if we can afford it (including signing bonus estimate)
+                    estimated_signing_bonus = int(new_salary * 0.4)  # Estimate 40% signing bonus
+                    total_cost = estimated_signing_bonus
+                    
+                    if budget >= total_cost and new_salary <= offer['salary'] * 1.5:  # Don't go crazy with offers
+                        target_offers.append({
+                            'offer': offer,
+                            'new_salary': new_salary,
+                            'raise_amount': raise_amount
+                        })
+
+            if not target_offers:
+                return None
+
+            # Pick the best target offer (highest overall player we can afford)
+            target_offers.sort(key=lambda x: x['offer']['overall'], reverse=True)
+            selected_target = target_offers[0]
+            
+            offer_to_raise = selected_target['offer']
+            new_salary = selected_target['new_salary']
+            
+            # Raise the offer by resetting timer to 5 minutes (same as user raises)
+            from datetime import datetime, timedelta
+            new_expires_at = datetime.now() + timedelta(minutes=5)
+            
+            cur.execute("""
+                UPDATE free_agent_offers
+                SET user_id = ?, offered_salary = ?, expires_at = ?
+                WHERE id = ?
+            """, (1, new_salary, new_expires_at.isoformat(), offer_to_raise['id']))  # user_id = 1 for CPU
+            
+            # Get team name
+            cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+            team_result = cur.fetchone()
+            team_name = team_result['club_name'] if team_result else f"Team {team_id}"
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"Team {team_id} ({team_name}) raised free agency offer: {offer_to_raise['player_name']} (Pos {offer_to_raise['registered_position']}, {offer_to_raise['overall']} OVR) - €{new_salary:,}/year (+€{selected_target['raise_amount']:,})")
+            
+            return {
+                'action': 'raise_free_agency_offer',
+                'team': team_name,
+                'details': {
+                    'player_name': offer_to_raise['player_name'],
+                    'old_salary': offer_to_raise['offered_salary'],
+                    'new_salary': new_salary,
+                    'raise_amount': selected_target['raise_amount'],
+                    'player_id': offer_to_raise['player_id'],
+                    'cpu_team_id': team_id
+                }
+            }
+
+        except Exception as e:
+            print(f"Error raising CPU free agency offer: {e}")
+            return None
+
+    def raise_cpu_free_agency_offer_aggressive(self, team_id: int) -> Optional[Dict]:
+        """Aggressively scan ALL user offers and raise the best ones for team needs"""
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            cur = conn.cursor()
+
+            # Get team analysis to check budget and needs
+            analysis = self.analyze_team_composition(team_id)
+            if not analysis:
+                return None
+
+            budget = analysis['needs'].budget_available
+            needed_positions = self.get_team_position_needs(team_id)
+            
+            # Check squad size - don't make offers if at maximum capacity
+            total_players = analysis['total_players']
+            if total_players >= 32:
+                return None
+            
+            # Find ALL active user offers (more comprehensive scan)
+            cur.execute("""
+                SELECT fao.*, p.*
+                FROM free_agent_offers fao
+                JOIN players p ON fao.player_id = p.id
+                WHERE fao.status = 'active'
+                AND fao.user_id != 1  -- Only compete against user offers
+                AND p.overall >= 70   -- Lower threshold for aggressive scanning
+                ORDER BY p.overall DESC, fao.offered_salary ASC
+                LIMIT 50  -- Scan more offers
+            """)
+            
+            all_user_offers = cur.fetchall()
+            if not all_user_offers:
+                return None
+
+            # Evaluate ALL offers with more aggressive criteria
+            target_offers = []
+            
+            for offer in all_user_offers:
+                player_position = offer['registered_position']
+                player_overall = offer['overall']
+                player_age = offer['age']
+                current_offer = offer['offered_salary']
+                
+                # Calculate market value
+                estimated_value = self.calculate_free_agent_market_value(dict(offer))
+                
+                # Calculate fair salary to check if offer is reasonable
+                fair_salary = self.calculate_fair_salary(dict(offer))
+                
+                # Check if the OFFERED salary is toxic (not the player's current salary)
+                toxic_threshold = fair_salary * 1.2
+                is_toxic = current_offer > toxic_threshold
+                overpayment = current_offer - fair_salary if is_toxic else 0
+                
+                # More aggressive interest scoring
+                interest_score = 0
+                
+                # Position need bonus (HIGHER priority)
+                if player_position in needed_positions:
+                    interest_score += 120  # Increased from 100
+                else:
+                    # Still interested in quality players for squad depth
+                    if player_overall >= 80:
+                        interest_score += 40  # Increased from 20
+                    else:
+                        interest_score += 15
+                
+                # Quality bonus (MORE generous)
+                if player_overall >= 85:
+                    interest_score += 60  # Increased from 50
+                elif player_overall >= 80:
+                    interest_score += 45  # Increased from 35
+                elif player_overall >= 75:
+                    interest_score += 30  # Increased from 20
+                elif player_overall >= 70:
+                    interest_score += 15  # New tier
+                
+                # Salary reasonableness check (CRITICAL for smart decisions)
+                salary_ratio = current_offer / fair_salary if fair_salary > 0 else 0
+                if is_toxic:
+                    # Heavily penalize toxic contracts
+                    if salary_ratio > 3.0:  # More than 3x fair salary
+                        interest_score -= 100  # Massive penalty
+                    elif salary_ratio > 2.0:  # More than 2x fair salary
+                        interest_score -= 60   # Heavy penalty
+                    elif salary_ratio > 1.5:  # More than 1.5x fair salary
+                        interest_score -= 30   # Moderate penalty
+                else:
+                    # Reward reasonable salaries
+                    if salary_ratio <= 0.8:  # Below fair salary
+                        interest_score += 40   # Great deal
+                    elif salary_ratio <= 1.0:  # At fair salary
+                        interest_score += 20   # Good deal
+                    elif salary_ratio <= 1.2:  # Slightly above fair
+                        interest_score += 10   # Acceptable
+                
+                # Value opportunity bonus (based on market value)
+                value_ratio = current_offer / (estimated_value * 0.1) if estimated_value > 0 else 0
+                if value_ratio < 0.6:  # Great deal
+                    interest_score += 30  # Reduced since we have salary check now
+                elif value_ratio < 0.8:
+                    interest_score += 20  # Reduced
+                elif value_ratio < 1.0:
+                    interest_score += 10  # Reduced
+                elif value_ratio < 1.5:  # Still reasonable
+                    interest_score += 5   # Reduced
+                
+                # Age bonus (more generous)
+                if player_age <= 23:
+                    interest_score += 20  # Increased from 15
+                elif player_age <= 26:
+                    interest_score += 15  # Increased from 10
+                elif player_age <= 29:
+                    interest_score += 10  # New tier
+                
+                # Calculate competitive raise amount
+                if interest_score >= 100:  # High interest
+                    raise_percentage = random.uniform(0.20, 0.40)  # More aggressive 20-40%
+                elif interest_score >= 70:  # Medium-high interest
+                    raise_percentage = random.uniform(0.15, 0.30)  # 15-30%
+                elif interest_score >= 50:  # Medium interest
+                    raise_percentage = random.uniform(0.10, 0.25)  # 10-25%
+                else:  # Lower interest
+                    raise_percentage = random.uniform(0.05, 0.15)  # 5-15%
+                
+                raise_amount = int(current_offer * raise_percentage)
+                new_salary = current_offer + raise_amount
+                
+                # More generous affordability (AGGRESSIVE criteria)
+                estimated_signing_bonus = int(new_salary * 0.4)
+                
+                # Much more generous salary limits
+                if interest_score >= 120:  # Position needed + quality
+                    max_affordable_salary = max(estimated_value * 0.35, current_offer * 2.0)  # Very aggressive
+                elif interest_score >= 100:  # High interest
+                    max_affordable_salary = max(estimated_value * 0.30, current_offer * 1.8)
+                elif interest_score >= 80:  # Medium-high interest
+                    max_affordable_salary = max(estimated_value * 0.25, current_offer * 1.6)
+                else:  # Lower interest
+                    max_affordable_salary = max(estimated_value * 0.20, current_offer * 1.4)
+                
+                # Debug logging for salary analysis
+                if player_overall >= 75:  # Only log for decent players
+                    print(f"  📊 Salary Analysis: {offer['player_name']} (Pos {player_position}, {player_overall} OVR)")
+                    print(f"     Current offer: €{current_offer:,}, Fair salary: €{fair_salary:,} (ratio: {salary_ratio:.2f})")
+                    print(f"     Toxic: {is_toxic}, Interest score: {interest_score}")
+                
+                # Lower minimum threshold for aggressive scanning
+                if (budget >= estimated_signing_bonus and 
+                    new_salary <= max_affordable_salary and 
+                    interest_score >= 30):  # Lower threshold from 40
+                    
+                    target_offers.append({
+                        'offer': offer,
+                        'new_salary': new_salary,
+                        'raise_amount': raise_amount,
+                        'interest_score': interest_score,
+                        'estimated_value': estimated_value,
+                        'value_ratio': value_ratio
+                    })
+
+            if not target_offers:
+                return None  # No suitable offers to raise
+
+            # Sort by interest score and pick the BEST opportunity
+            target_offers.sort(key=lambda x: x['interest_score'], reverse=True)
+            
+            # Take the absolute best offer (no randomness for aggressive mode)
+            selected_target = target_offers[0]
+            
+            offer_to_raise = selected_target['offer']
+            new_salary = selected_target['new_salary']
+            
+            # Raise the offer by resetting timer to 5 minutes
+            from datetime import datetime, timedelta
+            new_expires_at = datetime.now() + timedelta(minutes=5)
+            
+            cur.execute("""
+                UPDATE free_agent_offers
+                SET user_id = ?, offered_salary = ?, expires_at = ?
+                WHERE id = ?
+            """, (1, new_salary, new_expires_at.isoformat(), offer_to_raise['id']))
+            
+            # Get team name
+            cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+            team_result = cur.fetchone()
+            team_name = team_result['club_name'] if team_result else f"Team {team_id}"
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"🎯 AGGRESSIVE: {team_name} outbid for {offer_to_raise['player_name']} (Pos {offer_to_raise['registered_position']}, {offer_to_raise['overall']} OVR)")
+            print(f"  💰 €{offer_to_raise['offered_salary']:,} → €{new_salary:,} (+€{selected_target['raise_amount']:,})")
+            print(f"  📊 Interest: {selected_target['interest_score']}, Est. Value: €{selected_target['estimated_value']:,}")
+            
+            return {
+                'action': 'raise_free_agency_offer',
+                'team': team_name,
+                'details': {
+                    'player_name': offer_to_raise['player_name'],
+                    'old_salary': offer_to_raise['offered_salary'],
+                    'new_salary': new_salary,
+                    'raise_amount': selected_target['raise_amount'],
+                    'player_id': offer_to_raise['player_id'],
+                    'cpu_team_id': team_id,
+                    'interest_score': selected_target['interest_score'],
+                    'estimated_value': selected_target['estimated_value']
+                }
+            }
+
+        except Exception as e:
+            print(f"Error in aggressive CPU free agency raise: {e}")
+            return None
+
+    def calculate_free_agent_market_value(self, player_data):
+        """Calculate market value for free agents using the game's sophisticated system"""
+        try:
+            from game_mechanics import calculate_player_market_value_only
+            
+            # Create a copy to avoid modifying original
+            temp_player_data = dict(player_data)
+            
+            # Temporarily set club_id to get true market value
+            original_club_id = temp_player_data.get('club_id')
+            temp_player_data['club_id'] = 1
+            
+            # Calculate market value
+            market_value = calculate_player_market_value_only(temp_player_data)
+            
+            # Restore original club_id
+            temp_player_data['club_id'] = original_club_id
+            
+            return market_value
+            
+        except Exception as e:
+            # Fallback calculation
+            overall = player_data.get('overall', 50)
+            age = player_data.get('age', 25)
+            
+            if overall >= 85:
+                base_value = 30000000
+            elif overall >= 80:
+                base_value = 20000000
+            elif overall >= 75:
+                base_value = 12000000
+            else:
+                base_value = 6000000
+            
+            # Age adjustment
+            if age <= 25:
+                age_multiplier = 1.2
+            elif age <= 30:
+                age_multiplier = 1.0
+            else:
+                age_multiplier = 0.8
+            
+            return int(base_value * age_multiplier)
 
     def make_cpu_market_bazaar_offer(self, team_id: int) -> Optional[Dict]:
         """Make a CPU team bid on a player in the market bazaar"""
@@ -1779,7 +2346,7 @@ class CPUAI:
                 if random.random() < 0.4:
                     # CPU actions: prioritize buying/loaning existing listings, then make offers
                     action_choice = random.random()
-                    if action_choice < 0.5:  # 50% chance to buy existing listings
+                    if action_choice < 0.4:  # 40% chance to buy existing listings
                         buy_result = self.buy_listed_player(team_id)
                         if buy_result:
                             actions_taken.append({
@@ -1787,7 +2354,7 @@ class CPUAI:
                                 'action': 'buy_player',
                                 'details': buy_result['details']
                             })
-                    elif action_choice < 0.7:  # 20% chance to loan existing loan listings
+                    elif action_choice < 0.6:  # 20% chance to loan existing loan listings
                         loan_result = self.make_cpu_loan_offer(team_id)
                         if loan_result:
                             actions_taken.append({
@@ -1795,7 +2362,32 @@ class CPUAI:
                                 'action': 'loan_player',
                                 'details': loan_result['details']
                             })
-                    elif action_choice < 0.9:  # 20% chance to make market bazaar offers
+                    elif action_choice < 0.85:  # 25% chance for free agency activity (combined)
+                        # TWO-PHASE FREE AGENCY APPROACH
+                        fa_action_taken = False
+                        
+                        # PHASE 1: Prioritize raising existing offers first
+                        raise_offer_result = self.raise_cpu_free_agency_offer_aggressive(team_id)
+                        if raise_offer_result and 'details' in raise_offer_result:
+                            # Successfully raised an offer
+                            actions_taken.append({
+                                'team': team_name,
+                                'action': 'raise_free_agency_offer',
+                                'details': raise_offer_result['details']
+                            })
+                        
+                        # PHASE 2: Always try to make new offers (regardless of Phase 1 result)
+                        # Only skip if team is at capacity or has other hard constraints
+                        analysis = self.analyze_team_composition(team_id)
+                        if analysis and analysis['total_players'] < 32:
+                            free_agency_result = self.make_cpu_free_agency_offer(team_id)
+                            if free_agency_result:
+                                actions_taken.append({
+                                    'team': team_name,
+                                    'action': 'free_agency_offer',
+                                    'details': free_agency_result['details']
+                                })
+                    elif action_choice < 0.9:  # 5% chance to make market bazaar offers
                         market_offer_result = self.make_cpu_market_bazaar_offer(team_id)
                         if market_offer_result:
                             actions_taken.append({

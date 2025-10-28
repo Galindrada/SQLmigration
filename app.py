@@ -3992,7 +3992,7 @@ def make_free_agent_offer():
 
     # Create new offer (2 minutes for testing)
     from datetime import datetime, timedelta
-    expires_at = datetime.now() + timedelta(minutes=1)
+    expires_at = datetime.now() + timedelta(minutes=5)
 
     try:
         cur.execute("""
@@ -4040,7 +4040,7 @@ def raise_free_agent_offer(offer_id):
     # Raise offer by 250,000€ and reset timer
     new_salary = offer['offered_salary'] + 250000
     from datetime import datetime, timedelta
-    new_expires_at = datetime.now() + timedelta(minutes=1)
+    new_expires_at = datetime.now() + timedelta(minutes=5)
 
     try:
         cur.execute("""
@@ -4086,91 +4086,191 @@ def check_expired_offers():
             # Mark offer as completed
             cur.execute("UPDATE free_agent_offers SET status = 'completed' WHERE id = ?", (offer['id'],))
 
-            # Get user's active team (handle multiple teams)
-            cur.execute("SELECT id FROM league_teams WHERE user_id = ? ORDER BY id LIMIT 1", (offer['user_id'],))
-            user_team = cur.fetchone()
-
-            if user_team:
-                active_team_id = user_team['id']  # Use first team as active
-
-                # Add player to team (using consistent database approach)
-                cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)",
-                           (active_team_id, offer['player_id']))
-
-                # Get the PES6 team ID for this league team
-                cur.execute("SELECT team_name FROM league_teams WHERE id = ?", (active_team_id,))
-                league_team_name = cur.fetchone()['team_name']
-
-                # Find the corresponding PES6 team ID
-                cur.execute("SELECT id FROM teams WHERE club_name = ?", (league_team_name,))
-                pes6_team_result = cur.fetchone()
-
-                if pes6_team_result:
-                    pes6_team_id = pes6_team_result['id']
-
-                    # Get player age for signing bonus calculation
-                    cur.execute("SELECT age FROM players WHERE id = ?", (offer['player_id'],))
-                    player_age_result = cur.fetchone()
-                    player_age = player_age_result['age'] if player_age_result else 25
-
-                    # Calculate signing bonus (25-50% of base salary, higher for younger players)
-                    import random
-                    if player_age <= 22:
-                        signing_bonus_percentage = random.uniform(0.40, 0.50)  # 40-50% for very young players
-                    elif player_age <= 25:
-                        signing_bonus_percentage = random.uniform(0.35, 0.45)  # 35-45% for young players
-                    elif player_age <= 28:
-                        signing_bonus_percentage = random.uniform(0.30, 0.40)  # 30-40% for mid-age players
-                    else:
-                        signing_bonus_percentage = random.uniform(0.25, 0.35)  # 25-35% for older players
-
-                    signing_bonus = int(offer['offered_salary'] * signing_bonus_percentage)
-
-                    # Calculate yearly wage rise
-                    if player_age <= 22:
-                        yearly_wage_rise = random.uniform(0.15, 0.25)  # 15-25% for very young players
-                    elif player_age <= 25:
-                        yearly_wage_rise = random.uniform(0.10, 0.20)  # 10-20% for young players
-                    elif player_age <= 28:
-                        yearly_wage_rise = random.uniform(0.05, 0.15)  # 5-15% for mid-age players
-                    else:
-                        yearly_wage_rise = random.uniform(0.01, 0.10)  # 1-10% for older players
-
-                    # Update player's salary, contract, yearly wage rise, and club_id to the PES6 team
+            # Handle CPU teams (user_id = 1) differently from regular users
+            if offer['user_id'] == 1:  # CPU team
+                # For CPU teams, we need to find which specific CPU team made the offer
+                # This requires storing the team_id in the offer or finding it another way
+                # For now, we'll need to get the team_id from the CPU offer details
+                # Since we don't store team_id in free_agent_offers, we'll need to find the CPU team that needs this player
+                
+                from cpu_ai import CPUAI
+                cpu_ai = CPUAI()
+                
+                # Get player details
+                cur.execute("SELECT registered_position, overall FROM players WHERE id = ?", (offer['player_id'],))
+                player_info = cur.fetchone()
+                
+                if player_info:
+                    # Find CPU teams that need this position
                     cur.execute("""
-                        UPDATE players
-                        SET salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?, club_id = ?
-                        WHERE id = ?
-                    """, (offer['offered_salary'], offer['offered_contract_years'], yearly_wage_rise, pes6_team_id, offer['player_id']))
+                        SELECT t.id, t.club_name
+                        FROM teams t
+                        WHERE t.id != 141
+                        AND t.id IN (SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = 1)
+                        ORDER BY RANDOM()
+                        LIMIT 10
+                    """)
+                    
+                    cpu_teams = cur.fetchall()
+                    winning_team = None
+                    
+                    # Find a CPU team that actually needs this player
+                    for team in cpu_teams:
+                        analysis = cpu_ai.analyze_team_composition(team['id'])
+                        if analysis and analysis['total_players'] < 32:
+                            needed_positions = cpu_ai.get_team_position_needs(team['id'])
+                            if player_info['registered_position'] in needed_positions:
+                                winning_team = team
+                                break
+                    
+                    # If no team specifically needs this position, assign to first available team
+                    if not winning_team and cpu_teams:
+                        for team in cpu_teams:
+                            analysis = cpu_ai.analyze_team_composition(team['id'])
+                            if analysis and analysis['total_players'] < 32:
+                                winning_team = team
+                                break
+                    
+                    if winning_team:
+                        pes6_team_id = winning_team['id']
+                        
+                        # Get player age for signing bonus calculation
+                        cur.execute("SELECT age FROM players WHERE id = ?", (offer['player_id'],))
+                        player_age_result = cur.fetchone()
+                        player_age = player_age_result['age'] if player_age_result else 25
 
-                    # Deduct signing bonus from team budget
-                    cur.execute("UPDATE teams SET budget = budget - ? WHERE id = ?", (signing_bonus, pes6_team_id))
+                        # Calculate signing bonus and yearly wage rise (same logic as user teams)
+                        import random
+                        if player_age <= 22:
+                            signing_bonus_percentage = random.uniform(0.40, 0.50)
+                            yearly_wage_rise = random.uniform(0.15, 0.25)
+                        elif player_age <= 25:
+                            signing_bonus_percentage = random.uniform(0.35, 0.45)
+                            yearly_wage_rise = random.uniform(0.10, 0.20)
+                        elif player_age <= 28:
+                            signing_bonus_percentage = random.uniform(0.30, 0.40)
+                            yearly_wage_rise = random.uniform(0.05, 0.15)
+                        else:
+                            signing_bonus_percentage = random.uniform(0.25, 0.35)
+                            yearly_wage_rise = random.uniform(0.01, 0.10)
 
-                    # Record signing bonus transaction in finances
-                    add_user_movement(offer['user_id'], 'Signing Bonus',
-                                    f"Signing bonus for {offer['player_name']} (Free Agency)", -signing_bonus)
+                        signing_bonus = int(offer['offered_salary'] * signing_bonus_percentage)
 
-                    app.logger.info(f"Updated player {offer['player_name']} club_id to PES6 team {pes6_team_id} ({league_team_name}) with signing bonus €{signing_bonus:,}")
-                else:
-                    # Fallback: just update salary and contract if PES6 team not found
-                    cur.execute("""
-                        UPDATE players
-                        SET salary = ?, contract_years_remaining = ?
-                        WHERE id = ?
-                    """, (offer['offered_salary'], offer['offered_contract_years'], offer['player_id']))
+                        # Update player to CPU team
+                        cur.execute("""
+                            UPDATE players
+                            SET salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?, club_id = ?
+                            WHERE id = ?
+                        """, (offer['offered_salary'], offer['offered_contract_years'], yearly_wage_rise, pes6_team_id, offer['player_id']))
 
-                    app.logger.warning(f"PES6 team not found for league team: {league_team_name}")
+                        # Deduct signing bonus from CPU team budget
+                        cur.execute("UPDATE teams SET budget = budget - ? WHERE id = ?", (signing_bonus, pes6_team_id))
 
-                # Post transfer news to blog
-                title = f"Free Agent Transfer: {offer['player_name']}"
-                if pes6_team_result:
-                    content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years. Signing bonus: €{signing_bonus:,} ({(signing_bonus_percentage*100):.1f}% of salary). Yearly wage rise: {(yearly_wage_rise*100):.1f}%."
-                else:
-                    content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years."
-                post_transfer_news(title, content, offer['user_id'])
+                        # Add signing bonus to player's career earnings
+                        cur.execute("UPDATE players SET career_earnings = career_earnings + ? WHERE id = ?", (signing_bonus, offer['player_id']))
 
-                processed_count += 1
-                app.logger.info(f"Processed expired offer: {offer['player_name']} -> {offer['username']}")
+                        # Post transfer news
+                        title = f"Free Agent Signing: {offer['player_name']}"
+                        content = f"{offer['player_name']} has signed with {winning_team['club_name']} (CPU) for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years. Signing bonus: €{signing_bonus:,} ({(signing_bonus_percentage*100):.1f}% of salary). Yearly wage rise: {(yearly_wage_rise*100):.1f}%."
+                        post_transfer_news(title, content, 1)  # user_id = 1 for CPU news
+
+                        processed_count += 1
+                        print(f"CPU team {winning_team['club_name']} signed free agent {offer['player_name']} for €{offer['offered_salary']:,}")
+                        
+            else:  # Regular user team
+                # Get user's active team (handle multiple teams)
+                cur.execute("SELECT id FROM league_teams WHERE user_id = ? ORDER BY id LIMIT 1", (offer['user_id'],))
+                user_team = cur.fetchone()
+
+                if user_team:
+                    active_team_id = user_team['id']  # Use first team as active
+
+                    # Add player to team (using consistent database approach)
+                    cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)",
+                               (active_team_id, offer['player_id']))
+
+                    # Get the PES6 team ID for this league team
+                    cur.execute("SELECT team_name FROM league_teams WHERE id = ?", (active_team_id,))
+                    league_team_name = cur.fetchone()['team_name']
+
+                    # Find the corresponding PES6 team ID
+                    cur.execute("SELECT id FROM teams WHERE club_name = ?", (league_team_name,))
+                    pes6_team_result = cur.fetchone()
+
+                    if pes6_team_result:
+                        pes6_team_id = pes6_team_result['id']
+
+                        # Get player age for signing bonus calculation
+                        cur.execute("SELECT age FROM players WHERE id = ?", (offer['player_id'],))
+                        player_age_result = cur.fetchone()
+                        player_age = player_age_result['age'] if player_age_result else 25
+
+                        # Calculate signing bonus (25-50% of base salary, higher for younger players)
+                        import random
+                        if player_age <= 22:
+                            signing_bonus_percentage = random.uniform(0.40, 0.50)  # 40-50% for very young players
+                        elif player_age <= 25:
+                            signing_bonus_percentage = random.uniform(0.35, 0.45)  # 35-45% for young players
+                        elif player_age <= 28:
+                            signing_bonus_percentage = random.uniform(0.30, 0.40)  # 30-40% for mid-age players
+                        else:
+                            signing_bonus_percentage = random.uniform(0.25, 0.35)  # 25-35% for older players
+
+                        signing_bonus = int(offer['offered_salary'] * signing_bonus_percentage)
+
+                        # Calculate yearly wage rise
+                        if player_age <= 22:
+                            yearly_wage_rise = random.uniform(0.15, 0.25)  # 15-25% for very young players
+                        elif player_age <= 25:
+                            yearly_wage_rise = random.uniform(0.10, 0.20)  # 10-20% for young players
+                        elif player_age <= 28:
+                            yearly_wage_rise = random.uniform(0.05, 0.15)  # 5-15% for mid-age players
+                        else:
+                            yearly_wage_rise = random.uniform(0.01, 0.10)  # 1-10% for older players
+
+                        # Update player's salary, contract, yearly wage rise, and club_id to the PES6 team
+                        cur.execute("""
+                            UPDATE players
+                            SET salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?, club_id = ?
+                            WHERE id = ?
+                        """, (offer['offered_salary'], offer['offered_contract_years'], yearly_wage_rise, pes6_team_id, offer['player_id']))
+
+                        # Deduct signing bonus from team budget
+                        cur.execute("UPDATE teams SET budget = budget - ? WHERE id = ?", (signing_bonus, pes6_team_id))
+
+                        # Record signing bonus transaction in finances
+                        add_user_movement(offer['user_id'], 'Signing Bonus',
+                                        f"Signing bonus for {offer['player_name']} (Free Agency)", -signing_bonus)
+
+                        # Add signing bonus to player's career earnings
+                        cur.execute("UPDATE players SET career_earnings = career_earnings + ? WHERE id = ?", (signing_bonus, offer['player_id']))
+
+                        app.logger.info(f"Updated player {offer['player_name']} club_id to PES6 team {pes6_team_id} ({league_team_name}) with signing bonus €{signing_bonus:,}")
+                    else:
+                        # Fallback: just update salary and contract if PES6 team not found
+                        cur.execute("""
+                            UPDATE players
+                            SET salary = ?, contract_years_remaining = ?
+                            WHERE id = ?
+                        """, (offer['offered_salary'], offer['offered_contract_years'], offer['player_id']))
+
+                        app.logger.warning(f"PES6 team not found for league team: {league_team_name}")
+
+                    # Post transfer news to blog
+                    title = f"Free Agent Transfer: {offer['player_name']}"
+                    if pes6_team_result:
+                        # Get the actual team name instead of using username
+                        cur.execute("SELECT club_name FROM teams WHERE id = ?", (pes6_team_id,))
+                        team_name_result = cur.fetchone()
+                        actual_team_name = team_name_result['club_name'] if team_name_result else f"Team {pes6_team_id}"
+                        
+                        content = f"{offer['player_name']} has signed with {actual_team_name} for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years. Signing bonus: €{signing_bonus:,} ({(signing_bonus_percentage*100):.1f}% of salary). Yearly wage rise: {(yearly_wage_rise*100):.1f}%."
+                    else:
+                        content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years."
+                    post_transfer_news(title, content, offer['user_id'])
+
+                    processed_count += 1
+                    app.logger.info(f"Processed expired offer: {offer['player_name']} -> {offer['username']}")
         except Exception as e:
             app.logger.error(f"Error processing expired offer {offer['id']}: {e}")
 
