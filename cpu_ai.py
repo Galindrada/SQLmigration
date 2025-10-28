@@ -90,13 +90,13 @@ class CPUAI:
 
             position_counts = {row['registered_position']: row['count'] for row in cur.fetchall()}
 
-            # Analyze composition
-            current_gk = position_counts.get(0, 0)
-            current_def = position_counts.get(2, 0) + position_counts.get(3, 0)
-            current_fb = position_counts.get(4, 0) + position_counts.get(6, 0)
-            current_mid = position_counts.get(5, 0) + position_counts.get(7, 0) + position_counts.get(9, 0)
-            current_wing = position_counts.get(8, 0) + position_counts.get(10, 0)
-            current_fwd = position_counts.get(11, 0) + position_counts.get(12, 0)
+            # Analyze composition (registered_position returns strings, not integers)
+            current_gk = position_counts.get('0', 0)
+            current_def = position_counts.get('2', 0) + position_counts.get('3', 0)
+            current_fb = position_counts.get('4', 0) + position_counts.get('6', 0)
+            current_mid = position_counts.get('5', 0) + position_counts.get('7', 0) + position_counts.get('9', 0)
+            current_wing = position_counts.get('8', 0) + position_counts.get('10', 0)
+            current_fwd = position_counts.get('11', 0) + position_counts.get('12', 0)
 
             total_players = sum(position_counts.values())
 
@@ -329,7 +329,7 @@ class CPUAI:
                 AND p.id NOT IN (
                     SELECT player_id FROM blacklist WHERE user_id = 1
                 )
-                AND p.age <= 25  -- Prefer younger players for loans
+                AND p.age <= 22  -- Prefer younger players for loans
                 ORDER BY p.age ASC, p.market_value DESC
                 LIMIT 1
             """, (team_id,))
@@ -394,9 +394,49 @@ class CPUAI:
             needs = analysis['needs']
             budget = analysis['needs'].budget_available
 
-            # Find players to sell (overpaid, surplus, or if team needs money)
-            # Exclude players already listed and blacklisted
+            # Get the best player per position to protect them from being sold
             cur.execute("""
+                SELECT registered_position, MAX(overall) as best_overall, 
+                       GROUP_CONCAT(id) as player_ids
+                FROM players
+                WHERE club_id = ?
+                GROUP BY registered_position
+            """, (team_id,))
+            
+            position_bests = cur.fetchall()
+            protected_player_ids = []
+            
+            # Extract the actual best player ID for each position
+            for pos_data in position_bests:
+                position = pos_data['registered_position']
+                best_overall = pos_data['best_overall']
+                
+                # Get the specific player(s) with the best overall in this position
+                cur.execute("""
+                    SELECT id FROM players 
+                    WHERE club_id = ? AND registered_position = ? AND overall = ?
+                    LIMIT 1
+                """, (team_id, position, best_overall))
+                
+                best_player = cur.fetchone()
+                if best_player:
+                    protected_player_ids.append(best_player['id'])
+
+            # Log protected players for debugging
+            if protected_player_ids:
+                cur.execute("""
+                    SELECT player_name, registered_position, overall 
+                    FROM players 
+                    WHERE id IN ({})
+                """.format(','.join(map(str, protected_player_ids))))
+                protected_players = cur.fetchall()
+                print(f"Team {team_id} protecting best players: {[f'{p['player_name']} (Pos {p['registered_position']}, {p['overall']} OVR)' for p in protected_players]}")
+
+            # Find players to sell (overpaid, surplus, or if team needs money)
+            # Exclude players already listed, blacklisted, AND best players per position
+            protected_ids_str = ','.join(map(str, protected_player_ids)) if protected_player_ids else '0'
+            
+            cur.execute(f"""
                 SELECT p.*, p.market_value, p.salary
                 FROM players p
                 WHERE p.club_id = ?
@@ -407,6 +447,7 @@ class CPUAI:
                 AND p.id NOT IN (
                     SELECT player_id FROM blacklist WHERE user_id = 1
                 )
+                AND p.id NOT IN ({protected_ids_str})  -- Protect best players per position
                 ORDER BY p.salary DESC, p.overall ASC
                 LIMIT 10
             """, (team_id,))
@@ -416,8 +457,8 @@ class CPUAI:
             if not team_players:
                 return None
 
-            # Select a player to sell (prefer overpaid or surplus players)
-            selected_player = team_players[0]  # Highest salary, lowest overall
+            # Select a player to sell (prefer overpaid or surplus players, but not the best per position)
+            selected_player = team_players[0]  # Highest salary, lowest overall (excluding protected players)
 
             # Calculate asking price
             market_value = selected_player['market_value']
@@ -464,16 +505,44 @@ class CPUAI:
             return None
 
     def make_cpu_loan_offer(self, team_id: int) -> Optional[Dict]:
-        """CPU team loans a player from user loan listings"""
+        """CPU team intelligently loans a player from user loan listings based on team needs"""
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
 
-            # Find user loan listings
+            # Get team analysis to understand needs
+            analysis = self.analyze_team_composition(team_id)
+            if not analysis:
+                return None
+
+            # Check squad size - don't make offers if at maximum capacity (32 players)
+            total_players = analysis['total_players']
+            if total_players >= 32:
+                print(f"Team {team_id} has {total_players} players (max capacity) - skipping loan offers")
+                return None
+
+            needs = analysis['needs']
+            needed_positions = self.get_team_position_needs(team_id)
+
+            # Get team's current players by position for improvement analysis
             cur.execute("""
-                SELECT mbl.*, p.player_name, p.market_value, t.club_name as seller_team_name
+                SELECT registered_position, MAX(overall) as best_overall, AVG(overall) as avg_overall
+                FROM players
+                WHERE club_id = ?
+                GROUP BY registered_position
+            """, (team_id,))
+
+            position_analysis = {row['registered_position']: {
+                'best': row['best_overall'],
+                'average': row['avg_overall']
+            } for row in cur.fetchall()}
+
+            # Find user loan listings with detailed player info
+            cur.execute("""
+                SELECT mbl.*, p.player_name, p.market_value, p.registered_position, p.overall, p.age,
+                       t.club_name as seller_team_name
                 FROM market_bazaar_listings mbl
                 JOIN players p ON mbl.player_id = p.id
                 JOIN teams t ON mbl.team_id = t.id
@@ -485,16 +554,83 @@ class CPUAI:
                 AND p.id NOT IN (
                     SELECT player_id FROM blacklist WHERE user_id = 1
                 )
-                ORDER BY p.market_value DESC
-                LIMIT 5
+                AND p.overall >= 70  -- Only consider decent players for loans
+                ORDER BY p.overall DESC
+                LIMIT 20
             """)
 
             loan_listings = cur.fetchall()
             if not loan_listings:
                 return None
 
-            # Select a random loan listing
-            selected_listing = random.choice(loan_listings)
+            # Intelligently filter and score loan candidates
+            loan_candidates = []
+            for listing in loan_listings:
+                player_position = listing['registered_position']
+                player_overall = listing['overall']
+                player_age = listing['age']
+                
+                # Calculate interest score
+                interest_score = 0
+                
+                # Position need bonus (highest priority)
+                if player_position in needed_positions:
+                    interest_score += 50
+                
+                # Improvement bonus
+                if player_position in position_analysis:
+                    best_in_position = position_analysis[player_position]['best']
+                    avg_in_position = position_analysis[player_position]['average']
+                    
+                    if player_overall > best_in_position:
+                        interest_score += 30  # Better than current best
+                    elif player_overall > (avg_in_position + 3):
+                        interest_score += 20  # Significantly better than average
+                    elif player_overall > avg_in_position:
+                        interest_score += 10  # Better than average
+                else:
+                    # No player in this position - any decent player is valuable
+                    interest_score += 40
+                
+                # Age bonus (prefer younger players for loans - development opportunity)
+                if player_age <= 23:
+                    interest_score += 15  # Young talent
+                elif player_age <= 26:
+                    interest_score += 10  # Prime age
+                elif player_age <= 29:
+                    interest_score += 5   # Still good
+                # No bonus for older players
+                
+                # Overall rating bonus
+                if player_overall >= 85:
+                    interest_score += 20  # Excellent player
+                elif player_overall >= 80:
+                    interest_score += 15  # Very good player
+                elif player_overall >= 75:
+                    interest_score += 10  # Good player
+                elif player_overall >= 70:
+                    interest_score += 5   # Decent player
+                
+                # Only consider players with meaningful interest
+                if interest_score >= 25:  # Minimum threshold
+                    loan_candidates.append({
+                        'listing': listing,
+                        'score': interest_score,
+                        'reason': 'position_needed' if player_position in needed_positions else 'improvement'
+                    })
+
+            if not loan_candidates:
+                return None
+
+            # Sort by interest score and select the best candidate
+            loan_candidates.sort(key=lambda x: x['score'], reverse=True)
+            
+            # Add some randomness - pick from top 3 candidates
+            top_candidates = loan_candidates[:3]
+            selected_candidate = random.choice(top_candidates)
+            selected_listing = selected_candidate['listing']
+            
+            print(f"Team {team_id} selected loan: {selected_listing['player_name']} (Pos {selected_listing['registered_position']}, {selected_listing['overall']} OVR) - Score: {selected_candidate['score']} ({selected_candidate['reason']})")
 
             # Transfer player (loan)
             cur.execute("UPDATE players SET club_id = ?, loaned_by = ? WHERE id = ?",
@@ -534,6 +670,12 @@ class CPUAI:
             # Get team analysis to understand needs
             analysis = self.analyze_team_composition(team_id)
             if not analysis:
+                return None
+
+            # Check squad size - don't buy players if at maximum capacity (32 players)
+            total_players = analysis['total_players']
+            if total_players >= 32:
+                print(f"Team {team_id} has {total_players} players (max capacity) - skipping purchases")
                 return None
 
             needs = analysis['needs']
@@ -732,6 +874,12 @@ class CPUAI:
             if not analysis:
                 return None
 
+            # Check squad size - don't make offers if at maximum capacity (32 players)
+            total_players = analysis['total_players']
+            if total_players >= 32:
+                print(f"Team {team_id} has {total_players} players (max capacity) - skipping user offers")
+                return None
+
             # Get team's current players by position to find improvement targets
             cur.execute("""
                 SELECT registered_position, MAX(overall) as best_overall, AVG(overall) as avg_overall
@@ -896,6 +1044,12 @@ class CPUAI:
             # Get team analysis
             analysis = self.analyze_team_composition(team_id)
             if not analysis:
+                return None
+
+            # Check squad size - don't make offers if at maximum capacity (32 players)
+            total_players = analysis['total_players']
+            if total_players >= 32:
+                print(f"Team {team_id} has {total_players} players (max capacity) - skipping market offers")
                 return None
 
             needs = analysis['needs']
