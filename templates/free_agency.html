@@ -23,7 +23,7 @@
                 <tbody>
                     {% for offer in current_offers %}
                         <tr>
-                            <td>{{ offer.player_name }}</td>
+                            <td><a href="{{ url_for('pes6_player_details', player_id=offer.player_id) }}" style="color: #f39c12; text-decoration: none;">{{ offer.player_name }}</a></td>
                             <td>{{ offer.salary | int | format_currency }}</td>
                             <td>{{ offer.offered_salary | int | format_currency }}</td>
                             <td>{{ offer.offered_contract_years }}</td>

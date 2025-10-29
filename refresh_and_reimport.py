@@ -598,12 +598,27 @@ def safe_refresh_database():
                     expires_at TEXT NOT NULL,
                     status TEXT DEFAULT 'active',
                     listing_type TEXT DEFAULT 'user_sale',
+                    salary_support_percentage REAL DEFAULT 0.0,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (player_id) REFERENCES players (id),
                     FOREIGN KEY (team_id) REFERENCES teams (id)
                 )
             """)
             print("  ✅ Created market_bazaar_listings table")
+            
+            # Add salary_support_percentage column if it doesn't exist (for existing databases)
+            # Check if column exists before trying to add it
+            cursor.execute("PRAGMA table_info(market_bazaar_listings)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'salary_support_percentage' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE market_bazaar_listings ADD COLUMN salary_support_percentage REAL DEFAULT 0.0")
+                    print("  ✅ Added salary_support_percentage column to market_bazaar_listings")
+                except sqlite3.OperationalError as e:
+                    print(f"  ⚠️  Could not add salary_support_percentage column: {e}")
+            else:
+                print("  ✅ Column salary_support_percentage already exists")
         except Exception as e:
             print(f"  ❌ Error creating market_bazaar_listings table: {e}")
         
@@ -628,6 +643,19 @@ def safe_refresh_database():
             print(f"  ❌ Error creating market_bazaar_offers table: {e}")
         
         # Create user_cpu_offers table for user-to-CPU negotiations
+        # Ensure team_id exists on free_agent_offers so CPU teams can outbid each other
+        print("\n🔄 Ensuring team_id on free_agent_offers...")
+        try:
+            cursor.execute("PRAGMA table_info(free_agent_offers)")
+            fo_cols = [row[1] for row in cursor.fetchall()]
+            if 'team_id' not in fo_cols:
+                cursor.execute("ALTER TABLE free_agent_offers ADD COLUMN team_id INTEGER NULL")
+                print("  ✅ Added team_id to free_agent_offers")
+            else:
+                print("  ℹ️  team_id already present on free_agent_offers")
+        except Exception as e:
+            print(f"  ❌ Error ensuring team_id on free_agent_offers: {e}")
+
         print("\n🤝 Creating user_cpu_offers table...")
         try:
             cursor.execute("""
@@ -731,30 +759,57 @@ def calculate_cpu_team_finances():
         cpu_teams = cursor.fetchall()
         
         updated_count = 0
+        initialized_count = 0
         for team_id, club_name in cpu_teams:
+            # Get current budget - don't overwrite if it exists
+            cursor.execute("SELECT budget, total_salaries FROM teams WHERE id = ?", (team_id,))
+            team_data = cursor.fetchone()
+            current_budget = team_data[0] if team_data and team_data[0] is not None else None
+            current_total_salaries = team_data[1] if team_data and team_data[1] is not None else None
+            
             # Calculate total salaries for this team
             cursor.execute("SELECT COALESCE(SUM(salary), 0) as total_salaries FROM players WHERE club_id = ?", (team_id,))
             result = cursor.fetchone()
             total_salaries = result[0] if result else 0
             
-            # Set budget equal to total salaries initially
-            budget = total_salaries
+            # Only update budget if it's NULL/0 (not initialized) - preserve existing budgets
+            if current_budget is None or current_budget == 0:
+                # Initialize budget equal to total salaries
+                budget = total_salaries
+                initialized_count += 1
+            else:
+                # Preserve existing budget - only update total_salaries and available_cap
+                budget = current_budget
             
-            # Calculate available cap
-            available_cap = budget - total_salaries
+            # Calculate available cap based on current budget
+            available_cap = budget - total_salaries if budget else 0
             
-            # Update team financial data
-            cursor.execute("""
-                UPDATE teams 
-                SET total_salaries = ?, budget = ?, available_cap = ?
-                WHERE id = ?
-            """, (total_salaries, budget, available_cap, team_id))
+            # Update team financial data - preserve budget if it exists
+            if current_budget is None or current_budget == 0:
+                # Full update including budget initialization
+                cursor.execute("""
+                    UPDATE teams 
+                    SET total_salaries = ?, budget = ?, available_cap = ?
+                    WHERE id = ?
+                """, (total_salaries, budget, available_cap, team_id))
+                print(f"  ✅ {club_name}: Initialized budget €{budget:,}, salaries €{total_salaries:,}, cap €{available_cap:,}")
+            else:
+                # Only update total_salaries and available_cap, preserve budget
+                cursor.execute("""
+                    UPDATE teams 
+                    SET total_salaries = ?, available_cap = ?
+                    WHERE id = ?
+                """, (total_salaries, available_cap, team_id))
+                print(f"  ℹ️  {club_name}: Preserved budget €{current_budget:,}, updated salaries €{total_salaries:,}, cap €{available_cap:,}")
             
             updated_count += 1
-            print(f"  ✅ {club_name}: €{total_salaries:,} salaries, €{budget:,} budget, €{available_cap:,} available cap")
         
         conn.commit()
-        print(f"\n✅ Financial data calculated for {updated_count} CPU teams.")
+        print(f"\n✅ Financial data updated for {updated_count} CPU teams.")
+        if initialized_count > 0:
+            print(f"   - {initialized_count} teams had budgets initialized (were NULL/0)")
+        if updated_count - initialized_count > 0:
+            print(f"   - {updated_count - initialized_count} teams had budgets preserved (existing values maintained)")
         
     except Exception as e:
         print(f"❌ Error calculating CPU team finances: {e}")
@@ -1014,15 +1069,24 @@ def initialize_budget_system():
     users = cursor.fetchall()
     
     for user_id, username in users:
-        # Check if user already has a budget record
+        # Do not overwrite existing budgets
         cursor.execute("SELECT user_id FROM user_budgets WHERE user_id = ?", (user_id,))
-        if not cursor.fetchone():
-            # Create budget record with initial €450M
-            cursor.execute("""
-                INSERT INTO user_budgets (user_id, budget, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-            """, (user_id, 450000000, datetime.now().isoformat(), datetime.now().isoformat()))
-            print(f"  - Initialized budget for {username}")
+        if cursor.fetchone():
+            continue
+
+        # Insert snapshot matching /finances display: 450M base + SUM(user_movements)
+        cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM user_movements WHERE user_id = ?", (user_id,))
+        total_movements = cursor.fetchone()[0] or 0
+        current_budget_snapshot = 450000000 + total_movements
+
+        cursor.execute(
+            """
+            INSERT INTO user_budgets (user_id, budget, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, current_budget_snapshot, datetime.now().isoformat(), datetime.now().isoformat())
+        )
+        print(f"  - Initialized budget for {username} (snapshot €{current_budget_snapshot:,})")
     
     conn.commit()
     cursor.close()

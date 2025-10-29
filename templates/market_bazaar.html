@@ -182,9 +182,30 @@
                                             <td>{{ player.age }}</td>
                                             <td>€{{ "{:,}".format(player.market_value or 0) }}</td>
                                             <td class="text-primary">
-                                                <strong>€{{ "{:,}".format(player.asking_price or 0) }}</strong>
-                                                {% if player.asking_price < player.market_value %}
-                                                    <br><small class="text-success">Below Market Value!</small>
+                                                {% if player.listing_type in ['user_loan', 'cpu_loan'] %}
+                                                    {% if player.salary_support_percentage and player.salary_support_percentage >= 100 %}
+                                                        {# 100% salary support = Free loan (lender pays all salary) #}
+                                                        <strong class="text-success">-€{{ "{:,}".format(player.salary or 0) }}</strong>
+                                                        <br><small class="text-success">Free Loan (100% Support)</small>
+                                                    {% elif player.salary_support_percentage and player.salary_support_percentage > 0 %}
+                                                        {# Partial salary support #}
+                                                        <strong class="text-success">-€{{ "{:,}".format(-player.asking_price) }}</strong>
+                                                        <br><small class="text-success">Salary Support ({{ "{:.0f}".format(player.salary_support_percentage) }}%)</small>
+                                                    {% elif player.asking_price and player.asking_price > 0 %}
+                                                        {# Loan fee, no salary support #}
+                                                        <strong>€{{ "{:,}".format(player.asking_price) }}</strong>
+                                                        <br><small class="text-muted">Loan Fee</small>
+                                                    {% else %}
+                                                        {# No fee, no support - loanee pays full salary #}
+                                                        <strong class="text-warning">€{{ "{:,}".format(player.salary or 0) }}</strong>
+                                                        <br><small class="text-muted">No Support (Loanee Pays Full Salary)</small>
+                                                    {% endif %}
+                                                {% else %}
+                                                    {# Sale listings #}
+                                                    <strong>€{{ "{:,}".format(player.asking_price or 0) }}</strong>
+                                                    {% if player.asking_price and player.market_value and player.asking_price < player.market_value %}
+                                                        <br><small class="text-success">Below Market Value!</small>
+                                                    {% endif %}
                                                 {% endif %}
                                             </td>
                                             <td>
@@ -334,7 +355,7 @@
                                                     List for Sale
                                                 </button>
                                                 <button type="button" class="btn btn-info btn-sm" 
-                                                        onclick="listPlayerForLoan({{ player.id }}, '{{ player.player_name }}', {{ player.market_value }})">
+                                                        onclick="showListPlayerModal({{ player.id }}, '{{ player.player_name }}', {{ player.market_value }}, 'loan')">
                                                     List for Loan
                                                 </button>
                                             </td>
@@ -379,17 +400,26 @@
                             <label for="listPlayerMarketValue">Market Value:</label>
                             <input type="text" class="form-control" id="listPlayerMarketValue" readonly>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" id="askingPriceGroup">
                             <label for="listPlayerAskingPrice">Asking Price (€):</label>
                             <input type="number" class="form-control" id="listPlayerAskingPrice" name="asking_price" 
                                    min="0" step="1000" required>
-                            <small class="form-text text-muted">Enter the minimum price you want for this player</small>
+                            <small class="form-text text-muted" id="askingPriceHelp">Enter the minimum price you want for this player</small>
+                        </div>
+                        <div class="form-group" id="salarySupportGroup" style="display: none;">
+                            <label for="listPlayerSalarySupport">Salary Support Percentage (%):</label>
+                            <input type="number" class="form-control" id="listPlayerSalarySupport" name="salary_support_percentage" 
+                                   min="0" max="100" step="1" value="0" required>
+                            <small class="form-text text-muted">Enter what percentage of the player's salary you will pay. The loanee team will receive this amount to help cover the salary costs.</small>
+                            <div class="mt-2">
+                                <small class="text-info" id="salarySupportPreview"></small>
+                            </div>
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-success" onclick="listPlayer()">List for Sale</button>
+                    <button type="button" class="btn btn-success" id="modalSubmitBtn" onclick="listPlayer()">List for Sale</button>
                 </div>
             </div>
         </div>
@@ -454,13 +484,45 @@
             // Update modal title and placeholder
             if (type === 'loan') {
                 document.getElementById('listPlayerModalLabel').textContent = 'List Player for Loan';
-                document.getElementById('listPlayerAskingPrice').placeholder = 'Enter loan fee';
+                document.getElementById('askingPriceGroup').style.display = 'none'; // Hide asking price for loans
+                document.getElementById('salarySupportGroup').style.display = 'block';
+                document.getElementById('listPlayerSalarySupport').value = '0';
+                document.getElementById('listPlayerAskingPrice').value = '0'; // Set to 0, will be calculated from percentage
+                document.getElementById('modalSubmitBtn').textContent = 'List for Loan';
+                updateSalarySupportPreview(playerId);
             } else {
                 document.getElementById('listPlayerModalLabel').textContent = 'List Player for Sale';
                 document.getElementById('listPlayerAskingPrice').placeholder = 'Enter asking price';
+                document.getElementById('listPlayerAskingPrice').required = true;
+                document.getElementById('askingPriceGroup').style.display = 'block';
+                document.getElementById('salarySupportGroup').style.display = 'none';
+                document.getElementById('modalSubmitBtn').textContent = 'List for Sale';
             }
             
             $('#listPlayerModal').modal('show');
+        }
+        
+        function updateSalarySupportPreview(playerId) {
+            // Fetch player salary and update preview
+            fetch(`/market_bazaar/get_player_salary/${playerId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.salary) {
+                        const percentageInput = document.getElementById('listPlayerSalarySupport');
+                        const preview = document.getElementById('salarySupportPreview');
+                        
+                        function updatePreview() {
+                            const percentage = parseFloat(percentageInput.value) || 0;
+                            const subsidy = Math.round(data.salary * (percentage / 100));
+                            const remaining = data.salary - subsidy;
+                            preview.textContent = `Salary: €${data.salary.toLocaleString()}/year. You pay: €${subsidy.toLocaleString()}/year (${percentage}%). Loanee pays: €${remaining.toLocaleString()}/year (${(100-percentage)}%). Loan will show as: -€${subsidy.toLocaleString()}`;
+                        }
+                        
+                        percentageInput.addEventListener('input', updatePreview);
+                        updatePreview();
+                    }
+                })
+                .catch(error => console.error('Error fetching player salary:', error));
         }
         
         function listPlayer() {
@@ -733,35 +795,6 @@
                 .catch(error => {
                     alert('Error loaning player: ' + error);
                     location.reload();
-                });
-            }
-        }
-        
-        function listPlayerForLoan(playerId, playerName, marketValue) {
-            // Loans are always free (€0)
-            const loanFee = 0;
-            
-            if (confirm(`List ${playerName} for loan at €0 (free loan)?`)) {
-                const formData = new FormData();
-                formData.append('player_id', playerId);
-                formData.append('asking_price', loanFee);
-                formData.append('listing_type', 'user_loan');
-                
-                fetch('/market_bazaar/list_player', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert(data.message);
-                        location.reload();
-                    } else {
-                        alert('Error: ' + data.error);
-                    }
-                })
-                .catch(error => {
-                    alert('Error listing player for loan: ' + error);
                 });
             }
         }

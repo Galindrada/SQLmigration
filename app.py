@@ -508,7 +508,7 @@ def finances():
         SELECT type, description, amount, balance_after, created_at
         FROM user_movements
         WHERE user_id = ?
-        ORDER BY created_at DESC
+        ORDER BY datetime(created_at) DESC, rowid DESC
         LIMIT 50
     """, (current_user.id,))
     movements_raw = cur.fetchall()
@@ -3657,13 +3657,24 @@ def inject_unread_count():
     return {'get_unread_count': lambda x: 0}
 
 def get_user_budget(user_id):
-    """Get user's unified budget by calculating from movements"""
+    """Get user's unified budget.
+    Prefer cached snapshot in user_budgets if present; otherwise fallback to base + SUM(movements).
+    """
     cur = db_helper.get_cursor()
-    cur.execute("SELECT COALESCE(SUM(amount), 0) as total_movements FROM user_movements WHERE user_id = ?", (user_id,))
-    movements_result = cur.fetchone()
-    cur.close()
-    total_movements = movements_result['total_movements'] if movements_result else 0
-    return 450000000 + total_movements
+    try:
+        # Prefer cached snapshot
+        cur.execute("SELECT budget FROM user_budgets WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        if row and row['budget'] is not None:
+            return row['budget']
+
+        # Fallback: compute from movements
+        cur.execute("SELECT COALESCE(SUM(amount), 0) as total_movements FROM user_movements WHERE user_id = ?", (user_id,))
+        movements_result = cur.fetchone()
+        total_movements = movements_result['total_movements'] if movements_result else 0
+        return 450000000 + total_movements
+    finally:
+        cur.close()
 
 def update_user_budget(user_id, new_budget):
     """Update user's unified budget"""
@@ -3992,13 +4003,17 @@ def make_free_agent_offer():
 
     # Create new offer (2 minutes for testing)
     from datetime import datetime, timedelta
-    expires_at = datetime.now() + timedelta(minutes=5)
+    expires_at = datetime.now() + timedelta(minutes=500)
 
     try:
+        # Create the offer (store team_id so CPU teams can outbid each other correctly)
         cur.execute("""
-            INSERT INTO free_agent_offers (player_id, user_id, offered_salary, offered_contract_years, expires_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (player_id, current_user.id, offered_salary, offered_contract_years, expires_at.isoformat()))
+            INSERT INTO free_agent_offers (player_id, user_id, offered_salary, offered_contract_years, expires_at, team_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (player_id, current_user.id, offered_salary, offered_contract_years, expires_at.isoformat(), active_team_id))
+        
+        # Do not update players.salary on offer creation; keep as free-agency basis
+        
         db_helper.commit()
         flash('Offer made successfully!', 'success')
 
@@ -4040,14 +4055,17 @@ def raise_free_agent_offer(offer_id):
     # Raise offer by 250,000€ and reset timer
     new_salary = offer['offered_salary'] + 250000
     from datetime import datetime, timedelta
-    new_expires_at = datetime.now() + timedelta(minutes=5)
+    new_expires_at = datetime.now() + timedelta(minutes=5)  # 5 minutes like initial offers
 
     try:
+        # Update the offer
         cur.execute("""
             UPDATE free_agent_offers
-            SET user_id = ?, offered_salary = ?, expires_at = ?
+            SET user_id = ?, offered_salary = ?, expires_at = ?, team_id = ?
             WHERE id = ?
-        """, (current_user.id, new_salary, new_expires_at.isoformat(), offer_id))
+        """, (current_user.id, new_salary, new_expires_at.isoformat(), active_team_id, offer_id))
+        
+        # Do not update players.salary on raises; keep as free-agency basis
         db_helper.commit()
         flash('Offer raised successfully!', 'success')
 
@@ -4168,6 +4186,14 @@ def check_expired_offers():
 
                         # Add signing bonus to player's career earnings
                         cur.execute("UPDATE players SET career_earnings = career_earnings + ? WHERE id = ?", (signing_bonus, offer['player_id']))
+
+                        # Blacklist the player for CPU (user_id = 1) after CPU wins free agency auction
+                        # This prevents other CPU teams from making offers for this player
+                        try:
+                            cur.execute("INSERT OR IGNORE INTO blacklist (user_id, player_id) VALUES (1, ?)", (offer['player_id'],))
+                            app.logger.info(f"Blacklisted player {offer['player_name']} (ID: {offer['player_id']}) after CPU team {winning_team['club_name']} won free agency auction")
+                        except Exception as blacklist_error:
+                            app.logger.error(f"Error blacklisting player after CPU free agency win: {blacklist_error}")
 
                         # Post transfer news
                         title = f"Free Agent Signing: {offer['player_name']}"
@@ -4568,7 +4594,7 @@ def market_bazaar():
         # Table 1: All transfer listed players (both user and CPU) - "Transfer List"
         cur.execute("""
             SELECT p.*, t.club_name, mbl.asking_price, mbl.expires_at, mbl.id as listing_id,
-                   mbl.listing_type, mbl.team_id,
+                   mbl.listing_type, mbl.team_id, mbl.salary_support_percentage,
                    CASE
                        WHEN mbl.team_id IN (SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = ?)
                        THEN 'own_user'
@@ -5057,14 +5083,34 @@ def process_cpu_offers():
             cur.close()
         return jsonify({'error': f'Error processing CPU offers: {str(e)}'}), 500
 
+@app.route('/market_bazaar/get_player_salary/<int:player_id>')
+@login_required
+def get_player_salary(player_id):
+    """Get player's current salary for loan listing preview"""
+    try:
+        cur = db_helper.get_cursor()
+        cur.execute("SELECT salary FROM players WHERE id = ?", (player_id,))
+        player = cur.fetchone()
+        cur.close()
+        
+        if player:
+            return jsonify({'salary': player['salary'] or 0})
+        else:
+            return jsonify({'error': 'Player not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/market_bazaar/list_player', methods=['POST'])
 @login_required
 def list_player_for_sale():
     """List a player for sale in the market bazaar"""
     try:
         player_id = request.form.get('player_id')
-        asking_price = int(request.form.get('asking_price'))
+        asking_price_str = request.form.get('asking_price', '0')
+        asking_price = int(asking_price_str) if asking_price_str else 0
         listing_type = request.form.get('listing_type', 'user_sale')  # user_sale or user_loan
+        salary_support_percentage_str = request.form.get('salary_support_percentage', '0')
+        salary_support_percentage = float(salary_support_percentage_str) if salary_support_percentage_str else 0.0
 
         cur = db_helper.get_cursor()
 
@@ -5099,22 +5145,42 @@ def list_player_for_sale():
         if cur.fetchone():
             return jsonify({'error': 'Player is already listed'}), 400
 
+        # For loans: Calculate subsidy amount (negative asking_price)
+        # The asking_price will be negative to represent the subsidy
+        if listing_type == 'user_loan' and salary_support_percentage > 0:
+            player_salary = player['salary'] or 0
+            subsidy_amount = int(player_salary * (salary_support_percentage / 100))
+            # Store as negative value to show it's a subsidy
+            asking_price = -subsidy_amount
+        elif listing_type == 'user_loan':
+            # Loan fee (optional, positive value)
+            asking_price = asking_price
+            salary_support_percentage = 0.0
+
         # Create listing
         from datetime import datetime, timedelta
         expires_at = datetime.now() + timedelta(days=14)  # 2 weeks
 
         cur.execute("""
-            INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type)
-            VALUES (?, ?, ?, ?, 'active', ?)
-        """, (player_id, player['club_id'], asking_price, expires_at.isoformat(), listing_type))
+            INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type, salary_support_percentage)
+            VALUES (?, ?, ?, ?, 'active', ?, ?)
+        """, (player_id, player['club_id'], asking_price, expires_at.isoformat(), listing_type, salary_support_percentage))
 
         db_helper.commit()
         cur.close()
 
         action = "loaned" if listing_type == "user_loan" else "sold"
+        if listing_type == 'user_loan' and salary_support_percentage > 0:
+            subsidy_amount = int((player['salary'] or 0) * (salary_support_percentage / 100))
+            message = f'{player["player_name"]} has been listed for loan. You will pay {salary_support_percentage:.0f}% of salary (€{subsidy_amount:,}/year)'
+        elif listing_type == 'user_loan':
+            message = f'{player["player_name"]} has been listed for loan at €{asking_price:,}'
+        else:
+            message = f'{player["player_name"]} has been listed for {action} at €{asking_price:,}'
+        
         return jsonify({
             'success': True,
-            'message': f'{player["player_name"]} has been listed for {action} at €{asking_price:,}'
+            'message': message
         })
 
     except Exception as e:
@@ -5537,20 +5603,69 @@ def loan_player(listing_id):
         cur.execute("UPDATE players SET club_id = ?, loaned_by = ? WHERE id = ?",
                    (user_team['id'], listing['seller_team_name'], listing['player_id']))
 
-        # Loans are free (0€) - no budget changes needed
+        # Handle loan economics (fee or subsidy) using unified budgets for users
+        fee_or_subsidy = listing['asking_price'] or 0
+        # Resolve lender user mapping (if any)
+        cur.execute("SELECT lt.user_id FROM league_teams lt WHERE lt.id = ?", (listing['team_id'],))
+        lender_info = cur.fetchone()
+        lender_user_id = lender_info['user_id'] if lender_info and lender_info['user_id'] else None
+
+        if fee_or_subsidy < 0:
+            # Subsidy: lender pays user
+            subsidy_amount = abs(fee_or_subsidy)
+
+            if lender_user_id and lender_user_id != 1:
+                # Lender is a user: debit unified budget
+                add_user_movement(
+                    lender_user_id,
+                    'Loan Salary Support',
+                    f"Salary support for {listing['player_name']} on loan to {current_user.username}",
+                    -subsidy_amount
+                )
+            else:
+                # Lender is CPU: debit teams table budget
+                cur.execute("UPDATE teams SET budget = budget - ? WHERE id = ?", (subsidy_amount, listing['team_id']))
+
+            # Borrower is current user: credit unified budget
+            add_user_movement(
+                current_user.id,
+                'Loan Salary Support',
+                f"Received salary support for {listing['player_name']} from {listing['seller_team_name']}",
+                subsidy_amount
+            )
+
+        elif fee_or_subsidy > 0:
+            # Loan fee: user pays lender
+            fee = fee_or_subsidy
+
+            # Borrower is current user: debit unified budget
+            add_user_movement(
+                current_user.id,
+                'Loan Fee',
+                f"Loan fee for {listing['player_name']} to {listing['seller_team_name']}",
+                -fee
+            )
+
+            if lender_user_id and lender_user_id != 1:
+                # Lender is a user: credit unified budget
+                add_user_movement(
+                    lender_user_id,
+                    'Loan Fee Received',
+                    f"Loan fee received for {listing['player_name']} from {current_user.username}",
+                    fee
+                )
+            else:
+                # Lender is CPU: credit teams table budget
+                cur.execute("UPDATE teams SET budget = budget + ? WHERE id = ?", (fee, listing['team_id']))
+
+        else:
+            # Free loan: no money movements
+            pass
 
         # Mark listing as completed
         cur.execute("UPDATE market_bazaar_listings SET status = 'completed' WHERE id = ?", (listing_id,))
 
-        # Record transaction (free loan)
-        cur.execute("SELECT budget FROM teams WHERE id IN (SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = ?)", (current_user.id,))
-        user_team_budget = cur.fetchone()
-        balance_after = user_team_budget['budget'] if user_team_budget else 0
-
-        cur.execute("""
-            INSERT INTO user_movements (user_id, type, amount, description, balance_after, created_at)
-            VALUES (?, 'loan', 0, ?, ?, ?)
-        """, (current_user.id, f"Free loan of {listing['player_name']}", balance_after, datetime.now().isoformat()))
+        # No additional summary movement; detailed movements already added above
 
         # Create blog post for user loan
         cur.execute("SELECT t.club_name FROM teams t JOIN league_teams lt ON t.id = lt.id WHERE lt.user_id = ?", (current_user.id,))

@@ -317,36 +317,93 @@ class CPUAI:
             if not team_analysis:
                 return None
 
-            # Find a player to loan (prefer younger players or surplus players)
+            # Compute position counts to find surplus positions (>4 players), protect GK minimum of 2
             cur.execute("""
+                SELECT registered_position, COUNT(*) AS cnt
+                FROM players
+                WHERE club_id = ?
+                GROUP BY registered_position
+            """, (team_id,))
+            counts = {row['registered_position']: row['cnt'] for row in cur.fetchall()}
+
+            surplus_positions = [pos for pos, cnt in counts.items() if cnt and int(cnt) > 4]
+            # GK protection: do not consider GK if <= 2
+            if counts.get('0', 0) <= 2 and '0' in surplus_positions:
+                surplus_positions.remove('0')
+
+            if not surplus_positions:
+                return None
+
+            # Exclude already listed or blacklisted players
+            # Choose weaker and younger players from surplus positions (not the best in position)
+            position_list_sql = ','.join([f"'{p}'" for p in surplus_positions])
+
+            # Find candidate players ranked by (overall ASC, age ASC) within surplus positions, excluding top overall per position
+            cur.execute(f"""
+                WITH best_per_pos AS (
+                    SELECT registered_position, MAX(overall) AS best_ovr
+                    FROM players
+                    WHERE club_id = ?
+                    GROUP BY registered_position
+                )
                 SELECT p.*, t.club_name
                 FROM players p
                 JOIN teams t ON p.club_id = t.id
+                LEFT JOIN best_per_pos bpp
+                    ON bpp.registered_position = p.registered_position
                 WHERE p.club_id = ?
-                AND p.id NOT IN (
-                    SELECT player_id FROM market_bazaar_listings WHERE status = 'active'
-                )
-                AND p.id NOT IN (
-                    SELECT player_id FROM blacklist WHERE user_id = 1
-                )
-                AND p.age <= 22  -- Prefer younger players for loans
-                ORDER BY p.age ASC, p.market_value DESC
+                AND p.registered_position IN ({position_list_sql})
+                AND (bpp.best_ovr IS NULL OR p.overall < bpp.best_ovr)
+                AND p.id NOT IN (SELECT player_id FROM market_bazaar_listings WHERE status = 'active')
+                AND p.id NOT IN (SELECT player_id FROM blacklist WHERE user_id = 1)
+                ORDER BY p.overall ASC, p.age ASC
                 LIMIT 1
-            """, (team_id,))
+            """, (team_id, team_id))
 
             player = cur.fetchone()
             if not player:
                 return None
 
-            # Loans are free (0€)
-            loan_fee = 0
+            # Decide salary support percentage between 0-100%
+            # Be more generous for very young or overpaid players
+            try:
+                fair_salary = self.calculate_fair_salary(dict(player))
+            except Exception:
+                fair_salary = player['salary'] or 0
 
-            # Create loan listing
+            player_salary = player['salary'] or 0
+            support_pct = 0.0
+            if player_salary > 0:
+                if player['age'] <= 21:
+                    support_pct = 0.75
+                elif fair_salary and player_salary > fair_salary * 1.3:
+                    support_pct = 1.0
+                elif fair_salary and player_salary > fair_salary * 1.1:
+                    support_pct = 0.6
+                else:
+                    support_pct = 0.3
+
+            # Clamp between 0 and 1
+            if support_pct < 0:
+                support_pct = 0.0
+            if support_pct > 1:
+                support_pct = 1.0
+
+            salary_support_percentage = int(support_pct * 100)
+            subsidy_amount = int(player_salary * support_pct)
+
+            # asking_price: negative means subsidy (for display logic); 0 if no support
+            asking_price = -subsidy_amount if subsidy_amount > 0 else 0
+
+            # Create loan listing with salary support percentage
             expires_at = datetime.now() + timedelta(days=7)
-            cur.execute("""
-                INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type)
-                VALUES (?, ?, ?, ?, 'active', 'cpu_loan')
-            """, (player['id'], team_id, loan_fee, expires_at.isoformat()))
+            cur.execute(
+                """
+                INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type, salary_support_percentage)
+                VALUES (?, ?, ?, ?, 'active', 'cpu_loan', ?)
+                """,
+                (player['id'], team_id, asking_price, expires_at.isoformat(), float(salary_support_percentage))
+            )
 
             conn.commit()
             conn.close()
@@ -356,7 +413,9 @@ class CPUAI:
                 'team': player['club_name'],
                 'details': {
                     'player_name': player['player_name'],
-                    'loan_fee': loan_fee,
+                    'asking_price': asking_price,
+                    'salary_support_percentage': salary_support_percentage,
+                    'subsidy_amount': subsidy_amount,
                     'player_id': player['id']
                 }
             }
@@ -432,11 +491,83 @@ class CPUAI:
                 protected_players = cur.fetchall()
                 print(f"Team {team_id} protecting best players: {[f'{p['player_name']} (Pos {p['registered_position']}, {p['overall']} OVR)' for p in protected_players]}")
 
+            # Get current position counts to ensure we only list from positions with surplus
+            cur.execute("""
+                SELECT registered_position, COUNT(*) as count
+                FROM players
+                WHERE club_id = ?
+                GROUP BY registered_position
+            """, (team_id,))
+            
+            position_counts = {row['registered_position']: row['count'] for row in cur.fetchall()}
+            
+            # Calculate position groups and check for surplus
+            gk_count = position_counts.get('0', 0)
+            def_count = position_counts.get('2', 0) + position_counts.get('3', 0)
+            fb_count = position_counts.get('4', 0) + position_counts.get('6', 0)
+            mid_count = position_counts.get('5', 0) + position_counts.get('7', 0) + position_counts.get('9', 0)
+            wing_count = position_counts.get('8', 0) + position_counts.get('10', 0)
+            fwd_count = position_counts.get('11', 0) + position_counts.get('12', 0)
+            
+            # Determine which positions have surplus (above ideal)
+            # Never list goalkeepers if we have 2 or fewer (always keep at least 2)
+            # Never list from positions that are already below ideal
+            positions_with_surplus = set()
+            
+            if gk_count > self.ideal_composition.goalkeepers:  # Only if more than 2
+                positions_with_surplus.add('0')
+            if def_count > self.ideal_composition.defenders:  # Only if more than 4
+                positions_with_surplus.update(['2', '3'])
+            if fb_count > self.ideal_composition.fullbacks:  # Only if more than 4
+                positions_with_surplus.update(['4', '6'])
+            if mid_count > self.ideal_composition.midfielders:  # Only if more than 6
+                positions_with_surplus.update(['5', '7', '9'])
+            if wing_count > self.ideal_composition.wingers:  # Only if more than 4
+                positions_with_surplus.update(['8', '10'])
+            if fwd_count > self.ideal_composition.forwards:  # Only if more than 4
+                positions_with_surplus.update(['11', '12'])
+            
+            # Special case: if team is in debt or has toxic contracts, allow listing
+            # but still protect goalkeepers (always keep at least 1)
+            # Check for toxic contracts by sampling a few players
+            has_toxic_contract = False
+            if budget >= 0:  # Only check if not in debt
+                cur.execute("SELECT * FROM players WHERE club_id = ? LIMIT 20", (team_id,))
+                sample_players = cur.fetchall()
+                for p in sample_players:
+                    try:
+                        fair_salary = self.calculate_fair_salary(dict(p))
+                        if p['salary'] and fair_salary and p['salary'] > fair_salary * 1.5:
+                            has_toxic_contract = True
+                            break
+                    except:
+                        continue
+            
+            allow_listing_anyway = budget < 0 or has_toxic_contract
+            
+            # If no surplus positions AND not in debt, don't list anyone
+            if not positions_with_surplus and not allow_listing_anyway:
+                return None
+            
             # Find players to sell (overpaid, surplus, or if team needs money)
             # Exclude players already listed, blacklisted, AND best players per position
+            # Only list from positions with surplus (unless in debt/toxic contract)
             protected_ids_str = ','.join(map(str, protected_player_ids)) if protected_player_ids else '0'
             
-            cur.execute(f"""
+            # Build position filter SQL
+            position_filter_sql = ""
+            if positions_with_surplus:
+                # Format: AND p.registered_position IN ('0', '2', '3', ...)
+                positions_str = "','".join(positions_with_surplus)
+                position_filter_sql = f"AND p.registered_position IN ('{positions_str}')"
+            elif allow_listing_anyway:
+                # In debt or toxic contracts: allow listing but still protect goalkeepers
+                if gk_count <= 1:
+                    position_filter_sql = "AND p.registered_position != '0'"  # Never list last goalkeeper
+                # Otherwise, no filter (allow all positions)
+            
+            # Build the full query
+            query = f"""
                 SELECT p.*, p.market_value, p.salary
                 FROM players p
                 WHERE p.club_id = ?
@@ -448,17 +579,48 @@ class CPUAI:
                     SELECT player_id FROM blacklist WHERE user_id = 1
                 )
                 AND p.id NOT IN ({protected_ids_str})  -- Protect best players per position
+                {position_filter_sql}  -- Only list from positions with surplus
                 ORDER BY p.salary DESC, p.overall ASC
                 LIMIT 10
-            """, (team_id,))
+            """
+            
+            cur.execute(query, (team_id,))
 
             team_players = cur.fetchall()
 
             if not team_players:
                 return None
 
-            # Select a player to sell (prefer overpaid or surplus players, but not the best per position)
-            selected_player = team_players[0]  # Highest salary, lowest overall (excluding protected players)
+            # Additional safety check: verify the selected player's position count
+            selected_player = team_players[0]
+            selected_position = selected_player['registered_position']
+            
+            # Extra protection for goalkeepers
+            if selected_position == '0':
+                current_gk = position_counts.get('0', 0)
+                if current_gk <= 2 and not allow_listing_anyway:
+                    # Don't list if we only have 2 or fewer GKs (unless forced by debt)
+                    return None
+                elif current_gk == 1:
+                    # Never list the last goalkeeper
+                    return None
+            
+            # Check other positions: don't list if it would drop us below ideal
+            if selected_position in ['2', '3']:  # Defenders
+                if def_count <= self.ideal_composition.defenders and not allow_listing_anyway:
+                    return None
+            elif selected_position in ['4', '6']:  # Fullbacks
+                if fb_count <= self.ideal_composition.fullbacks and not allow_listing_anyway:
+                    return None
+            elif selected_position in ['5', '7', '9']:  # Midfielders
+                if mid_count <= self.ideal_composition.midfielders and not allow_listing_anyway:
+                    return None
+            elif selected_position in ['8', '10']:  # Wingers
+                if wing_count <= self.ideal_composition.wingers and not allow_listing_anyway:
+                    return None
+            elif selected_position in ['11', '12']:  # Forwards
+                if fwd_count <= self.ideal_composition.forwards and not allow_listing_anyway:
+                    return None
 
             # Calculate asking price
             market_value = selected_player['market_value']
@@ -539,10 +701,21 @@ class CPUAI:
                 'average': row['avg_overall']
             } for row in cur.fetchall()}
 
-            # Find user loan listings with detailed player info
+            # Also compute current position counts for stricter need evaluation
             cur.execute("""
-                SELECT mbl.*, p.player_name, p.market_value, p.registered_position, p.overall, p.age,
-                       t.club_name as seller_team_name
+                SELECT registered_position, COUNT(*) as cnt
+                FROM players
+                WHERE club_id = ?
+                GROUP BY registered_position
+            """, (team_id,))
+            position_counts = {row['registered_position']: row['cnt'] for row in cur.fetchall()}
+
+            # Find user loan listings with detailed player info
+            # IMPORTANT: Select salary_support_percentage from listing to properly calculate subsidies
+            cur.execute("""
+                SELECT mbl.*, p.player_name, p.market_value, p.registered_position, p.overall, p.age, p.salary,
+                       t.club_name as seller_team_name,
+                       mbl.salary_support_percentage
                 FROM market_bazaar_listings mbl
                 JOIN players p ON mbl.player_id = p.id
                 JOIN teams t ON mbl.team_id = t.id
@@ -555,13 +728,16 @@ class CPUAI:
                     SELECT player_id FROM blacklist WHERE user_id = 1
                 )
                 AND p.overall >= 70  -- Only consider decent players for loans
-                ORDER BY p.overall DESC
-                LIMIT 20
+                ORDER BY mbl.salary_support_percentage DESC, mbl.asking_price ASC, p.overall DESC  -- Prioritize highest salary support first
+                LIMIT 30
             """)
 
             loan_listings = cur.fetchall()
             if not loan_listings:
+                print(f"  ⚠️  Team {team_id}: No loan listings found in database")
                 return None
+            
+            print(f"  📋 Team {team_id}: Found {len(loan_listings)} loan listings to evaluate")
 
             # Intelligently filter and score loan candidates
             loan_candidates = []
@@ -569,13 +745,67 @@ class CPUAI:
                 player_position = listing['registered_position']
                 player_overall = listing['overall']
                 player_age = listing['age']
+                asking_price = listing['asking_price']
+                player_salary = (listing['salary'] or 0)
+                salary_support_percentage = (listing['salary_support_percentage'] or 0.0)
+                
+                # Calculate salary subsidy - use salary_support_percentage directly if available, otherwise calculate from asking_price
+                if salary_support_percentage > 0:
+                    # Use percentage directly (more accurate)
+                    salary_subsidy = int(player_salary * (salary_support_percentage / 100))
+                    subsidy_ratio = salary_support_percentage / 100.0
+                else:
+                    # Fallback to asking_price calculation (for backward compatibility)
+                    salary_subsidy = abs(asking_price) if asking_price < 0 else 0
+                    subsidy_ratio = salary_subsidy / player_salary if player_salary > 0 else 0
                 
                 # Calculate interest score
                 interest_score = 0
                 
+                # CRITICAL: Massive bonus for subsidized loans (salary support)
+                # CPU is VERY willing to take heavily supported loans
+                if salary_subsidy > 0:
+                    
+                    # Enhanced scaling: 100% support = 500 points (increased from 400)
+                    # This makes heavily subsidized loans extremely attractive
+                    base_subsidy_score = int(subsidy_ratio * 500)  # Up to 500 points for 100% support
+                    interest_score += base_subsidy_score
+                    
+                    # Exponential bonuses for higher support percentages
+                    if subsidy_ratio >= 1.0:  # 100% support (completely free loan)
+                        interest_score += 200  # MASSIVE bonus for 100% free loans
+                    elif subsidy_ratio >= 0.90:  # 90%+ support (almost free loan)
+                        interest_score += 150  # Massive bonus for near-free loans
+                    elif subsidy_ratio >= 0.75:  # 75%+ support
+                        interest_score += 100  # Large bonus
+                    elif subsidy_ratio >= 0.50:  # 50%+ support
+                        interest_score += 60  # Good bonus
+                    
+                    # Additional bonus for larger absolute subsidy amounts
+                    if salary_subsidy >= 5000000:  # €5M+ subsidy
+                        interest_score += 80  # Increased from 50
+                    elif salary_subsidy >= 2000000:  # €2M+ subsidy
+                        interest_score += 50  # Increased from 30
+                    elif salary_subsidy >= 1000000:  # €1M+ subsidy
+                        interest_score += 35  # Increased from 20
+                
+                # Bonus for free loans (0€, no support)
+                elif asking_price == 0:
+                    interest_score += 30
+                
                 # Position need bonus (highest priority)
+                # Heavy bonus if the team needs this position; extra if there are zero players in position
+                current_count = position_counts.get(player_position, 0)
                 if player_position in needed_positions:
-                    interest_score += 50
+                    interest_score += 120  # strong base need bonus
+                    if current_count == 0:
+                        interest_score += 150  # critical: fill missing position immediately
+                    elif current_count == 1:
+                        interest_score += 60
+                else:
+                    # If not a need, add small penalty unless subsidy is extremely high (>= 90%)
+                    if subsidy_ratio < 0.9:
+                        interest_score -= 20
                 
                 # Improvement bonus
                 if player_position in position_analysis:
@@ -597,9 +827,45 @@ class CPUAI:
                     interest_score += 15  # Young talent
                 elif player_age <= 26:
                     interest_score += 10  # Prime age
+                
+                # Salary affordability: heavily prefer players with salary support
+                if salary_subsidy > 0:
+                    # With subsidy, calculate net cost (salary - subsidy)
+                    net_salary_cost = player_salary - salary_subsidy
+                    # Prefer if net cost is affordable (scaled by team budget)
+                    # With subsidies, CPU should be much more lenient on affordability
+                    team_budget = analysis['needs'].budget_available
+                    if team_budget > 0:
+                        affordability_ratio = net_salary_cost / team_budget
+                        if affordability_ratio < 0.1:  # Less than 10% of budget
+                            interest_score += 40  # Increased from 25 - heavily subsidized = very affordable
+                        elif affordability_ratio < 0.2:  # Less than 20% of budget
+                            interest_score += 30  # Increased from 15
+                        elif affordability_ratio < 0.4:  # Less than 40% of budget (new tier)
+                            interest_score += 15  # Still acceptable with subsidy
+                    # Additional bonus: if subsidy covers most/all of salary, treat as almost free
+                    subsidy_coverage = salary_subsidy / player_salary if player_salary > 0 else 0
+                    if subsidy_coverage >= 0.8:  # 80%+ of salary covered
+                        interest_score += 50  # Massive bonus - almost no cost to CPU
+                elif player_salary > 0:
+                    # Without subsidy, check if full salary is affordable
+                    team_budget = analysis['needs'].budget_available
+                    if team_budget > 0:
+                        affordability_ratio = player_salary / team_budget
+                        if affordability_ratio > 0.3:  # More than 30% of budget - penalize
+                            interest_score -= 30
                 elif player_age <= 29:
                     interest_score += 5   # Still good
                 # No bonus for older players
+
+                # Squad size pressure: if near capacity, be extremely selective unless 90%+ supported or critical need
+                if total_players >= 31:
+                    if player_position not in needed_positions and subsidy_ratio < 0.9:
+                        # Skip this candidate altogether when at capacity and it's not critical or highly subsidized
+                        continue
+                    else:
+                        # Minor bonus when we accept something at capacity due to strong rationale
+                        interest_score += 20
                 
                 # Overall rating bonus
                 if player_overall >= 85:
@@ -611,30 +877,142 @@ class CPUAI:
                 elif player_overall >= 70:
                     interest_score += 5   # Decent player
                 
-                # Only consider players with meaningful interest
-                if interest_score >= 25:  # Minimum threshold
+                # Lower threshold for heavily subsidized loans - 100% support should ALWAYS pass
+                # With 100% support, interest_score will be 500+200+bonuses = 700+ minimum
+                # Lower threshold significantly for heavily subsidized loans
+                if subsidy_ratio >= 1.0:  # 100% support
+                    min_threshold = 0  # Always accept 100% subsidized loans regardless of other factors
+                elif subsidy_ratio >= 0.80:  # 80%+ support
+                    min_threshold = 10  # Very low threshold
+                else:
+                    min_threshold = 25  # Standard threshold
+                
+                if interest_score >= min_threshold:
                     loan_candidates.append({
                         'listing': listing,
                         'score': interest_score,
-                        'reason': 'position_needed' if player_position in needed_positions else 'improvement'
+                        'reason': 'position_needed' if player_position in needed_positions else 'improvement',
+                        'subsidy_ratio': subsidy_ratio  # Include for debugging
                     })
 
             if not loan_candidates:
+                print(f"  ⚠️  Team {team_id}: No loan candidates passed filters (evaluated {len(loan_listings)} listings)")
                 return None
-
-            # Sort by interest score and select the best candidate
-            loan_candidates.sort(key=lambda x: x['score'], reverse=True)
             
-            # Add some randomness - pick from top 3 candidates
-            top_candidates = loan_candidates[:3]
-            selected_candidate = random.choice(top_candidates)
+            print(f"  ✅ Team {team_id}: {len(loan_candidates)} loan candidates passed filters")
+
+            # Sort by: 100% support first, then positional need presence, then subsidy ratio, then score
+            loan_candidates.sort(
+                key=lambda x: (
+                    1 if x.get('subsidy_ratio', 0) >= 1.0 else 0,
+                    1 if x['reason'] == 'position_needed' else 0,
+                    x.get('subsidy_ratio', 0),
+                    x['score']
+                ),
+                reverse=True
+            )
+            
+            # Prefer heavily subsidized loans - if any have 100% support, ALWAYS pick from those first
+            fully_subsidized = [c for c in loan_candidates if c.get('subsidy_ratio', 0) >= 1.0]
+            if fully_subsidized:
+                # 100% subsidized loans - pick best one (highest score)
+                fully_subsidized.sort(key=lambda x: x['score'], reverse=True)
+                top_candidates = fully_subsidized[:1]  # Always take the best 100% loan
+            else:
+                # Prefer heavily subsidized loans - if any have 80%+ support, prefer those
+                heavily_subsidized = [c for c in loan_candidates if c.get('subsidy_ratio', 0) >= 0.80]
+                if heavily_subsidized:
+                    # Pick from heavily subsidized loans (top 3 by score)
+                    heavily_subsidized.sort(key=lambda x: x['score'], reverse=True)
+                    top_candidates = heavily_subsidized[:3] if len(heavily_subsidized) >= 3 else heavily_subsidized
+                else:
+                    # No heavily subsidized, pick from all (top 3 by score)
+                    loan_candidates.sort(key=lambda x: x['score'], reverse=True)
+                    top_candidates = loan_candidates[:3]
+            
+            if not top_candidates:
+                print(f"  ❌ Team {team_id}: ERROR - top_candidates is empty!")
+                return None
+            
+            selected_candidate = top_candidates[0] if len(top_candidates) == 1 else random.choice(top_candidates)
             selected_listing = selected_candidate['listing']
             
-            print(f"Team {team_id} selected loan: {selected_listing['player_name']} (Pos {selected_listing['registered_position']}, {selected_listing['overall']} OVR) - Score: {selected_candidate['score']} ({selected_candidate['reason']})")
+            subsidy_ratio = selected_candidate.get('subsidy_ratio', 0) if 'subsidy_ratio' in selected_candidate else 0
+            subsidy_info = f"{subsidy_ratio*100:.0f}% support" if subsidy_ratio > 0 else "no support"
+            print(f"  ✅ Team {team_id} selected loan: {selected_listing['player_name']} (Pos {selected_listing['registered_position']}, {selected_listing['overall']} OVR, {subsidy_info}) - Score: {selected_candidate['score']} ({selected_candidate['reason']})")
 
             # Transfer player (loan)
             cur.execute("UPDATE players SET club_id = ?, loaned_by = ? WHERE id = ?",
                        (team_id, selected_listing['seller_team_name'], selected_listing['player_id']))
+
+            # Handle salary subsidy if asking_price is negative (represents subsidy)
+            asking_price = selected_listing['asking_price']
+            if asking_price < 0:
+                subsidy_amount = abs(asking_price)
+                
+                # Lender pays the subsidy - find lender's user_id if it's a user team
+                lender_team_id = selected_listing['team_id']
+                cur.execute("""
+                    SELECT lt.user_id 
+                    FROM league_teams lt 
+                    WHERE lt.id = ?
+                """, (lender_team_id,))
+                lender_info = cur.fetchone()
+                
+                if lender_info and lender_info['user_id'] and lender_info['user_id'] != 1:  # User team
+                    # Deduct from lender's unified budget similar to free-agency signing bonus handling
+                    user_id = lender_info['user_id']
+                    # Prefer cached budget if present
+                    cur.execute("SELECT budget FROM user_budgets WHERE user_id = ?", (user_id,))
+                    budget_row = cur.fetchone()
+                    if budget_row and budget_row['budget'] is not None:
+                        current_budget = budget_row['budget']
+                    else:
+                        # Fallback to movements-only sum if cache missing
+                        cur.execute("""
+                            SELECT COALESCE(SUM(amount), 0) as total
+                            FROM user_movements
+                            WHERE user_id = ?
+                        """, (user_id,))
+                        result = cur.fetchone()
+                        current_budget = result['total'] if result else 0
+                    new_budget = current_budget - subsidy_amount
+
+                    # Update cached budget for consistency with finances
+                    cur.execute("""
+                        INSERT OR REPLACE INTO user_budgets (user_id, budget, updated_at)
+                        VALUES (?, ?, ?)
+                    """, (user_id, new_budget, datetime.now().isoformat()))
+
+                    # Resolve CPU team name for clearer description
+                    cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+                    cpu_team_row = cur.fetchone()
+                    cpu_team_name = cpu_team_row['club_name'] if cpu_team_row else f"CPU Team {team_id}"
+
+                    # Add movement record
+                    cur.execute("""
+                        INSERT INTO user_movements (user_id, type, description, amount, balance_after, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        user_id,
+                        'Loan Salary Support',
+                        f"Salary support for {selected_listing['player_name']} on loan to {cpu_team_name}",
+                        -subsidy_amount,
+                        new_budget,
+                        datetime.now().isoformat()
+                    ))
+                else:
+                    # CPU team lender - deduct from teams table budget
+                    cur.execute("UPDATE teams SET budget = budget - ? WHERE id = ?",
+                               (subsidy_amount, lender_team_id))
+                
+                # CPU team (loanee) receives the subsidy - add to teams table budget
+                cur.execute("UPDATE teams SET budget = budget + ? WHERE id = ?",
+                           (subsidy_amount, team_id))
+                
+                subsidy_note = f" (€{subsidy_amount:,}/year salary support)"
+            else:
+                subsidy_note = ""
 
             # Mark listing as completed
             cur.execute("UPDATE market_bazaar_listings SET status = 'completed' WHERE id = ?", (selected_listing['id'],))
@@ -651,7 +1029,8 @@ class CPUAI:
                 'details': {
                     'player_name': selected_listing['player_name'],
                     'loaned_from': selected_listing['seller_team_name'],
-                    'player_id': selected_listing['player_id']
+                    'player_id': selected_listing['player_id'],
+                    'subsidy': subsidy_note if 'subsidy_note' in locals() else ""
                 }
             }
 
@@ -705,11 +1084,23 @@ class CPUAI:
             if not available_players:
                 return None
 
-            # Select a player that would improve the team
-            selected_player = None
+            # Get team needs to prioritize critical positions
+            needed_positions = self.get_team_position_needs(team_id)
+            
+            # Score players by priority (needed positions first, then improvements)
+            scored_players = []
             for player in available_players:
                 position = str(player['registered_position'])
                 player_overall = player['overall'] or 0
+                
+                # Priority score: higher = more important
+                priority_score = 0
+                
+                # CRITICAL: Fill missing positions (especially goalkeepers)
+                if position == '0' and analysis['needs'].needs_goalkeeper:
+                    priority_score = 1000  # Highest priority
+                elif position in needed_positions:
+                    priority_score = 500  # High priority for needed positions
 
                 # Get the current best player in this position on the team
                 cur.execute("""
@@ -729,8 +1120,46 @@ class CPUAI:
                 
                 # More lenient criteria for CPU-to-CPU to encourage trading
                 is_minor_improvement = is_cpu_to_cpu and player_overall > (current_best_overall - 2)  # Allow -2 overall for CPU trades
-                is_position_fill = is_cpu_to_cpu and current_best_overall == 0  # Fill empty positions from CPU
+                is_position_fill = current_best_overall == 0  # Fill empty positions (any listing type)
                 is_cpu_reasonable_deal = is_cpu_to_cpu and player['asking_price'] <= player_market_value * 1.5  # 150% for CPU-to-CPU
+                
+                # Add improvement bonuses
+                if is_improvement:
+                    priority_score += 100
+                if is_position_fill:
+                    priority_score += 200  # Filling empty position is very important
+                if is_minor_improvement:
+                    priority_score += 50
+                
+                scored_players.append({
+                    'player': player,
+                    'priority': priority_score,
+                    'position': position,
+                    'is_improvement': is_improvement,
+                    'is_cpu_to_cpu': is_cpu_to_cpu,
+                    'is_reasonable_price': is_reasonable_price,
+                    'is_minor_improvement': is_minor_improvement,
+                    'is_position_fill': is_position_fill,
+                    'is_cpu_reasonable_deal': is_cpu_reasonable_deal,
+                    'current_best_overall': current_best_overall,
+                    'player_market_value': player_market_value
+                })
+            
+            # Sort by priority (highest first), then by overall rating
+            scored_players.sort(key=lambda x: (-x['priority'], -(x['player']['overall'] or 0)))
+            
+            # Select a player that would improve the team (prioritizing needed positions)
+            selected_player = None
+            for scored in scored_players:
+                player = scored['player']
+                position = scored['position']
+                is_improvement = scored['is_improvement']
+                is_cpu_to_cpu = scored['is_cpu_to_cpu']
+                is_reasonable_price = scored['is_reasonable_price']
+                is_minor_improvement = scored['is_minor_improvement']
+                is_position_fill = scored['is_position_fill']
+                is_cpu_reasonable_deal = scored['is_cpu_reasonable_deal']
+                player_market_value = scored['player_market_value']
 
                 if is_improvement or (is_cpu_to_cpu and is_reasonable_price) or is_minor_improvement or is_position_fill or is_cpu_reasonable_deal:
                     # Apply the same sophisticated contract evaluation as CPU offers
@@ -1086,19 +1515,24 @@ class CPUAI:
             } for row in cur.fetchall()}
 
             # Find available free agents (club_id = 141) in needed positions
+            # Exclude players with active OR expired offers (fao.status = 'active' includes expired ones, so we need to check expires_at)
+            from datetime import datetime
+            current_time = datetime.now().isoformat()
             positions_str = ','.join([f"'{pos}'" for pos in needed_positions])
             cur.execute(f"""
                 SELECT p.*, 
                        CASE WHEN fao.player_id IS NOT NULL THEN 1 ELSE 0 END as has_active_offer
                 FROM players p
-                LEFT JOIN free_agent_offers fao ON p.id = fao.player_id AND fao.status = 'active'
+                LEFT JOIN free_agent_offers fao ON p.id = fao.player_id 
+                    AND fao.status = 'active'
+                    AND fao.expires_at > ?  -- Only consider non-expired offers
                 WHERE p.club_id = 141
                 AND p.registered_position IN ({positions_str})
                 AND p.overall >= 70  -- Only consider decent free agents
-                AND fao.player_id IS NULL  -- No active offers
+                AND fao.player_id IS NULL  -- No active non-expired offers
                 ORDER BY p.overall DESC, p.salary ASC
                 LIMIT 20
-            """)
+            """, (current_time,))
 
             free_agents = cur.fetchall()
             if not free_agents:
@@ -1189,9 +1623,8 @@ class CPUAI:
             base_salary = selected_agent['salary']
             player_age = selected_agent['age']
             
-            # CPU offers 90-110% of current salary (competitive but not overpaying)
-            offer_multiplier = random.uniform(0.90, 1.10)
-            offered_salary = int(base_salary * offer_multiplier)
+            # First bid must match player's salary demand exactly (100%)
+            offered_salary = int(base_salary)  # Exact match, no variation
             
             # Contract years based on age
             if player_age <= 25:
@@ -1205,10 +1638,13 @@ class CPUAI:
             from datetime import datetime, timedelta
             expires_at = datetime.now() + timedelta(minutes=5)  # 5 minutes like user offers
             
+            # Create the offer
             cur.execute("""
-                INSERT INTO free_agent_offers (player_id, user_id, offered_salary, offered_contract_years, expires_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (selected_agent['id'], 1, offered_salary, contract_years, expires_at.isoformat()))  # user_id = 1 for CPU
+                INSERT INTO free_agent_offers (player_id, user_id, offered_salary, offered_contract_years, expires_at, team_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (selected_agent['id'], 1, offered_salary, contract_years, expires_at.isoformat(), team_id))  # user_id = 1 for CPU
+            
+            # Do not update players.salary on CPU offer creation; keep as free-agency basis
             
             # Get team name
             cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
@@ -1251,33 +1687,43 @@ class CPUAI:
 
             budget = analysis['needs'].budget_available
             
-            # Find active offers from other teams (users or other CPU teams) that this team might want to outbid
+            # Find active offers from users; filter expiration in Python to avoid format mismatches
+            from datetime import datetime
             cur.execute("""
                 SELECT fao.*, p.*
                 FROM free_agent_offers fao
                 JOIN players p ON fao.player_id = p.id
                 WHERE fao.status = 'active'
-                AND fao.user_id != 1  -- Only compete against user offers
-                AND p.overall >= 75   -- Only compete for quality players
+                AND p.overall >= 75
                 ORDER BY p.overall DESC, fao.offered_salary ASC
-                LIMIT 20
+                LIMIT 50
             """)
             
             competing_offers = cur.fetchall()
             if not competing_offers:
                 return None
 
-            # Check if this team needs any of these players
+            # Check team needs, but do not bail out entirely if empty; we may still raise for elite players
             needed_positions = self.get_team_position_needs(team_id)
-            if not needed_positions:
-                return None
 
             # Find offers for players in positions we need
             target_offers = []
+            now = datetime.now()
             for offer in competing_offers:
+                # Skip expired in Python
+                try:
+                    if offer['expires_at'] and datetime.fromisoformat(str(offer['expires_at']).replace('Z', '+00:00')) <= now:
+                        continue
+                except Exception:
+                    # If parsing fails, keep it (safer to consider than to drop incorrectly)
+                    pass
+                # Skip raising our own existing CPU offer from the same team
+                if offer.get('user_id') == 1 and offer.get('team_id') and int(offer['team_id']) == int(team_id):
+                    continue
+
                 if offer['registered_position'] in needed_positions:
-                    # Calculate if we can afford to outbid (add 10-25% to current offer)
-                    raise_amount = random.randint(100000, 500000)  # 100k-500k raise
+                    # Exact raise amount: €250,000 as specified
+                    raise_amount = 250000
                     new_salary = offer['offered_salary'] + raise_amount
                     
                     # Check if we can afford it (including signing bonus estimate)
@@ -1305,11 +1751,14 @@ class CPUAI:
             from datetime import datetime, timedelta
             new_expires_at = datetime.now() + timedelta(minutes=5)
             
+            # Update the offer
             cur.execute("""
                 UPDATE free_agent_offers
                 SET user_id = ?, offered_salary = ?, expires_at = ?
                 WHERE id = ?
             """, (1, new_salary, new_expires_at.isoformat(), offer_to_raise['id']))  # user_id = 1 for CPU
+            
+            # Do not update players.salary on CPU raises; keep as free-agency basis
             
             # Get team name
             cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
@@ -1360,15 +1809,15 @@ class CPUAI:
                 return None
             
             # Find ALL active user offers (more comprehensive scan)
+            from datetime import datetime
             cur.execute("""
                 SELECT fao.*, p.*
                 FROM free_agent_offers fao
                 JOIN players p ON fao.player_id = p.id
                 WHERE fao.status = 'active'
-                AND fao.user_id != 1  -- Only compete against user offers
-                AND p.overall >= 70   -- Lower threshold for aggressive scanning
+                AND p.overall >= 70
                 ORDER BY p.overall DESC, fao.offered_salary ASC
-                LIMIT 50  -- Scan more offers
+                LIMIT 100
             """)
             
             all_user_offers = cur.fetchall()
@@ -1378,7 +1827,21 @@ class CPUAI:
             # Evaluate ALL offers with more aggressive criteria
             target_offers = []
             
+            now = datetime.now()
             for offer in all_user_offers:
+                # Skip expired in Python to avoid format issues
+                try:
+                    if offer['expires_at'] and datetime.fromisoformat(str(offer['expires_at']).replace('Z', '+00:00')) <= now:
+                        continue
+                except Exception:
+                    pass
+                # Skip raising our own CPU offer from the same team
+                try:
+                    if offer.get('user_id') == 1 and offer.get('team_id') and int(offer['team_id']) == int(team_id):
+                        continue
+                except Exception:
+                    pass
+
                 player_position = offer['registered_position']
                 player_overall = offer['overall']
                 player_age = offer['age']
@@ -1456,17 +1919,8 @@ class CPUAI:
                 elif player_age <= 29:
                     interest_score += 10  # New tier
                 
-                # Calculate competitive raise amount
-                if interest_score >= 100:  # High interest
-                    raise_percentage = random.uniform(0.20, 0.40)  # More aggressive 20-40%
-                elif interest_score >= 70:  # Medium-high interest
-                    raise_percentage = random.uniform(0.15, 0.30)  # 15-30%
-                elif interest_score >= 50:  # Medium interest
-                    raise_percentage = random.uniform(0.10, 0.25)  # 10-25%
-                else:  # Lower interest
-                    raise_percentage = random.uniform(0.05, 0.15)  # 5-15%
-                
-                raise_amount = int(current_offer * raise_percentage)
+                # Exact raise amount: €250,000 as specified (not percentage-based)
+                raise_amount = 250000
                 new_salary = current_offer + raise_amount
                 
                 # More generous affordability (AGGRESSIVE criteria)
@@ -1488,10 +1942,13 @@ class CPUAI:
                     print(f"     Current offer: €{current_offer:,}, Fair salary: €{fair_salary:,} (ratio: {salary_ratio:.2f})")
                     print(f"     Toxic: {is_toxic}, Interest score: {interest_score}")
                 
-                # Lower minimum threshold for aggressive scanning
-                if (budget >= estimated_signing_bonus and 
+                # Lower minimum threshold for aggressive scanning - be more lenient
+                # Also allow negative budgets if the offer is good enough
+                budget_ok = budget >= estimated_signing_bonus or (budget < 0 and budget >= -estimated_signing_bonus * 2)
+                
+                if (budget_ok and 
                     new_salary <= max_affordable_salary and 
-                    interest_score >= 30):  # Lower threshold from 40
+                    interest_score >= 25):  # Even lower threshold (was 30)
                     
                     target_offers.append({
                         'offer': offer,
@@ -1503,6 +1960,10 @@ class CPUAI:
                     })
 
             if not target_offers:
+                # Debug: Log why no offers were suitable
+                print(f"  ⚠️  Team {team_id}: No suitable offers to raise")
+                print(f"     - Scanned {len(all_user_offers)} user offers")
+                print(f"     - Budget: €{budget:,}, Needed positions: {needed_positions}")
                 return None  # No suitable offers to raise
 
             # Sort by interest score and pick the BEST opportunity
@@ -1518,11 +1979,14 @@ class CPUAI:
             from datetime import datetime, timedelta
             new_expires_at = datetime.now() + timedelta(minutes=5)
             
+            # Update the offer
             cur.execute("""
                 UPDATE free_agent_offers
                 SET user_id = ?, offered_salary = ?, expires_at = ?
                 WHERE id = ?
             """, (1, new_salary, new_expires_at.isoformat(), offer_to_raise['id']))
+            
+            # Do not update players.salary on CPU aggressive raises; keep as free-agency basis
             
             # Get team name
             cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
@@ -2200,11 +2664,16 @@ class CPUAI:
                         continue
                     actual_user_id = user_result['user_id']
 
-                    # Get current budget by calculating from movements (same as get_user_budget logic)
-                    cur.execute("SELECT COALESCE(SUM(amount), 0) as total_movements FROM user_movements WHERE user_id = ?", (actual_user_id,))
-                    movements_result = cur.fetchone()
-                    total_movements = movements_result['total_movements'] if movements_result else 0
-                    current_budget = 450000000 + total_movements
+                    # Get current unified budget: prefer cached snapshot, fallback to base+movements
+                    cur.execute("SELECT budget FROM user_budgets WHERE user_id = ?", (actual_user_id,))
+                    ub = cur.fetchone()
+                    if ub and ub['budget'] is not None:
+                        current_budget = ub['budget']
+                    else:
+                        cur.execute("SELECT COALESCE(SUM(amount), 0) as total_movements FROM user_movements WHERE user_id = ?", (actual_user_id,))
+                        movements_result = cur.fetchone()
+                        total_movements = movements_result['total_movements'] if movements_result else 0
+                        current_budget = 450000000 + total_movements
                     new_budget = current_budget - offered_price
 
                     # Update user budget
@@ -2364,9 +2833,7 @@ class CPUAI:
                             })
                     elif action_choice < 0.85:  # 25% chance for free agency activity (combined)
                         # TWO-PHASE FREE AGENCY APPROACH
-                        fa_action_taken = False
-                        
-                        # PHASE 1: Prioritize raising existing offers first
+                        # Phase 1: Try to raise existing offers (prioritized)
                         raise_offer_result = self.raise_cpu_free_agency_offer_aggressive(team_id)
                         if raise_offer_result and 'details' in raise_offer_result:
                             # Successfully raised an offer
@@ -2376,8 +2843,8 @@ class CPUAI:
                                 'details': raise_offer_result['details']
                             })
                         
-                        # PHASE 2: Always try to make new offers (regardless of Phase 1 result)
-                        # Only skip if team is at capacity or has other hard constraints
+                        # PHASE 2: Also make new offers (both raises and new offers can happen)
+                        # This allows teams to raise existing offers AND make new offers for different players
                         analysis = self.analyze_team_composition(team_id)
                         if analysis and analysis['total_players'] < 32:
                             free_agency_result = self.make_cpu_free_agency_offer(team_id)
