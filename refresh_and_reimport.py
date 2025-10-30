@@ -160,6 +160,17 @@ def safe_refresh_database():
             else:
                 print("  ℹ️  development_key column already exists")
         
+        # Add seed_player column to players table (stores base player id for regens)
+        print("\n🌱 Adding seed_player column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN seed_player INTEGER NULL")
+            print("  ✅ Added seed_player column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding seed_player column: {e}")
+            else:
+                print("  ℹ️  seed_player column already exists")
+
         # Add trait_key column to players table
         print("\n🎭 Adding trait_key column to players table...")
         try:

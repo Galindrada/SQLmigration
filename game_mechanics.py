@@ -16,6 +16,52 @@ np.random.seed(SEED_VALUE)
 _POSITION_AVERAGES_CACHE = None
 _POSITION_AVERAGES_CACHE_DB_PATH = None
 
+# Cache for seed player targets from original.sqlite
+_SEED_TARGETS_CACHE: Dict[int, Dict[str, int]] = {}
+
+def get_seed_player_targets(seed_player_id: int, original_db_path: str = 'original.sqlite') -> Optional[Dict[str, int]]:
+    """Fetch and cache seed player's target skills from original.sqlite.
+    Returns a dict mapping skill names used by development to target ints.
+    """
+    try:
+        if not seed_player_id:
+            return None
+        if seed_player_id in _SEED_TARGETS_CACHE:
+            return _SEED_TARGETS_CACHE[seed_player_id]
+        conn = sqlite3.connect(original_db_path)
+        cur = conn.cursor()
+        # Columns aligned with development skill set
+        cur.execute(
+            """
+            SELECT 
+                attack, defense, balance, stamina, top_speed, acceleration,
+                response, agility, dribble_accuracy, dribble_speed,
+                short_pass_accuracy, short_pass_speed, long_pass_accuracy, long_pass_speed,
+                shot_accuracy, shot_power, shot_technique, free_kick_accuracy, swerve,
+                heading, jump, technique, aggression, mentality, goal_keeping,
+                team_work
+            FROM players WHERE id = ?
+            """,
+            (seed_player_id,),
+        )
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return None
+        cols = [
+            'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+            'response', 'agility', 'dribble_accuracy', 'dribble_speed',
+            'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
+            'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve',
+            'heading', 'jump', 'technique', 'aggression', 'mentality', 'goal_keeping',
+            'team_work'
+        ]
+        targets = {col: int(row[idx]) if row[idx] is not None else None for idx, col in enumerate(cols)}
+        _SEED_TARGETS_CACHE[seed_player_id] = targets
+        return targets
+    except Exception:
+        return None
+
 def get_cached_position_averages(db_path: str) -> pd.DataFrame:
     """
     Get cached position averages or calculate them if not cached.
@@ -675,7 +721,8 @@ def get_age_development_multiplier(age: int, profile_type: int) -> float:
         elif age <= 28:
             return 0.6075  # Moderate growth (0.675 * 0.9)
         elif age <= 32:
-            return 0.0  # Stagnation (0.0 * 0.9)
+            # Minimal random floor in late-20s/early-30s to avoid stasis
+            return random.uniform(-2, 0)
         elif age <= 35:
             return -0.4725  # Mild decline (-0.525 * 0.9)
         else:
@@ -849,15 +896,48 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     # Apply development trait effects
     position_weights = apply_development_trait_effects(position_weights, trait_info['trait_type'])
     
-    # Calculate final development multiplier
-    final_multiplier = age_multiplier * base_multiplier
-    
-    # Apply random variation (±25%)
-    random_factor = random.uniform(0.75, 1.25)
-    final_multiplier *= random_factor
+    # Harden decline after age 32 across profiles: make negative age multipliers more negative
+    try:
+        age_int = int(age)
+    except Exception:
+        age_int = 25
+    if age_int > 32 and age_multiplier < 0:
+        age_multiplier -= random.uniform(0.5, 3.0)
+    # Additional decline step after 36
+    if age_int > 36 and age_multiplier < 0:
+        age_multiplier -= random.uniform(-0.2, 3.0)
+    # Additional decline step after 40
+    if age_int > 40 and age_multiplier < 0:
+        age_multiplier -= random.uniform(1.0, 4.0)
+
+    # Calculate final development multiplier (separate natural vs performance components)
+    base_growth = age_multiplier * base_multiplier
     
     # Calculate performance-based boost
     performance_boost = calculate_performance_boost(player_data)
+    # Separate natural development from performance-driven development
+    # Natural works even at 0 games (drives youth growth and veteran decline)
+    natural_weight = 0.4
+    performance_weight = 0.6
+    games_played = int(player_data.get('games_played', 0) or 0)
+    # Assume ~34 league matches as reference; clamp to 1.0
+    games_ratio = min(1.0, max(0.0, games_played / 34.0))
+    # Youth floor: allow some growth even with few/no games for young players
+    # Stronger floor for <=20, tapering off with age
+    if age <= 20:
+        youth_floor = 0.35
+    elif age <= 22:
+        youth_floor = 0.25
+    elif age <= 24:
+        youth_floor = 0.15
+    else:
+        youth_floor = 0.05
+    effective_games_factor = max(games_ratio, youth_floor)
+    perf_factor = 1.0 + 0.6 * float(performance_boost.get('total_boost', 0.0))
+    # Compose additively: performance term decoupled from age sign so it mitigates decline
+    natural_component = base_multiplier * age_multiplier * natural_weight
+    performance_component = base_multiplier * performance_weight * effective_games_factor * perf_factor
+    final_multiplier = natural_component + performance_component
     # Define skills that can be developed
     skill_columns = [
         'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
@@ -871,6 +951,14 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     skill_changes = {}
     total_skill_change = 0
     
+    # If player has a seed base, fetch targets
+    seed_player_id = None
+    try:
+        seed_player_id = int(player_data.get('seed_player', 0)) if player_data.get('seed_player') is not None else 0
+    except Exception:
+        seed_player_id = 0
+    seed_targets = get_seed_player_targets(seed_player_id) if seed_player_id else None
+
     for skill in skill_columns:
         if skill in player_data:
             current_value = int(player_data[skill])
@@ -882,22 +970,59 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
             # Get position weight for this skill from averages
             skill_weight = position_weights.get(skill, 1.0)
             
-            # Calculate skill change based on remaining potential
-            # Apply multiplier to the remaining skill potential (99 - current_value)
+            # Calculate skill change based on remaining potential or seed target if available
             if final_multiplier > 0:  # Improvement
-                # Calculate remaining potential
+                # Default remaining potential to 99 ceiling
                 remaining_potential = 99 - current_value
-                # Apply multiplier to remaining potential, scaled down for realistic changes
-                base_change = (final_multiplier * skill_weight * remaining_potential) / 50.0
+                # If seed target exists, steer towards it
+                if seed_targets and skill in seed_targets and seed_targets[skill] is not None:
+                    target = int(seed_targets[skill])
+                    delta_to_target = target - current_value
+                    if delta_to_target > 0:
+                        # Grow towards seed target rather than 99 ceiling
+                        remaining_potential = min(remaining_potential, delta_to_target)
+                        # Emphasize important skills more when below target (stronger skew)
+                        remaining_potential *= max(1.0, skill_weight ** 1.6)
+                    else:
+                        # Already above seed target: make further growth increasingly harder
+                        over_seed = -delta_to_target  # positive amount over target
+                        # Soft zone: allow small drift above seed before penalty ramps
+                        effective_over = max(0.0, over_seed - 2.0)
+                        # Penalty factor grows with over_seed; keeps tiny chance of improvement (with floor)
+                        penalty = max(0.12, 1.0 / (1.0 + 1.05 * effective_over))
+                        # Retain some room to 99 but heavily penalized above seed
+                        remaining_potential = max(0.0, (99 - current_value) * penalty)
+                # Apply multiplier scaled down for realistic changes
+                # Stronger pull when seed is present (smaller divisor)
+                divisor = 24.0 if seed_targets else 50.0
+                base_change = (final_multiplier * skill_weight * remaining_potential) / divisor
             else:  # Decline
                 # For decline, apply multiplier to current value, scaled down
                 base_change = (final_multiplier * skill_weight * current_value) / 100.0
             
             # Performance boost is now applied to final_multiplier, not per skill
             
-            # Apply some randomness to individual skills (±30%)
-            skill_random = random.uniform(0.7, 1.3)
+            # Randomness: tighter when seed-targeted to improve convergence
+            if seed_targets:
+                skill_random = random.uniform(0.95, 1.05)
+            else:
+                skill_random = random.uniform(0.7, 1.3)
             skill_change = base_change * skill_random
+
+            # Seed nudge: small push towards seed target on improvement years
+            if seed_targets and final_multiplier > 0 and skill in seed_targets and seed_targets[skill] is not None:
+                target = int(seed_targets[skill])
+                gap = target - current_value
+                if gap != 0:
+                    # ε scaled by importance with curvature, still bounded to avoid jumps (stronger)
+                    epsilon = 0.45  # stronger nudge per season baseline
+                    nudge = epsilon * (max(0.5, skill_weight) ** 1.5)
+                    # Move at most nudge toward the target; don't overshoot
+                    if gap > 0:
+                        skill_change += min(nudge, gap)
+                    else:
+                        # If already above seed, do not apply downward nudge
+                        pass
             
             # Ensure skill stays within reasonable bounds (1-99) and convert to integer with proper rounding
             new_value = max(1, min(99, round(current_value + skill_change)))
@@ -1981,6 +2106,9 @@ def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict
         
         conn.close()
         
+        # Persist the seed for downstream development orientation
+        regen_data['seed_player'] = int(base_player_id)
+
         # Generate random age between 15-20
         age = random.randint(15, 20)
         regen_data['age'] = age
