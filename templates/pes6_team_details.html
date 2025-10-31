@@ -117,6 +117,39 @@
         </div>
     </div>
 
+    <!-- Team Historical Data Section -->
+    {% if historical_data %}
+    <div class="team-historical-section" style="margin-bottom: 30px;">
+        <div class="card" style="background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 2px solid #dee2e6; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+            <div class="card-header" style="background: linear-gradient(145deg, #495057, #6c757d); color: white; border-bottom: 2px solid #495057; border-radius: 8px 8px 0 0;">
+                <h4 style="margin: 0; text-align: center; font-weight: bold;">
+                    <i class="fas fa-trophy"></i> Historical Achievements
+                </h4>
+            </div>
+            <div class="card-body" style="padding: 20px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #495057; color: white;">
+                            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Season</th>
+                            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Competition</th>
+                            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Place</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for record in historical_data %}
+                        <tr style="border-bottom: 1px solid #ddd;">
+                            <td style="padding: 8px; border: 1px solid #ddd;">{{ record[0] }}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{{ record[1] }}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{{ record[2] }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     {% if players_in_team %}
         <table>
             <thead>
@@ -125,12 +158,15 @@
                     <th>Age</th>
                     <th>Game Position</th>
                     <th>Side</th>
-                    <th>Attack</th>
-                    <th>Defense</th>
-                    <th>Physical</th>
-                    <th>Power</th>
-                    <th>Technique</th>
+                    <th>Att</th>
+                    <th>Def</th>
+                    <th>Phy</th>
+                    <th>Pwr</th>
+                    <th>Te</th>
                     <th>GK</th>
+                    <th>Salary</th>
+                    <th>MV</th>
+                    <th>CTy</th>
                     <th>Details</th>
                 </tr>
             </thead>
@@ -147,6 +183,9 @@
                         <td>{{ player[10] }}</td> {# power_rating #}
                         <td>{{ player[11] }}</td> {# technique_rating #}
                         <td>{{ player[12] }}</td> {# goalkeeping_rating #}
+                        <td>€{{ player[14]|format_currency_compact }}</td> {# salary #}
+                        <td>€{{ player[16]|format_currency_compact }}</td> {# market_value #}
+                        <td>{{ player[15] }}</td> {# contract_years_remaining #}
                         <td>
                             <a href="{{ url_for('negotiate_with_cpu', player_id=player[0]) }}" class="btn btn-primary btn-sm">Negotiate</a>
                         </td>

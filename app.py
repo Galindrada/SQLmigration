@@ -179,6 +179,23 @@ def format_currency_filter(value):
         return f"€{value:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return value
 
+@app.template_filter('format_currency_compact')
+def format_currency_compact_filter(value):
+    """Format currency in compact format (e.g., 1.1M for 1,100,000)"""
+    if not isinstance(value, (int, float)) or value is None:
+        return "0"
+    value = float(value)
+    if value >= 1000000:
+        # Round to nearest 100K
+        millions = round(value / 100000) / 10
+        return f"{millions:.1f}M"
+    elif value >= 1000:
+        # Round to nearest 1K
+        thousands = round(value / 100) / 10
+        return f"{thousands:.1f}K"
+    else:
+        return f"{int(value)}"
+
 @app.template_filter('from_json')
 def from_json_filter(value):
     if value is None:
@@ -977,17 +994,28 @@ def pes6_team_details(team_id):
             END ASC
     """, (team_id,))
     players_in_team = cur.fetchall()
+    
+    # Fetch team historical data
+    cur.execute("""
+        SELECT season, competition, place
+        FROM team_historical_data
+        WHERE team_id = ?
+        ORDER BY season DESC, competition ASC
+    """, (team_id,))
+    historical_data = cur.fetchall()
     cur.close()
 
     # Add cache-busting headers to ensure fresh data
     response = make_response(render_template('pes6_team_details.html',
                          team_name=team_name,
+                         team_id=team_id,
                          players_in_team=players_in_team,
                          total_salaries=total_salaries,
                          budget=budget,
                          available_cap=available_cap,
                          is_user_team=is_user_team,
-                         total_market_value=total_market_value))
+                         total_market_value=total_market_value,
+                         historical_data=historical_data))
 
     # Add headers to prevent caching
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -3560,6 +3588,84 @@ def clear_blacklist_route():
     clear_blacklist()
     flash('Blacklist cleared successfully!', 'success')
     return redirect(url_for('tools'))
+
+# --- Team Historical Data Management ---
+@app.route('/manage_team_historical_data', methods=['GET', 'POST'])
+@login_required
+def manage_team_historical_data():
+    """Add or update team historical data (season, competition, place)"""
+    from datetime import datetime
+    
+    cur = db_helper.get_cursor()
+    
+    if request.method == 'POST':
+        team_id = request.form.get('team_id')
+        season = request.form.get('season')
+        competition = request.form.get('competition')
+        place = request.form.get('place')
+        
+        if not all([team_id, season, competition, place]):
+            flash('All fields are required!', 'danger')
+            cur.close()
+            return redirect(url_for('manage_team_historical_data'))
+        
+        try:
+            # Check if record exists
+            cur.execute("""
+                SELECT id FROM team_historical_data 
+                WHERE team_id = ? AND season = ? AND competition = ?
+            """, (team_id, season, competition))
+            existing = cur.fetchone()
+            
+            now = datetime.now().isoformat()
+            if existing:
+                # Update existing record
+                cur.execute("""
+                    UPDATE team_historical_data 
+                    SET place = ?, updated_at = ?
+                    WHERE id = ?
+                """, (place, now, existing['id']))
+                flash(f'Updated historical data for season {season}!', 'success')
+            else:
+                # Insert new record
+                cur.execute("""
+                    INSERT INTO team_historical_data (team_id, season, competition, place, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (team_id, season, competition, place, now, now))
+                flash(f'Added historical data for season {season}!', 'success')
+            
+            db_helper.commit()
+        except Exception as e:
+            db_helper.get_connection().rollback()
+            flash(f'Error saving historical data: {str(e)}', 'danger')
+        finally:
+            cur.close()
+        
+        return redirect(url_for('manage_team_historical_data'))
+    
+    # GET request - show form
+    cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
+    teams = cur.fetchall()
+    cur.close()
+    
+    return render_template('tools.html', teams_historical=teams, historical_message=None)
+
+@app.route('/delete_team_historical_data/<int:record_id>', methods=['POST'])
+@login_required
+def delete_team_historical_data(record_id):
+    """Delete a team historical data record"""
+    cur = db_helper.get_cursor()
+    try:
+        cur.execute("DELETE FROM team_historical_data WHERE id = ?", (record_id,))
+        db_helper.commit()
+        flash('Historical data deleted successfully!', 'success')
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        flash(f'Error deleting historical data: {str(e)}', 'danger')
+    finally:
+        cur.close()
+    
+    return redirect(url_for('manage_team_historical_data'))
 
 # --- Blacklist Helper Functions ---
 def add_to_blacklist(user_id, player_id):

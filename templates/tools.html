@@ -322,6 +322,90 @@
         {% endif %}
     </div>
 
+    {# --- Team Historical Data Management Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>📜 Manage Team Historical Data</h3>
+        <p>Add or update team achievements (season, competition, place). Records can be updated if they already exist.</p>
+        <a href="{{ url_for('manage_team_historical_data') }}" class="button" style="background-color: #6c757d;">
+            <i class="fas fa-history"></i> Manage Historical Data
+        </a>
+        {% if historical_message %}
+            <div style="color: green; margin-top: 10px;">{{ historical_message }}</div>
+        {% endif %}
+    </div>
+
+    {% if teams_historical %}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>📜 Add Team Historical Data</h3>
+        <form method="post" action="{{ url_for('manage_team_historical_data') }}">
+            <div style="margin-bottom: 15px;">
+                <label for="team_id_historical">Team:</label>
+                <select name="team_id" id="team_id_historical" required style="margin-left: 10px; padding: 5px; width: 300px;">
+                    <option value="" disabled selected>Select team</option>
+                    {% for team in teams_historical %}
+                        <option value="{{ team[0] }}">{{ team[1] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="season">Season:</label>
+                <select name="season" id="season" required style="margin-left: 10px; padding: 5px; width: 150px;">
+                    <option value="00/01">00/01</option>
+                    <option value="01/02">01/02</option>
+                    <option value="02/03">02/03</option>
+                    <option value="03/04">03/04</option>
+                    <option value="04/05">04/05</option>
+                    <option value="05/06">05/06</option>
+                    <option value="06/07">06/07</option>
+                    <option value="07/08">07/08</option>
+                    <option value="08/09">08/09</option>
+                    <option value="09/10">09/10</option>
+                    <option value="10/11">10/11</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="competition">Competition:</label>
+                <select name="competition" id="competition" required style="margin-left: 10px; padding: 5px; width: 250px;">
+                    <option value="Colados League 1st Division">Colados League 1st Division</option>
+                    <option value="Colados League 2nd Division">Colados League 2nd Division</option>
+                    <option value="Colados Supercup">Colados Supercup</option>
+                    <option value="Colados Cup">Colados Cup</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="place">Place:</label>
+                <select name="place" id="place" required style="margin-left: 10px; padding: 5px; width: 200px;">
+                    <option value="1st">1st</option>
+                    <option value="2nd">2nd</option>
+                    <option value="3rd">3rd</option>
+                    {% for i in range(4, 21) %}
+                        <option value="{{ i }}th">{{ i }}th</option>
+                    {% endfor %}
+                    <option value="1st Round">1st Round</option>
+                    <option value="2nd Round">2nd Round</option>
+                    <option value="16-Finals">16-Finals</option>
+                    <option value="Quarter-Finals">Quarter-Finals</option>
+                    <option value="Semi-Finals">Semi-Finals</option>
+                    <option value="Finalist">Finalist</option>
+                    <option value="Winner">Winner</option>
+                </select>
+            </div>
+            
+            <button type="submit" class="button" style="background-color: #6c757d; font-weight: bold;">💾 Save Historical Data</button>
+        </form>
+        
+        {% if teams_historical %}
+        <div style="margin-top: 20px;">
+            <h4>View/Edit Existing Records</h4>
+            <p>To view or edit existing historical data, visit the team's details page or use the manage link above.</p>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
 
 
 

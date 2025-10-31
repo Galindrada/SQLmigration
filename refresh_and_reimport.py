@@ -687,6 +687,26 @@ def safe_refresh_database():
         except Exception as e:
             print(f"  ❌ Error creating user_cpu_offers table: {e}")
         
+        # Create team_historical_data table for team achievements
+        print("\n🏆 Creating team_historical_data table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS team_historical_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    team_id INTEGER NOT NULL,
+                    season TEXT NOT NULL,
+                    competition TEXT NOT NULL,
+                    place TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (team_id) REFERENCES teams (id),
+                    UNIQUE(team_id, season, competition)
+                )
+            """)
+            print("  ✅ Created team_historical_data table")
+        except Exception as e:
+            print(f"  ❌ Error creating team_historical_data table: {e}")
+        
         # Create app_settings table
         print("\n🔄 Creating app_settings table...")
         try:
