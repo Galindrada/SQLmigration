@@ -193,6 +193,17 @@ def safe_refresh_database():
             else:
                 print("  ℹ️  overall column already exists")
         
+        # Add draftee column to players table (marks manually created players)
+        print("\n🌟 Adding draftee column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN draftee INTEGER DEFAULT 0")
+            print("  ✅ Added draftee column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding draftee column: {e}")
+            else:
+                print("  ℹ️  draftee column already exists")
+        
         # Add performance tracking columns to players table
         print("\n📊 Adding performance tracking columns to players table...")
         performance_columns = [
@@ -924,15 +935,25 @@ def assign_teams_to_cpu():
     print('All teams assigned to CPU.')
 
 def clear_blacklist():
-    print('🗑️  Clearing blacklist...')
+    print('🗑️  Clearing blacklist (preserving loaned players and draftees)...')
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA foreign_keys = ON;')
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM blacklist")
+    
+    # Clear blacklist except for loaned players and draftees
+    cursor.execute("""
+        DELETE FROM blacklist
+        WHERE player_id NOT IN (
+            SELECT id FROM players
+            WHERE (loaned_by IS NOT NULL AND loaned_by != '') OR draftee = 1
+        )
+    """)
+    
+    cleared_count = cursor.rowcount
     conn.commit()
     cursor.close()
     conn.close()
-    print('Blacklist cleared.')
+    print(f'✅ Blacklist cleared ({cleared_count} entries removed, loaned/draftee players preserved).')
 
 def update_player_positions():
     print('⚽ Updating player game positions...')
@@ -1032,10 +1053,12 @@ def calculate_skill_ratings():
     for player in players:
         player_data = dict(zip(column_names, player))
         
-        # Calculate bundled skill ratings
-        attack_rating = player_data['attack']
+        # Calculate bundled skill ratings (updated formulas)
+        attack_rating = (player_data['attack'] + player_data['shot_technique'] + 
+                        player_data['shot_accuracy'] + player_data['aggression']) // 4
         
-        defense_rating = (player_data['defense'] + player_data['aggression']) // 2
+        defense_rating = (player_data['defense'] + player_data['heading'] + 
+                         player_data['jump'] + player_data['balance']) // 4
         
         physical_rating = (player_data['stamina'] + player_data['top_speed'] + 
                           player_data['acceleration'] + player_data['response'] + 

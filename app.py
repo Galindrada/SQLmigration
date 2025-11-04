@@ -1110,22 +1110,22 @@ def pes6_player_details(player_id):
 
     cur.close()
 
-    # Bundled skill ratings for better visualization
-    # ALWAYS calculate bundled ratings from current individual skills to ensure bars reflect latest values
+    # Bundled skill ratings - use database columns for consistency with team roster
     bundled_skills = {
-        'Attack': (player_data['aggression'] + player_data['attack']) // 2,
-        'Defense': (player_data['defense'] + player_data['balance'] + player_data['jump'] + player_data['heading']) // 4,
-        'Physical': (player_data['stamina'] + player_data['top_speed'] +
+        'Attack': player_data['attack_rating'] if player_data['attack_rating'] else (player_data['attack'] + player_data['shot_technique'] +
+                 player_data['shot_accuracy'] + player_data['aggression']) // 4,
+        'Defense': player_data['defense_rating'] if player_data['defense_rating'] else (player_data['defense'] + player_data['heading'] + player_data['jump'] + player_data['balance']) // 4,
+        'Physical': player_data['physical_rating'] if player_data['physical_rating'] else (player_data['stamina'] + player_data['top_speed'] +
                     player_data['acceleration'] + player_data['response'] +
                     player_data['agility'] + player_data['jump']) // 6,
-        'Power': (player_data['shot_power'] + player_data['balance'] +
+        'Power': player_data['power_rating'] if player_data['power_rating'] else (player_data['shot_power'] + player_data['balance'] +
                  player_data['mentality']) // 3,
-        'Technique': (player_data['technique'] + player_data['swerve'] +
+        'Technique': player_data['technique_rating'] if player_data['technique_rating'] else (player_data['technique'] + player_data['swerve'] +
                     player_data['free_kick_accuracy'] + player_data['dribble_accuracy'] +
                     player_data['dribble_speed'] + player_data['short_pass_accuracy'] +
                     player_data['short_pass_speed'] + player_data['long_pass_accuracy'] +
                     player_data['long_pass_speed']) // 9,
-        'Goalkeeping': (player_data['defense'] + player_data['goal_keeping'] +
+        'Goalkeeping': player_data['goalkeeping_rating'] if player_data['goalkeeping_rating'] else (player_data['defense'] + player_data['goal_keeping'] +
                       player_data['response'] + player_data['agility']) // 4
     }
 
@@ -3703,27 +3703,27 @@ def should_blacklist_player(player_id):
     return True  # Player is not on loan, can be blacklisted
 
 def clear_blacklist():
-    """Clear all blacklist entries except for loaned players"""
+    """Clear all blacklist entries except for loaned players and draftees"""
     cur = db_helper.get_cursor()
 
     # Count total blacklist entries
     cur.execute("SELECT COUNT(*) FROM blacklist")
     total_blacklisted = cur.fetchone()[0]
 
-    # Count loaned players that are blacklisted
+    # Count loaned players and draftees that are blacklisted
     cur.execute("""
         SELECT COUNT(*) FROM blacklist bl
         JOIN players p ON bl.player_id = p.id
-        WHERE p.loaned_by IS NOT NULL AND p.loaned_by != ''
+        WHERE (p.loaned_by IS NOT NULL AND p.loaned_by != '') OR p.draftee = 1
     """)
-    loaned_blacklisted = cur.fetchone()[0]
+    preserved_count = cur.fetchone()[0]
 
-    # Clear blacklist entries for non-loaned players only
+    # Clear blacklist entries for non-loaned, non-draftee players only
     cur.execute("""
         DELETE FROM blacklist
         WHERE player_id NOT IN (
             SELECT id FROM players
-            WHERE loaned_by IS NOT NULL AND loaned_by != ''
+            WHERE (loaned_by IS NOT NULL AND loaned_by != '') OR draftee = 1
         )
     """)
 
@@ -3731,8 +3731,8 @@ def clear_blacklist():
     db_helper.commit()
     cur.close()
 
-    print(f"✅ Cleared {cleared_count} blacklist entries (preserved {loaned_blacklisted} loaned players)")
-    return cleared_count, loaned_blacklisted
+    print(f"✅ Cleared {cleared_count} blacklist entries (preserved {preserved_count} loaned/draftee players)")
+    return cleared_count, preserved_count
 
 def get_unread_count(user_id):
     """
@@ -4026,12 +4026,12 @@ def free_agency():
     position = request.args.get('position')
     player_name = request.args.get('player_name')
 
-    # Build the query with filters
+    # Build the query with filters (exclude draftees)
     query = """
         SELECT id, player_name, age, game_position, strong_foot, salary, contract_years_remaining, market_value,
                attack_rating, defense_rating, physical_rating, power_rating, technique_rating, goalkeeping_rating
         FROM players
-        WHERE club_id = 141
+        WHERE club_id = 141 AND (draftee = 0 OR draftee IS NULL)
     """
     params = []
 
@@ -7611,6 +7611,45 @@ def end_of_season_process():
         recalculate_all_overalls()
         print("  ✅ Overall ratings recalculated for all players")
 
+        # Step 10b: Recalculate bundled skill ratings after regens and overall updates
+        print("🔄 Step 10b: Recalculating bundled skill ratings for all players...")
+        from game_mechanics import calculate_bundled_skill_ratings
+        
+        # Get all players with their skills
+        cur.execute("SELECT * FROM players")
+        all_players = cur.fetchall()
+        column_names = [description[0] for description in cur.description]
+        
+        ratings_updated = 0
+        for player_row in all_players:
+            player_dict = dict(zip(column_names, player_row))
+            
+            try:
+                # Calculate bundled ratings
+                bundled_ratings = calculate_bundled_skill_ratings(player_dict)
+                
+                # Update database
+                cur.execute("""
+                    UPDATE players 
+                    SET attack_rating = ?, defense_rating = ?, physical_rating = ?, 
+                        power_rating = ?, technique_rating = ?, goalkeeping_rating = ?
+                    WHERE id = ?
+                """, (
+                    bundled_ratings['attack_rating'],
+                    bundled_ratings['defense_rating'],
+                    bundled_ratings['physical_rating'],
+                    bundled_ratings['power_rating'],
+                    bundled_ratings['technique_rating'],
+                    bundled_ratings['goalkeeping_rating'],
+                    player_dict['id']
+                ))
+                ratings_updated += 1
+            except Exception as e:
+                print(f"    ⚠️ Error updating bundled ratings for player {player_dict.get('player_name', 'Unknown')}: {e}")
+                continue
+        
+        print(f"  ✅ Recalculated bundled skill ratings for {ratings_updated} players")
+
         # Step 11: Increment to next season
         print("🔄 Step 11: Incrementing to next season...")
         new_season = increment_season()
@@ -9332,6 +9371,372 @@ def generate_user_status_post(cur):
 
     content += "---\n*Generated at the beginning of the season*\n"
     return content
+
+@app.route('/draft')
+@login_required
+def draft():
+    """View draft pool - all players with draftee=1"""
+    cur = db_helper.get_cursor()
+    
+    cur.execute("""
+        SELECT p.*, t.club_name
+        FROM players p
+        LEFT JOIN teams t ON p.club_id = t.id
+        WHERE p.draftee = 1
+        ORDER BY p.overall DESC, p.player_name
+    """)
+    
+    draftees = []
+    columns = [description[0] for description in cur.description]
+    for row in cur.fetchall():
+        player_dict = dict(zip(columns, row))
+        draftees.append(player_dict)
+    
+    # Get all teams for draft dropdown
+    cur.execute("""
+        SELECT id, club_name 
+        FROM teams 
+        WHERE id != 141
+        ORDER BY club_name
+    """)
+    all_teams = cur.fetchall()
+    
+    position_names = {
+        0: "Goal-Keeper",
+        2: "Sweeper",
+        3: "Center-Back",
+        4: "Side-Back",
+        5: "Defensive Midfielder",
+        6: "Wing-Back",
+        7: "Central Midfielder",
+        8: "Side Midfielder",
+        9: "Attacking Midfielder",
+        10: "Winger",
+        11: "Shadow Striker",
+        12: "Striker"
+    }
+    
+    return render_template('draft.html', draftees=draftees, position_names=position_names, all_teams=all_teams)
+
+@app.route('/draft_player/<int:player_id>/<int:team_id>', methods=['POST'])
+@login_required
+def draft_player(player_id, team_id):
+    """Draft a player to a team"""
+    # Get team_id from form if provided (from dropdown), otherwise use URL parameter
+    team_id_from_form = request.form.get('team_id')
+    if team_id_from_form:
+        team_id = int(team_id_from_form)
+    
+    cur = db_helper.get_cursor()
+    
+    # Check if player is a draftee
+    cur.execute("SELECT player_name, draftee FROM players WHERE id = ?", (player_id,))
+    player = cur.fetchone()
+    
+    if not player:
+        flash("❌ Player not found!", "error")
+        return redirect(url_for('draft'))
+    
+    if not player['draftee']:
+        flash("❌ This player is not eligible for drafting!", "error")
+        return redirect(url_for('draft'))
+    
+    # Get team name
+    cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+    team = cur.fetchone()
+    
+    if not team:
+        flash("❌ Team not found!", "error")
+        return redirect(url_for('draft'))
+    
+    try:
+        # Transfer player to team and remove draftee status
+        cur.execute("""
+            UPDATE players 
+            SET club_id = ?, draftee = 0
+            WHERE id = ?
+        """, (team_id, player_id))
+        
+        # Remove from blacklist
+        cur.execute("DELETE FROM blacklist WHERE player_id = ?", (player_id,))
+        
+        db_helper.commit()
+        flash(f"✅ {player['player_name']} has been drafted to {team['club_name']}!", "success")
+        
+        # Post blog news
+        title = f"Draft: {player['player_name']} joins {team['club_name']}"
+        content = f"{player['player_name']} has been drafted from the draft pool and will now play for {team['club_name']}!"
+        post_transfer_news(title, content, current_user.id)
+        
+    except Exception as e:
+        flash(f"❌ Error drafting player: {str(e)}", "error")
+    
+    return redirect(url_for('draft'))
+
+@app.route('/tools/create_newcomers', methods=['GET', 'POST'])
+@login_required
+def create_newcomers():
+    """Create new players by overwriting existing ones"""
+    import random
+    
+    if request.method == 'GET':
+        # Get unique nationalities from database
+        cur = db_helper.get_cursor()
+        cur.execute("""
+            SELECT DISTINCT nationality 
+            FROM players 
+            WHERE nationality IS NOT NULL AND nationality != ''
+            ORDER BY nationality
+        """)
+        nationalities = [row[0] for row in cur.fetchall()]
+        
+        return render_template('newcomers.html', nationalities=nationalities)
+    
+    elif request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'generate':
+            # Find a player with matching overall and position, copy their skills
+            name = request.form.get('name')
+            
+            if not name:
+                return jsonify({'success': False, 'error': 'Player name is required'})
+            
+            target_overall = int(request.form.get('overall', 75))
+            position = request.form.get('position', '7')
+            
+            # Find a random player with matching overall and position
+            cur = db_helper.get_cursor()
+            
+            # Try to find exact match first
+            template_player = None
+            for overall_diff in range(0, 10):  # Search overall ±9 if exact not found
+                for overall_delta in [0, overall_diff, -overall_diff]:
+                    search_overall = target_overall + overall_delta
+                    if search_overall < 40 or search_overall > 99:
+                        continue
+                    
+                    cur.execute("""
+                        SELECT * FROM players 
+                        WHERE registered_position = ? 
+                        AND CAST(overall AS INTEGER) = ?
+                        ORDER BY RANDOM()
+                        LIMIT 1
+                    """, (position, search_overall))
+                    
+                    template_player = cur.fetchone()
+                    if template_player:
+                        break
+                
+                if template_player:
+                    break
+            
+            if not template_player:
+                return jsonify({'success': False, 'error': f'No template player found for position {position} and overall {target_overall}'})
+            
+            # Get column names
+            column_names = [description[0] for description in cur.description]
+            template_dict = dict(zip(column_names, template_player))
+            
+            # Define all fields to copy
+            skills = [
+                'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+                'response', 'agility', 'dribble_accuracy', 'dribble_speed',
+                'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
+                'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy',
+                'heading', 'swerve', 'jump', 'technique', 'aggression', 'mentality',
+                'goal_keeping', 'team_work', 'consistency', 'condition_fitness'
+            ]
+            
+            abilities = ['dribbling_skill', 'tactical_dribble', 'positioning', 'reaction', 'playmaking', 
+                       'passing', 'scoring', 'one_one_scoring', 'post_player', 'lines', 
+                       'middle_shooting', 'side', 'centre', 'penalties', 'one_touch_pass', 
+                       'outside', 'marking', 'sliding', 'covering', 'd_line_control', 
+                       'penalty_stopper', 'one_on_one_stopper', 'long_throw']
+            
+            styles = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
+            
+            appearance = ['face_type', 'skin_color', 'strong_foot']
+            
+            # Copy data from template player
+            generated_data = {}
+            
+            for skill in skills:
+                generated_data[skill] = template_dict.get(skill, 50)
+            
+            for ability in abilities:
+                generated_data[ability] = template_dict.get(ability, 0)
+            
+            for style in styles:
+                generated_data[style] = template_dict.get(style, 0)
+            
+            for attr in appearance:
+                if attr == 'strong_foot':
+                    generated_data[attr] = template_dict.get(attr, 'R')
+                else:
+                    generated_data[attr] = template_dict.get(attr, 0)
+            
+            # Template player info
+            template_name = template_dict.get('player_name', 'Unknown')
+            template_overall = template_dict.get('overall', target_overall)
+            
+            return jsonify({
+                'success': True, 
+                'generated': True,
+                'template_player': f"{template_name} (Overall {template_overall})",
+                'data': generated_data
+            })
+        
+        elif action == 'commit':
+            # Create new player in No Club (free agency)
+            cur = db_helper.get_cursor()
+            
+            name = request.form.get('name')
+            
+            if not name:
+                flash("⚠️ Player name is required.", 'warning')
+                return redirect(url_for('create_newcomers'))
+            
+            # Collect all form data for INSERT
+            insert_fields = ['player_name', 'age', 'height', 'weight', 'registered_position', 'nationality', 
+                           'contract_years_remaining', 'salary', 'yearly_wage_rise', 'draftee', 'club_id', 'career_earnings']
+            insert_values = [
+                name,
+                request.form.get('age'),
+                request.form.get('height'),
+                request.form.get('weight'),
+                request.form.get('position'),
+                request.form.get('nationality', 'Portugal'),
+                3,  # contract_years_remaining
+                1000000,  # salary
+                0.25,  # yearly_wage_rise
+                1,  # draftee (marks as manually created)
+                141,  # No Club (free agency)
+                0  # career_earnings (start fresh)
+            ]
+            
+            # Skills - collect all of them for bundled rating calculation
+            skills = [
+                'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+                'response', 'agility', 'dribble_accuracy', 'dribble_speed',
+                'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
+                'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy',
+                'heading', 'swerve', 'jump', 'technique', 'aggression', 'mentality',
+                'goal_keeping', 'team_work', 'consistency', 'condition_fitness'
+            ]
+            
+            skill_dict = {}
+            for skill in skills:
+                value = request.form.get(skill)
+                if value:
+                    skill_value = int(value)
+                    insert_fields.append(skill)
+                    insert_values.append(skill_value)
+                    skill_dict[skill] = skill_value
+                else:
+                    # If skill not in form, use default of 50
+                    insert_fields.append(skill)
+                    insert_values.append(50)
+                    skill_dict[skill] = 50
+            
+            # Appearance
+            appearance_fields = ['face_type', 'skin_color', 'strong_foot']
+            for field in appearance_fields:
+                value = request.form.get(field)
+                if value is not None:
+                    insert_fields.append(field)
+                    insert_values.append(value)
+            
+            # Special abilities (checkboxes)
+            abilities = ['dribbling_skill', 'tactical_dribble', 'positioning', 'reaction', 'playmaking', 
+                       'passing', 'scoring', 'one_one_scoring', 'post_player', 'lines', 
+                       'middle_shooting', 'side', 'centre', 'penalties', 'one_touch_pass', 
+                       'outside', 'marking', 'sliding', 'covering', 'd_line_control', 
+                       'penalty_stopper', 'one_on_one_stopper', 'long_throw']
+            
+            for ability in abilities:
+                value = 1 if request.form.get(ability) else 0
+                insert_fields.append(ability)
+                insert_values.append(value)
+            
+            # Playing styles (checkboxes)
+            styles = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
+            for style in styles:
+                value = 1 if request.form.get(style) else 0
+                insert_fields.append(style)
+                insert_values.append(value)
+            
+            # Calculate overall rating and bundled skill ratings based on skills and position
+            from refresh_and_reimport import calculate_player_overall
+            from game_mechanics import calculate_bundled_skill_ratings
+            
+            # Build temp player dict for overall calculation using all inserted data
+            temp_player_data = {}
+            for i, field in enumerate(insert_fields):
+                temp_player_data[field] = insert_values[i]
+            
+            # Calculate overall
+            overall = calculate_player_overall(temp_player_data)
+            
+            # Calculate bundled skill ratings using the skill_dict we already built
+            try:
+                bundled_ratings = calculate_bundled_skill_ratings(skill_dict)
+                print(f"DEBUG: Calculated bundled ratings: {bundled_ratings}")
+            except Exception as e:
+                app.logger.error(f"Error calculating bundled ratings: {e}")
+                app.logger.error(f"Skill dict: {skill_dict}")
+                print(f"ERROR calculating bundled ratings: {e}")
+                # Fallback to default values
+                bundled_ratings = {
+                    'attack_rating': 50,
+                    'defense_rating': 50,
+                    'physical_rating': 50,
+                    'power_rating': 50,
+                    'technique_rating': 50,
+                    'goalkeeping_rating': 50
+                }
+            
+            # Add overall and bundled ratings to insert
+            insert_fields.append('overall')
+            insert_values.append(overall)
+            
+            insert_fields.extend(['attack_rating', 'defense_rating', 'physical_rating', 
+                                'power_rating', 'technique_rating', 'goalkeeping_rating'])
+            insert_values.extend([
+                bundled_ratings['attack_rating'],
+                bundled_ratings['defense_rating'],
+                bundled_ratings['physical_rating'],
+                bundled_ratings['power_rating'],
+                bundled_ratings['technique_rating'],
+                bundled_ratings['goalkeeping_rating']
+            ])
+            
+            print(f"DEBUG: Inserting bundled ratings - Attack: {bundled_ratings['attack_rating']}, Defense: {bundled_ratings['defense_rating']}, Physical: {bundled_ratings['physical_rating']}")
+            
+            # Build INSERT query
+            fields_clause = ', '.join(insert_fields)
+            placeholders = ', '.join(['?' for _ in insert_fields])
+            
+            try:
+                cur.execute(f"""
+                    INSERT INTO players ({fields_clause})
+                    VALUES ({placeholders})
+                """, insert_values)
+                
+                # Get the newly created player ID
+                new_player_id = cur.lastrowid
+                
+                # Add player to blacklist (for all users, use user_id=1 as default)
+                cur.execute("INSERT INTO blacklist (user_id, player_id) VALUES (1, ?)", (new_player_id,))
+                
+                db_helper.commit()
+                flash(f"✅ Successfully created newcomer: {name}! (Overall: {overall}, Player ID: {new_player_id}, placed in No Club, blacklisted)", 'success')
+            except Exception as e:
+                flash(f"❌ Error creating player: {str(e)}", 'error')
+            
+            return redirect(url_for('create_newcomers'))
+    
+    return redirect(url_for('tools'))
 
 if __name__ == '__main__':
     # For local development

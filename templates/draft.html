@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Draft Pool{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>🌟 Draft Pool</h1>
+    <p class="text-muted">Manually created players available for signing.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% if draftees %}
+    <div class="card">
+        <div class="card-header bg-info text-white">
+            <h5>Available Draftees ({{ draftees|length }})</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Age</th>
+                            <th>Position</th>
+                            <th>Nationality</th>
+                            <th>Overall</th>
+                            <th>Salary</th>
+                            <th>Contract</th>
+                            <th>Draft to Team</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for player in draftees %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('pes6_player_details', player_id=player.id) }}" style="text-decoration: none; color: #0d6efd; font-weight: bold;">
+                                    {{ player.player_name }}
+                                </a>
+                            </td>
+                            <td>{{ player.age }}</td>
+                            <td>{{ position_names.get(player.registered_position|int, 'Unknown') }}</td>
+                            <td>{{ player.nationality }}</td>
+                            <td><span class="badge bg-primary">{{ player.overall }}</span></td>
+                            <td>€{{ "{:,}".format(player.salary) }}</td>
+                            <td>{{ player.contract_years_remaining }}y ({{ "%.0f"|format(player.yearly_wage_rise * 100) }}%)</td>
+                            <td>
+                                <form method="POST" action="{{ url_for('draft_player', player_id=player.id, team_id=0) }}" style="display: flex; gap: 5px; align-items: center;" onsubmit="return draftPlayer(this, event, '{{ player.player_name }}')">
+                                    <select name="team_id" class="form-select form-select-sm" required style="width: 200px;">
+                                        <option value="">-- Select Team --</option>
+                                        {% for team in all_teams %}
+                                        <option value="{{ team.id }}">{{ team.club_name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <button type="submit" class="btn btn-sm btn-success">
+                                        Draft
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <h5>No Draftees Available</h5>
+        <p>There are currently no players in the draft pool. Create new players using the <a href="{{ url_for('create_newcomers') }}">Create Newcomers</a> tool.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function draftPlayer(form, event, playerName) {
+    event.preventDefault();
+    const teamSelect = form.querySelector('select[name="team_id"]');
+    const selectedTeam = teamSelect.options[teamSelect.selectedIndex].text;
+    
+    if (confirm(`Draft ${playerName} to ${selectedTeam}?`)) {
+        form.submit();
+    }
+    return false;
+}
+</script>
+{% endblock %}
+

@@ -2065,8 +2065,10 @@ def get_position_name_mapping():
 def calculate_bundled_skill_ratings(skill_attributes: Dict) -> Dict:
     """Calculate bundled skill ratings from individual skills."""
     return {
-        'attack_rating': skill_attributes['attack'],
-        'defense_rating': (skill_attributes['defense'] + skill_attributes['aggression']) // 2,
+        'attack_rating': (skill_attributes['attack'] + skill_attributes['shot_technique'] + 
+                         skill_attributes['shot_accuracy'] + skill_attributes['aggression']) // 4,
+        'defense_rating': (skill_attributes['defense'] + skill_attributes['heading'] + 
+                          skill_attributes['jump'] + skill_attributes['balance']) // 4,
         'physical_rating': (skill_attributes['stamina'] + skill_attributes['top_speed'] + 
                           skill_attributes['acceleration'] + skill_attributes['response'] + 
                           skill_attributes['agility'] + skill_attributes['jump']) // 6,

@@ -1013,7 +1013,7 @@ class CPUAI:
                 subsidy_note = f" (€{subsidy_amount:,}/year salary support)"
             else:
                 subsidy_note = ""
-
+            
             # Mark listing as completed
             cur.execute("UPDATE market_bazaar_listings SET status = 'completed' WHERE id = ?", (selected_listing['id'],))
             
@@ -1056,7 +1056,7 @@ class CPUAI:
             if total_players >= 32:
                 print(f"Team {team_id} has {total_players} players (max capacity) - skipping purchases")
                 return None
-
+            
             needs = analysis['needs']
             
             # Find listed players that would improve the team
@@ -1317,7 +1317,7 @@ class CPUAI:
             if total_players >= 32:
                 print(f"Team {team_id} has {total_players} players (max capacity) - skipping user offers")
                 return None
-
+            
             # Get team's current players by position to find improvement targets
             cur.execute("""
                 SELECT registered_position, MAX(overall) as best_overall, AVG(overall) as avg_overall
@@ -2082,7 +2082,7 @@ class CPUAI:
             if total_players >= 32:
                 print(f"Team {team_id} has {total_players} players (max capacity) - skipping market offers")
                 return None
-
+            
             needs = analysis['needs']
             budget = analysis['needs'].budget_available
             
@@ -2414,7 +2414,7 @@ class CPUAI:
                         'player_id': selected_listing['player_id']
                     }
                 }
-
+            
             # Otherwise, just make an offer
             
             # Create offer

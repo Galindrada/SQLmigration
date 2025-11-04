@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block title %}Create Newcomers{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>🌟 Create Newcomers</h1>
+    <p class="text-muted">Generate new players by overwriting existing ones. Fill in basic info, generate skills based on position, then edit and commit.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Player Creation</h5>
+                </div>
+                <div class="card-body">
+                    <form id="newcomerForm" method="POST">
+                        <input type="hidden" name="action" id="formAction" value="">
+                        
+                        <!-- Player Slot -->
+                        <div class="player-slot card mb-4">
+                            <div class="card-header bg-secondary text-white">
+                                <h6>New Player</h6>
+                            </div>
+                            <div class="card-body">
+                                <!-- Basic Info Row -->
+                                <div class="row mb-3">
+                                    <div class="col-md-2">
+                                        <label class="form-label">Name:</label>
+                                        <input type="text" class="form-control form-control-sm" name="name" placeholder="Player Name" required>
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label class="form-label">Age:</label>
+                                        <input type="number" class="form-control form-control-sm" name="age" min="16" max="45" value="20">
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label class="form-label">Height (cm):</label>
+                                        <input type="number" class="form-control form-control-sm" name="height" min="150" max="220" value="180">
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label class="form-label">Weight (kg):</label>
+                                        <input type="number" class="form-control form-control-sm" name="weight" min="50" max="120" value="75">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Nationality:</label>
+                                        <select class="form-select form-select-sm" name="nationality" required>
+                                            <option value="">-- Select --</option>
+                                            {% for nat in nationalities %}
+                                            <option value="{{ nat }}">{{ nat }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="row mb-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Position:</label>
+                                        <select class="form-select form-select-sm" name="position" required>
+                                            <option value="0">Goal-Keeper</option>
+                                            <option value="2">Sweeper</option>
+                                            <option value="3">Center-Back</option>
+                                            <option value="4">Side-Back</option>
+                                            <option value="5">Defensive Midfielder</option>
+                                            <option value="6">Wing-Back</option>
+                                            <option value="7" selected>Central Midfielder</option>
+                                            <option value="8">Side Midfielder</option>
+                                            <option value="9">Attacking Midfielder</option>
+                                            <option value="10">Winger</option>
+                                            <option value="11">Shadow Striker</option>
+                                            <option value="12">Striker</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Target Overall:</label>
+                                        <input type="number" class="form-control form-control-sm" name="overall" min="40" max="99" value="75" required>
+                                        <small class="text-muted">Skills copied from similar player</small>
+                                    </div>
+                                </div>
+
+                                <!-- Generated/Editable Fields (Hidden until generated) -->
+                                <div class="generated-fields" id="generated_fields" style="display: none;">
+                                    <hr>
+                                    <h6 class="text-primary">Generated Player Data (Editable) - Template from: <span id="template_player"></span></h6>
+                                    
+                                    <!-- Skills Section -->
+                                    <div class="row">
+                                        <div class="col-md-12">
+                                            <h6 class="mt-2">Skills</h6>
+                                            <div class="row">
+                                                {% set skills = [
+                                                    'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+                                                    'response', 'agility', 'dribble_accuracy', 'dribble_speed',
+                                                    'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
+                                                    'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy',
+                                                    'heading', 'swerve', 'jump', 'technique', 'aggression', 'mentality',
+                                                    'goal_keeping', 'team_work', 'consistency', 'condition_fitness'
+                                                ] %}
+                                                {% for skill in skills %}
+                                                <div class="col-md-2 mb-2">
+                                                    <label class="form-label" style="font-size: 0.85rem;">{{ skill.replace('_', ' ').title() }}:</label>
+                                                    <input type="number" class="form-control form-control-sm" name="{{ skill }}" min="1" max="99" value="50">
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Appearance Section -->
+                                    <div class="row mt-3">
+                                        <div class="col-md-12">
+                                            <h6>Appearance Attributes</h6>
+                                            <div class="row">
+                                                <div class="col-md-3 mb-2">
+                                                    <label class="form-label">Face Type:</label>
+                                                    <input type="number" class="form-control form-control-sm" name="face_type" min="0" max="255" value="0">
+                                                </div>
+                                                <div class="col-md-3 mb-2">
+                                                    <label class="form-label">Skin Color:</label>
+                                                    <input type="number" class="form-control form-control-sm" name="skin_color" min="0" max="255" value="1">
+                                                </div>
+                                                <div class="col-md-3 mb-2">
+                                                    <label class="form-label">Strong Foot:</label>
+                                                    <select class="form-select form-select-sm" name="strong_foot">
+                                                        <option value="R">Right</option>
+                                                        <option value="L">Left</option>
+                                                        <option value="B">Both</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Special Abilities Section -->
+                                    <div class="row mt-3">
+                                        <div class="col-md-12">
+                                            <h6>Special Abilities</h6>
+                                            <div class="row">
+                                                {% set abilities = ['dribbling_skill', 'tactical_dribble', 'positioning', 'reaction', 'playmaking', 
+                                                                   'passing', 'scoring', 'one_one_scoring', 'post_player', 'lines', 
+                                                                   'middle_shooting', 'side', 'centre', 'penalties', 'one_touch_pass', 
+                                                                   'outside', 'marking', 'sliding', 'covering', 'd_line_control', 
+                                                                   'penalty_stopper', 'one_on_one_stopper', 'long_throw'] %}
+                                                {% for ability in abilities %}
+                                                <div class="col-md-2 mb-2">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="{{ ability }}" value="1">
+                                                        <label class="form-check-label" style="font-size: 0.85rem;">
+                                                            {{ ability.replace('_', ' ').title() }}
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Playing Styles Section -->
+                                    <div class="row mt-3">
+                                        <div class="col-md-12">
+                                            <h6>Playing Styles (Binary)</h6>
+                                            <div class="row">
+                                                {% set styles = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf'] %}
+                                                {% for style in styles %}
+                                                <div class="col-md-1 mb-2">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="{{ style }}" value="1">
+                                                        <label class="form-check-label">
+                                                            {{ style.upper() }}
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="d-flex gap-2 mt-3">
+                            <button type="button" class="btn btn-primary" onclick="generatePlayers()">
+                                ⚡ Generate Player
+                            </button>
+                            <button type="submit" class="btn btn-success" onclick="document.getElementById('formAction').value='commit'">
+                                ✅ Commit to Database
+                            </button>
+                            <a href="{{ url_for('tools') }}" class="btn btn-secondary">
+                                ← Back to Tools
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function generatePlayers() {
+    const form = document.getElementById('newcomerForm');
+    const formData = new FormData(form);
+    formData.set('action', 'generate');
+    
+    fetch('{{ url_for("create_newcomers") }}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const fieldsDiv = document.getElementById('generated_fields');
+            const templatePlayer = document.getElementById('template_player');
+            
+            if (data.generated) {
+                fieldsDiv.style.display = 'block';
+                
+                // Show template player name
+                if (data.template_player) {
+                    templatePlayer.textContent = data.template_player;
+                }
+                
+                // Populate all fields
+                Object.keys(data.data).forEach(key => {
+                    const input = document.querySelector(`[name="${key}"]`);
+                    if (input) {
+                        if (input.type === 'checkbox') {
+                            input.checked = data.data[key] == 1;
+                        } else {
+                            input.value = data.data[key];
+                        }
+                    }
+                });
+                
+                alert('Player generated successfully from template! Review and edit fields, then click Commit.');
+            }
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to generate player.');
+    });
+}
+</script>
+
+<style>
+.player-slot {
+    border: 2px solid #dee2e6;
+}
+
+.generated-fields {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+}
+
+.form-label {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.form-control-sm {
+    font-size: 0.875rem;
+}
+</style>
+{% endblock %}
+
