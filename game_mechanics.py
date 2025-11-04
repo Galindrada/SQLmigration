@@ -1160,27 +1160,27 @@ def check_player_retirement(player_data: Dict) -> Dict:
     # Calculate base retirement probability based on age
     # Probability increases with age - reduced age factor for more moderate progression
     age_factor = (age - 30) / 13.0  # 0 at age 30, 1 at age 44 (slightly slower increase)
-    age_probability = min(0.8, age_factor * 0.75)  # Max 90% at age 44+, moderate base rate
+    age_probability = min(0.95, age_factor * 0.90)  # Max 80% at age 44+, moderate base rate
     
     # Salary factor - higher salary reduces retirement probability
     # Normalize salary to 0-1 range (0 = low salary, 1 = high salary)
-    salary_normalized = min(1.0, salary / (GLOBAL_BASE_SALARY * 15))  # 15x base salary = max
+    salary_normalized = min(1.0, salary / 30000000)  # 30M salary = max
     salary_factor = 1.0 - salary_normalized  # Higher salary = lower retirement chance
     
     # Club status factor - No Club players more likely to retire
     club_factor = 0.0
     if club_id == 141 or club_id is None:  # No Club
-        club_factor = 0.25  # 25% additional probability (reduced from 30%)
+        club_factor = 0.35  # 25% additional probability
     
-    # Games played factor - more games played reduces retirement probability (mild effect)
+    # Games played factor - more games played reduces retirement probability
     # Normalize games played to 0-1 range (0 = no games, 1 = many games)
     # Assuming 30+ games in a season is "very active"
     games_normalized = min(1.0, games_played / 30.0)
-    games_factor = games_normalized * 0.15  # Games can reduce probability by up to 15%
+    games_factor = games_normalized * 0.25  # Games can reduce probability by up to 25%
     
     # Calculate final retirement probability
     base_probability = age_probability
-    salary_adjustment = salary_factor * 0.3  # Salary can reduce probability by up to 30%
+    salary_adjustment = salary_factor * 0.20  # Salary can reduce probability by up to 20%
     final_probability = base_probability + club_factor - salary_adjustment - games_factor
     
     # Clamp probability between 0 and 1
@@ -1259,6 +1259,23 @@ def calculate_player_financials(player_data: Dict, db_path: str = 'pes6_league_d
     
     # Calculate base salary (before random adjustments)
     base_salary = calculate_player_salary_base(player_row, pos_avg_df, skill_columns, binary_skills)
+    
+    # Apply 30% boost for defensive positions (GK=0, CB=2, DMF=3, FB=4)
+    registered_position = player_data.get('registered_position')
+    try:
+        # Handle both string and integer formats, strip whitespace if string
+        if isinstance(registered_position, str):
+            pos_int = int(registered_position.strip())
+        elif isinstance(registered_position, (int, float)):
+            pos_int = int(registered_position)
+        else:
+            pos_int = -1
+        
+        if pos_int in [0, 2, 3, 4]:
+            base_salary = int(base_salary * 1.75)
+    except (ValueError, TypeError) as e:
+        # Keep base_salary as-is if position is invalid
+        pass
     
     # Calculate market value based on BASE salary (not final salary)
     # This matches the original model.py logic
@@ -3030,99 +3047,26 @@ def recalculate_free_agent_salaries(db_path: str) -> Dict:
                 # Calculate new salary
                 new_salary = calculate_player_salary_base(player_row, pos_avg_df, skill_columns, binary_skills)
                 
-                # Update salary in database
-                cursor.execute("""
-                    UPDATE players 
-                    SET salary = ? 
-                    WHERE id = ?
-                """, (new_salary, player_row['id']))
-                
-                updated_count += 1
-                
-                if updated_count <= 5:  # Show first 5 examples
-                    old_salary = player_row['salary']
-                    print(f"    ✅ {player_row['player_name']}: €{old_salary:,} → €{new_salary:,}")
+                # Apply 30% boost for defensive positions (GK=0, CB=2, DMF=3, FB=4)
+                registered_position = player_row.get('registered_position')
+                try:
+                    # Handle both string and integer formats
+                    if isinstance(registered_position, str):
+                        pos_int = int(registered_position.strip())
+                    elif isinstance(registered_position, (int, float)):
+                        pos_int = int(registered_position)
+                    else:
+                        pos_int = -1
                     
-            except Exception as e:
-                print(f"    ❌ Failed to update salary for {player_row['player_name']}: {e}")
-                continue
-        
-        conn.commit()
-        conn.close()
-        
-        print(f"  ✅ Updated salaries for {updated_count}/{len(free_agents)} free agents")
-        
-        return {
-            'free_agents_updated': updated_count,
-            'total_free_agents': len(free_agents),
-            'success': True
-        }
-        
-    except Exception as e:
-        conn.close()
-        return {'error': str(e)} 
-
-def recalculate_free_agent_salaries(db_path: str) -> Dict:
-    """Recalculate salaries for all free agents (club_id = 141) using proper salary calculation."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    try:
-        # Get all free agents (No Club players)
-        cursor.execute("""
-            SELECT * FROM players 
-            WHERE club_id = 141
-        """)
-        
-        free_agents = cursor.fetchall()
-        if not free_agents:
-            conn.close()
-            return {'free_agents_updated': 0, 'success': True, 'message': 'No free agents found'}
-        
-        print(f"  💰 Recalculating salaries for {len(free_agents)} free agents...")
-        
-        # Get column names for DataFrame conversion
-        column_names = [description[0] for description in cursor.description]
-        
-        # Convert to DataFrame for salary calculation
-        import pandas as pd
-        df = pd.DataFrame(free_agents, columns=column_names)
-        
-        # Get position averages for salary calculation
-        try:
-            pos_avg_df = get_cached_position_averages(db_path)
-        except Exception as e:
-            print(f"Warning: Could not load position averages for salary calculation: {e}")
-            pos_avg_df = None
-            
-        if pos_avg_df is None:
-            conn.close()
-            return {'error': 'Could not load position averages for salary calculation'}
-        
-        # Define skill columns (same as in salary calculation)
-        skill_columns = [
-            'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
-            'response', 'agility', 'dribble_accuracy', 'dribble_speed', 'short_pass_accuracy',
-            'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed', 'shot_accuracy',
-            'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve', 'heading',
-            'jump', 'technique', 'aggression', 'mentality', 'goal_keeping', 'team_work',
-            'consistency', 'condition_fitness'
-        ]
-        
-        binary_skills = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
-        
-        updated_count = 0
-        
-        # Process each free agent
-        for idx, player_row in df.iterrows():
-            try:
-                # Calculate new salary
-                new_salary = calculate_player_salary_base(player_row, pos_avg_df, skill_columns, binary_skills)
+                    if pos_int in [0, 2, 3, 4]:
+                        new_salary = int(new_salary * 1.75)
+                except (ValueError, TypeError):
+                    pass  # Keep new_salary as-is if position is invalid
                 
-                # Update salary in database
+                # Update salary and set market_value to zero for free agents
                 cursor.execute("""
                     UPDATE players 
-                    SET salary = ? 
+                    SET salary = ?, market_value = 0 
                     WHERE id = ?
                 """, (new_salary, player_row['id']))
                 

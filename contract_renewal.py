@@ -100,6 +100,22 @@ class ContractRenewalManager:
             # Calculate base salary
             base_salary = calculate_player_salary_base(player_row, pos_avg_df, skills, binaries)
             
+            # Apply 30% boost for defensive positions (GK=0, CB=2, DMF=3, FB=4)
+            registered_position = player_data.get('registered_position')
+            try:
+                # Handle both string and integer formats, strip whitespace if string
+                if isinstance(registered_position, str):
+                    pos_int = int(registered_position.strip())
+                elif isinstance(registered_position, (int, float)):
+                    pos_int = int(registered_position)
+                else:
+                    pos_int = -1
+                
+                if pos_int in [0, 2, 3, 4]:
+                    base_salary = int(base_salary * 1.75)
+            except (ValueError, TypeError):
+                pass  # Keep base_salary as-is if position is invalid
+            
             # Calculate player's overall for negotiation difficulty
             from refresh_and_reimport import calculate_player_overall
             player_overall = calculate_player_overall(player_data)
@@ -134,9 +150,9 @@ class ContractRenewalManager:
                 signing_bonus_percentage = random.uniform(0.20, 0.40)
             else:
                 # User players ask for more (15-30% increase)
-                salary_increase = random.uniform(0.15, 0.30)
+                salary_increase = random.uniform(-0.05, 0.50)
                 salary_demand = base_salary * (1 + salary_increase)
-                signing_bonus_percentage = random.uniform(0.20, 0.40)
+                signing_bonus_percentage = random.uniform(0.10, 0.50)
             
             random.seed()  # Reset random seed
             
@@ -253,9 +269,7 @@ class ContractRenewalManager:
                     })
                     print(f"  ❌ {player['player_name']} ({player['club_name']}) rejected contract - now free agent")
             
-            self.conn.commit()
-            
-            # Create blog post if there were any renewals or rejections
+            # Create blog post if there were any renewals or rejections (before commit)
             if renewed_count > 0 or rejected_count > 0:
                 renewal_data = {
                     'renewed': renewed_count,
@@ -263,6 +277,9 @@ class ContractRenewalManager:
                     'free_agents': free_agents
                 }
                 self.create_contract_renewal_blog_post(renewal_data)
+            
+            # Commit all changes together (player updates + blog post)
+            self.conn.commit()
             
             return {
                 'success': True,
@@ -297,7 +314,7 @@ class ContractRenewalManager:
                     content += f"€{agent['new_salary']:,}/year, {agent['contract_years']} years</li>\n"
                 content += f"</ul>\n"
             
-            # Insert blog post
+            # Insert blog post (commit happens in parent function)
             cursor.execute("""
                 INSERT INTO blog_posts (title, content, author_id, created_at)
                 VALUES (?, ?, ?, datetime('now'))
@@ -307,7 +324,7 @@ class ContractRenewalManager:
                 1  # System user
             ))
             
-            self.conn.commit()
+            # Don't commit here - let parent function commit everything together
             return True
             
         except Exception as e:
@@ -389,13 +406,14 @@ class ContractRenewalManager:
                   f"Signing bonus for {player_dict['player_name']} (Contract Renewal)", 
                   -signing_bonus, current_budget))
             
-            # Create blog post for successful contract renewal
+            # Commit database changes first
+            self.conn.commit()
+            
+            # Create blog post for successful contract renewal (after commit to avoid lock)
             from app import post_transfer_news
             title = f"Contract Renewal: {player_dict['player_name']}"
             content = f"{player_dict['player_name']} has successfully renewed their contract! The player signed for €{salary_demand:,} per year for {contract_years} years with a {yearly_wage_rise*100:.1f}% yearly wage rise. Signing bonus: €{signing_bonus:,} ({(signing_bonus/salary_demand*100):.1f}% of annual salary)."
             post_transfer_news(title, content, user_id)
-            
-            self.conn.commit()
             
             return {
                 'success': True,
@@ -449,13 +467,14 @@ class ContractRenewalManager:
                 player_id
             ))
             
-            # Create sensationalistic blog post for player walking away
+            # Commit database changes first
+            self.conn.commit()
+            
+            # Create sensationalistic blog post for player walking away (after commit to avoid lock)
             from app import post_transfer_news
             title = f"🚨 SHOCKING: {player_dict['player_name']} WALKS AWAY! 🚨"
             content = f"BREAKING NEWS: {player_dict['player_name']} has SHOCKINGLY rejected contract renewal talks and walked away from the club! The player has become a free agent and is now demanding €{contract_terms['salary_demand']:,} per year for {contract_terms['contract_years']} years with a {contract_terms['yearly_wage_rise']*100:.1f}% yearly wage rise. This unexpected departure has left fans stunned and the club scrambling to find a replacement! 💥"
             post_transfer_news(title, content, user_id)
-            
-            self.conn.commit()
             
             return {
                 'success': True,

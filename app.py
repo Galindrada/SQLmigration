@@ -4719,22 +4719,18 @@ def market_bazaar():
 
         transfer_listed_players = cur.fetchall()
 
-        # Table 2: CPU offers for user-listed players
+        # Table 2: CPU offers for user UNLISTED players only (cpu_user_offer type)
         cur.execute("""
             SELECT mbo.*, p.id as player_id, p.player_name, p.registered_position, p.age, p.market_value,
                    cpu_t.club_name as buyer_team_name, mbl.asking_price,
-                   CASE
-                       WHEN mbl.listing_type = 'user_sale' THEN 'listed'
-                       WHEN mbl.listing_type = 'cpu_user_offer' THEN 'unlisted'
-                       ELSE 'other'
-                   END as offer_type
+                   'unlisted' as offer_type
             FROM market_bazaar_offers mbo
             JOIN market_bazaar_listings mbl ON mbo.listing_id = mbl.id
             JOIN players p ON mbl.player_id = p.id
             JOIN teams cpu_t ON mbo.buyer_team_id = cpu_t.id
             JOIN league_teams cpu_lt ON cpu_t.id = cpu_lt.id
             WHERE mbo.status = 'active'
-            AND mbl.listing_type IN ('user_sale', 'cpu_user_offer')
+            AND mbl.listing_type = 'cpu_user_offer'  -- Only unlisted player offers (exclude user_sale to avoid errors)
             AND mbl.team_id IN (
                 SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = ?
             )
@@ -6822,10 +6818,6 @@ def create_user_season_blog_posts():
         users = cur.fetchall()
 
         for user in users:
-            # ...existing code...
-            total_salaries = salary_result['total_salaries'] if salary_result else 0
-            salary_amount = int(total_salaries)  # conversion here crops decimals
-            # ...existing code...
             user_id = user['id']
             username = user['username']
 
@@ -7195,7 +7187,7 @@ def end_of_season_process():
 
         # Step 4: Multiply each player's salary by 2 and add to career earnings
         print("🔄 Step 4: Doubling player salaries and updating career earnings...")
-        cur.execute("UPDATE players SET salary = salary * 2, career_earnings = career_earnings + (salary * 2) WHERE club_id != 141")
+        cur.execute("UPDATE players SET salary = salary, career_earnings = career_earnings + (salary * 2) WHERE club_id != 141")
         salary_doubled = cur.rowcount
         print(f"  ✅ {salary_doubled} players had their salary doubled and career earnings updated (excluding No Club players)")
 
@@ -7221,7 +7213,7 @@ def end_of_season_process():
                    short_pass_accuracy, short_pass_speed, long_pass_accuracy, long_pass_speed,
                    shot_accuracy, shot_power, shot_technique, free_kick_accuracy, swerve,
                    heading, jump, technique, aggression, mentality, goal_keeping,
-                   team_work, consistency, condition_fitness, games_played, goals, assists
+                   team_work, consistency, condition_fitness, games_played, goals, assists, seed_player
             FROM players
             WHERE development_key > 0 AND trait_key IS NOT NULL
         """)
@@ -7542,7 +7534,7 @@ def end_of_season_process():
                             waist_circumference = ?, arm_circumference = ?, leg_circumference = ?,
                             calf_circumference = ?, leg_length = ?, wristband = ?, wristband_color = ?,
                             international_number = ?, classic_number = ?, club_number = ?,
-                            dribble_style = ?, free_kick_style = ?, pk_style = ?, drop_kick_style = ?
+                            dribble_style = ?, free_kick_style = ?, pk_style = ?, drop_kick_style = ?, seed_player = ?
                         WHERE id = ?
                     """, (
                         new_player_data['player_name'], new_player_data['age'], new_player_data['nationality'],
@@ -7589,7 +7581,8 @@ def end_of_season_process():
                         new_player_data['international_number'], new_player_data['classic_number'],
                         new_player_data['club_number'], new_player_data['dribble_style'],
                         new_player_data['free_kick_style'], new_player_data['pk_style'],
-                        new_player_data['drop_kick_style'], retired_id
+                        new_player_data['drop_kick_style'], new_player_data.get('seed_player'),
+                        retired_id
                     ))
 
                     new_players_generated += 1
@@ -7597,6 +7590,13 @@ def end_of_season_process():
 
                     # Clear historical data for the new regen (they should start with clean records)
                     cur.execute("DELETE FROM player_season_history WHERE player_id = ?", (retired_id,))
+                    
+                    # Reset career stats for the new regen
+                    cur.execute("""
+                        UPDATE players 
+                        SET career_earnings = 0, championships_won = 0, cups_won = 0
+                        WHERE id = ?
+                    """, (retired_id,))
 
                 except Exception as e:
                     print(f"    ❌ Error replacing {replacement['retired_player']['player_name']}: {e}")
