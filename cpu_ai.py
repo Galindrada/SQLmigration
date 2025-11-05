@@ -1636,7 +1636,7 @@ class CPUAI:
             
             # Create the free agency offer
             from datetime import datetime, timedelta
-            expires_at = datetime.now() + timedelta(minutes=5)  # 5 minutes like user offers
+            expires_at = datetime.now() + timedelta(minutes=500)  # 5 minutes like user offers
             
             # Create the offer
             cur.execute("""
@@ -1749,7 +1749,7 @@ class CPUAI:
             
             # Raise the offer by resetting timer to 5 minutes (same as user raises)
             from datetime import datetime, timedelta
-            new_expires_at = datetime.now() + timedelta(minutes=5)
+            new_expires_at = datetime.now() + timedelta(minutes=500)
             
             # Update the offer
             cur.execute("""
@@ -1977,7 +1977,7 @@ class CPUAI:
             
             # Raise the offer by resetting timer to 5 minutes
             from datetime import datetime, timedelta
-            new_expires_at = datetime.now() + timedelta(minutes=5)
+            new_expires_at = datetime.now() + timedelta(minutes=500)
             
             # Update the offer
             cur.execute("""

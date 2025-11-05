@@ -22,7 +22,7 @@ MARKET_BAZAAR_ENABLED = True  # Set to False to disable automatic market activit
 
 def get_next_market_activity_time():
     """Get the next market activity time (3 hours from now)"""
-    return (datetime.now() + timedelta(minutes=18000)).isoformat()
+    return (datetime.now() + timedelta(minutes=180000)).isoformat()
 
 def update_market_activity_timer():
     """Update the market activity timer in the database"""
@@ -4161,7 +4161,7 @@ def raise_free_agent_offer(offer_id):
     # Raise offer by 250,000€ and reset timer
     new_salary = offer['offered_salary'] + 250000
     from datetime import datetime, timedelta
-    new_expires_at = datetime.now() + timedelta(minutes=5)  # 5 minutes like initial offers
+    new_expires_at = datetime.now() + timedelta(minutes=500)  # 5 minutes like initial offers
 
     try:
         # Update the offer
@@ -7173,39 +7173,39 @@ def end_of_season_process():
                 cpu_teams_processed += 1
                 print(f"  - CPU {club_name}: Budget reduced by €{total_salaries:,} (€{current_budget:,} → €{new_budget:,}), available cap: €{available_cap:,}")
 
-        # Step 2: Add 1 year to every player's age
+        # Step 2: Add 1 year to every player's age (exclude draftees)
         print("🔄 Step 2: Updating player ages...")
-        cur.execute("UPDATE players SET age = age + 1")
+        cur.execute("UPDATE players SET age = age + 1 WHERE (draftee = 0 OR draftee IS NULL)")
         age_updated = cur.rowcount
-        print(f"  ✅ {age_updated} players had their age increased by 1 year")
+        print(f"  ✅ {age_updated} players had their age increased by 1 year (draftees excluded)")
 
-        # Step 3: Reduce 1 year to every player's contract (except "No Club" players)
+        # Step 3: Reduce 1 year to every player's contract (except "No Club" and draftees)
         print("🔄 Step 3: Updating player contracts...")
-        cur.execute("UPDATE players SET contract_years_remaining = contract_years_remaining - 1 WHERE club_id != 141")
+        cur.execute("UPDATE players SET contract_years_remaining = contract_years_remaining - 1 WHERE club_id != 141 AND (draftee = 0 OR draftee IS NULL)")
         contract_updated = cur.rowcount
-        print(f"  ✅ {contract_updated} players had their contract reduced by 1 year (excluding No Club players)")
+        print(f"  ✅ {contract_updated} players had their contract reduced by 1 year (excluding No Club and draftees)")
 
-        # Step 4: Multiply each player's salary by 2 and add to career earnings
+        # Step 4: Multiply each player's salary by 2 and add to career earnings (exclude draftees)
         print("🔄 Step 4: Doubling player salaries and updating career earnings...")
-        cur.execute("UPDATE players SET salary = salary, career_earnings = career_earnings + (salary * 2) WHERE club_id != 141")
+        cur.execute("UPDATE players SET salary = salary, career_earnings = career_earnings + (salary * 2) WHERE club_id != 141 AND (draftee = 0 OR draftee IS NULL)")
         salary_doubled = cur.rowcount
-        print(f"  ✅ {salary_doubled} players had their salary doubled and career earnings updated (excluding No Club players)")
+        print(f"  ✅ {salary_doubled} players had their salary doubled and career earnings updated (excluding No Club and draftees)")
 
-        # Step 5: Apply yearly wage rise to each player's salary
+        # Step 5: Apply yearly wage rise to each player's salary (exclude draftees)
         print("🔄 Step 5: Applying yearly wage rises...")
         cur.execute("""
             UPDATE players
             SET salary = salary * (1 + COALESCE(yearly_wage_rise, 0) + 0.01)
-            WHERE yearly_wage_rise IS NOT NULL
+            WHERE yearly_wage_rise IS NOT NULL AND (draftee = 0 OR draftee IS NULL)
         """)
         wage_rise_applied = cur.rowcount
-        print(f"  ✅ {wage_rise_applied} players had their yearly wage rise applied")
+        print(f"  ✅ {wage_rise_applied} players had their yearly wage rise applied (draftees excluded)")
 
-        # Step 6: Process player skill development
+        # Step 6: Process player skill development (exclude draftees)
         print("🔄 Step 6: Processing player skill development...")
         from game_mechanics import calculate_player_skill_development
 
-        # Get all players with their development keys
+        # Get all players with their development keys (exclude draftees)
         cur.execute("""
             SELECT id, player_name, age, registered_position, development_key, trait_key,
                    attack, defense, balance, stamina, top_speed, acceleration,
@@ -7215,7 +7215,8 @@ def end_of_season_process():
                    heading, jump, technique, aggression, mentality, goal_keeping,
                    team_work, consistency, condition_fitness, games_played, goals, assists, seed_player
             FROM players
-            WHERE development_key > 0 AND trait_key IS NOT NULL
+            WHERE development_key > 0 AND trait_key IS NOT NULL 
+            AND (draftee = 0 OR draftee IS NULL)
         """)
 
         players_for_development = cur.fetchall()
@@ -7323,12 +7324,12 @@ def end_of_season_process():
         print("🔄 Step 9: Processing player retirements and replacements...")
         from game_mechanics import check_player_retirement, generate_proper_regen
 
-        # Get all players aged 30+ for retirement checking
+        # Get all players aged 30+ for retirement checking (exclude draftees)
         cur.execute("""
             SELECT id, player_name, age, registered_position, salary, club_id, nationality,
                    contract_years_remaining, games_played, market_value
             FROM players
-            WHERE age >= 30
+            WHERE age >= 30 AND (draftee = 0 OR draftee IS NULL)
             ORDER BY age DESC
         """)
 
@@ -7337,7 +7338,7 @@ def end_of_season_process():
         replacement_players = []
         teams_updated = set()
 
-        print(f"  📊 Checking {len(players_to_check)} players (aged 30+) for retirement...")
+        print(f"  📊 Checking {len(players_to_check)} players (aged 30+) for retirement (draftees excluded)...")
 
         # Check each player for retirement
         for player in players_to_check:

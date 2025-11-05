@@ -973,7 +973,7 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
             # Calculate skill change based on remaining potential or seed target if available
             if final_multiplier > 0:  # Improvement
                 # Default remaining potential to 99 ceiling
-                remaining_potential = 99 - current_value
+                remaining_potential = (99) - current_value
                 # If seed target exists, steer towards it
                 if seed_targets and skill in seed_targets and seed_targets[skill] is not None:
                     target = int(seed_targets[skill])
@@ -994,7 +994,7 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
                         remaining_potential = max(0.0, (99 - current_value) * penalty)
                 # Apply multiplier scaled down for realistic changes
                 # Stronger pull when seed is present (smaller divisor)
-                divisor = 24.0 if seed_targets else 50.0
+                divisor = 24.0 if seed_targets else 45.0
                 base_change = (final_multiplier * skill_weight * remaining_potential) / divisor
             else:  # Decline
                 # For decline, apply multiplier to current value, scaled down

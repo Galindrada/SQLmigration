@@ -274,6 +274,291 @@ class TeamManager:
             self.conn.rollback()
             return False
     
+    def update_players_from_newcomers_csv_range(self, csv_path: str = 'NewcomerII.csv', id_start: int = 1, id_end: int = 99999) -> bool:
+        """Update players from CSV file for a specific ID range, mark as draftees and blacklist them.
+        
+        Args:
+            csv_path: Path to the CSV file
+            id_start: Starting player ID (inclusive)
+            id_end: Ending player ID (inclusive)
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.conn:
+            print("❌ Not connected to database")
+            return False
+        
+        try:
+            # Read the newcomers CSV
+            print(f"📖 Reading newcomer data from {csv_path}...")
+            df = pd.read_csv(csv_path, encoding='latin1')
+            
+            # Use the same column mapping from import_pes6_data.py
+            raw_to_sql_column_map = {
+                'ID': 'id',
+                'NAME': 'player_name',
+                'SHIRT_NAME': 'shirt_name',
+                'CLUB TEAM': 'club_team_raw',
+                'REGISTERED POSITION': 'registered_position',
+                'HEIGHT': 'height',
+                'STRONG FOOT': 'strong_foot',
+                'FAVOURED SIDE': 'favoured_side',
+                'WEAK FOOT ACCURACY': 'weak_foot_accuracy',
+                'WEAK FOOT FREQUENCY': 'weak_foot_frequency',
+                'ATTACK': 'attack',
+                'DEFENSE': 'defense',
+                'BALANCE': 'balance',
+                'STAMINA': 'stamina',
+                'TOP SPEED': 'top_speed',
+                'ACCELERATION': 'acceleration',
+                'RESPONSE': 'response',
+                'AGILITY': 'agility',
+                'DRIBBLE ACCURACY': 'dribble_accuracy',
+                'DRIBBLE SPEED': 'dribble_speed',
+                'SHORT PASS ACCURACY': 'short_pass_accuracy',
+                'SHORT PASS SPEED': 'short_pass_speed',
+                'LONG PASS ACCURACY': 'long_pass_accuracy',
+                'LONG PASS SPEED': 'long_pass_speed',
+                'SHOT ACCURACY': 'shot_accuracy',
+                'SHOT POWER': 'shot_power',
+                'SHOT TECHNIQUE': 'shot_technique',
+                'FREE KICK ACCURACY': 'free_kick_accuracy',
+                'SWERVE': 'swerve',
+                'HEADING': 'heading',
+                'JUMP': 'jump',
+                'TECHNIQUE': 'technique',
+                'AGGRESSION': 'aggression',
+                'MENTALITY': 'mentality',
+                'GOAL KEEPING': 'goal_keeping',
+                'TEAM WORK': 'team_work',
+                'CONSISTENCY': 'consistency',
+                'CONDITION / FITNESS': 'condition_fitness',
+                'DRIBBLING': 'dribbling_skill',
+                'TACTIAL DRIBBLE': 'tactical_dribble',
+                'POSITIONING': 'positioning',
+                'REACTION': 'reaction',
+                'PLAYMAKING': 'playmaking',
+                'PASSING': 'passing',
+                'SCORING': 'scoring',
+                '1-1 SCORING': 'one_one_scoring',
+                'POST PLAYER': 'post_player',
+                'LINES': 'lines',
+                'MIDDLE SHOOTING': 'middle_shooting',
+                'SIDE': 'side',
+                'CENTRE': 'centre',
+                'PENALTIES': 'penalties',
+                '1-TOUCH PASS': 'one_touch_pass',
+                'OUTSIDE': 'outside',
+                'MARKING': 'marking',
+                'SLIDING': 'sliding',
+                'COVERING': 'covering',
+                'D-LINE CONTROL': 'd_line_control',
+                'PENALTY STOPPER': 'penalty_stopper',
+                '1-ON-1 STOPPER': 'one_on_one_stopper',
+                'LONG THROW': 'long_throw',
+                'INJURY TOLERANCE': 'injury_tolerance',
+                'DRIBBLE STYLE': 'dribble_style',
+                'FREE KICK STYLE': 'free_kick_style',
+                'PK STYLE': 'pk_style',
+                'DROP KICK STYLE': 'drop_kick_style',
+                'AGE': 'age',
+                'WEIGHT': 'weight',
+                'NATIONALITY': 'nationality',
+                'SKIN COLOR': 'skin_color',
+                'FACE TYPE': 'face_type',
+                'PRESET FACE NUMBER': 'preset_face_number',
+                'HEAD WIDTH': 'head_width',
+                'NECK LENGTH': 'neck_length',
+                'NECK WIDTH': 'neck_width',
+                'SHOULDER HEIGHT': 'shoulder_height',
+                'SHOULDER WIDTH': 'shoulder_width',
+                'CHEST MEASUREMENT': 'chest_measurement',
+                'WAIST CIRCUMFERENCE': 'waist_circumference',
+                'ARM CIRCUMFERENCE': 'arm_circumference',
+                'LEG CIRCUMFERENCE': 'leg_circumference',
+                'CALF CIRCUMFERENCE': 'calf_circumference',
+                'LEG LENGTH': 'leg_length',
+                'WRISTBAND': 'wristband',
+                'WRISTBAND COLOR': 'wristband_color',
+                'INTERNATIONAL NUMBER': 'international_number',
+                'CLASSIC NUMBER': 'classic_number',
+                'CLUB NUMBER': 'club_number',
+                'GK  0': 'gk',
+                'CWP  2': 'cwp',
+                'CBT  3': 'cbt',
+                'SB  4': 'sb',
+                'DMF  5': 'dmf',
+                'WB  6': 'wb',
+                'CMF  7': 'cmf',
+                'SMF  8': 'smf',
+                'AMF  9': 'amf',
+                'WF 10': 'wf',
+                'SS  11': 'ss',
+                'CF  12': 'cf'
+            }
+            
+            # Rename columns in the DataFrame using the map
+            df = df.rename(columns=raw_to_sql_column_map)
+            
+            # Filter to only IDs in the specified range
+            df = df[(df['id'] >= id_start) & (df['id'] <= id_end)]
+            
+            if len(df) == 0:
+                print(f"❌ No players found in ID range {id_start}-{id_end} in CSV")
+                return False
+            
+            print(f"📋 Found {len(df)} players in range {id_start}-{id_end}")
+            
+            cursor = self.conn.cursor()
+            
+            updates_made = 0
+            blacklisted = 0
+            
+            for _, row in df.iterrows():
+                player_id = row['id']
+                csv_name = row['player_name']
+                
+                # Check if player exists in database
+                cursor.execute("SELECT id, player_name FROM players WHERE id = ?", (player_id,))
+                existing_player = cursor.fetchone()
+                
+                if not existing_player:
+                    print(f"⚠️  Player ID {player_id} not found in database - skipping")
+                    continue
+                
+                print(f"🔄 Updating Player ID {player_id}: '{existing_player[1]}' → '{csv_name}' (newcomer/draftee)")
+                
+                # Prepare all columns for update (excluding club_team_raw which we'll set to No Club)
+                sql_columns = [
+                    'player_name', 'shirt_name', 'registered_position', 'age', 'height', 'weight',
+                    'nationality', 'strong_foot', 'favoured_side', 'gk', 'cwp', 'cbt', 'sb', 'dmf',
+                    'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf',
+                    'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration', 'response', 
+                    'agility', 'dribble_accuracy', 'dribble_speed', 'short_pass_accuracy', 'short_pass_speed', 
+                    'long_pass_accuracy', 'long_pass_speed', 'shot_accuracy', 'shot_power', 'shot_technique', 
+                    'free_kick_accuracy', 'swerve', 'heading', 'jump', 'technique', 'aggression', 'mentality', 
+                    'goal_keeping', 'team_work', 'consistency', 'condition_fitness', 'dribbling_skill', 
+                    'tactical_dribble', 'positioning', 'reaction', 'playmaking', 'passing', 'scoring',
+                    'one_one_scoring', 'post_player', 'lines', 'middle_shooting', 'side', 'centre',
+                    'penalties', 'one_touch_pass', 'outside', 'marking', 'sliding', 'covering',
+                    'd_line_control', 'penalty_stopper', 'one_on_one_stopper', 'long_throw',
+                    'injury_tolerance', 'dribble_style', 'free_kick_style', 'pk_style', 'drop_kick_style',
+                    'skin_color', 'face_type', 'preset_face_number', 'head_width', 'neck_length',
+                    'neck_width', 'shoulder_height', 'shoulder_width', 'chest_measurement',
+                    'waist_circumference', 'arm_circumference', 'leg_circumference', 'calf_circumference',
+                    'leg_length', 'wristband', 'wristband_color', 'international_number',
+                    'classic_number', 'club_number'
+                ]
+                
+                # Add newcomer-specific columns
+                sql_columns.extend(['club_id', 'draftee', 'contract_years_remaining', 'salary', 
+                                  'yearly_wage_rise', 'career_earnings'])
+                
+                # Prepare values for update
+                values = []
+                for col in sql_columns:
+                    if col == 'club_id':
+                        values.append(141)  # No Club
+                    elif col == 'draftee':
+                        values.append(1)  # Mark as draftee
+                    elif col == 'contract_years_remaining':
+                        values.append(3)
+                    elif col == 'salary':
+                        values.append(1000000)
+                    elif col == 'yearly_wage_rise':
+                        values.append(0.25)
+                    elif col == 'career_earnings':
+                        values.append(0)
+                    else:
+                        val = row.get(col, None)
+                        values.append(None if pd.isna(val) else val)
+                
+                # Add player_id for WHERE clause
+                values.append(player_id)
+                
+                # Create UPDATE query
+                set_clause = ', '.join([f"{col} = ?" for col in sql_columns])
+                update_query = f"UPDATE players SET {set_clause} WHERE id = ?"
+                
+                # Execute update
+                cursor.execute(update_query, values)
+                
+                # Add to blacklist
+                cursor.execute("SELECT 1 FROM blacklist WHERE user_id = 1 AND player_id = ?", (player_id,))
+                if not cursor.fetchone():
+                    cursor.execute("INSERT INTO blacklist (user_id, player_id) VALUES (1, ?)", (player_id,))
+                    blacklisted += 1
+                
+                updates_made += 1
+            
+            # Commit all changes
+            self.conn.commit()
+            
+            print(f"\n✅ Update complete!")
+            print(f"   🔄 Players updated: {updates_made}")
+            print(f"   🔒 Players blacklisted: {blacklisted}")
+            print(f"   🌟 All updated players marked as draftees in No Club")
+            
+            # Calculate overalls and bundled ratings for updated players
+            if updates_made > 0:
+                calc_ratings = input(f"\n📊 Calculate overall and bundled ratings for the {updates_made} updated players? (y/N): ").strip().lower()
+                if calc_ratings == 'y':
+                    print("\n🔄 Calculating ratings...")
+                    from refresh_and_reimport import calculate_player_overall
+                    from game_mechanics import calculate_bundled_skill_ratings
+                    
+                    # Get updated players
+                    cursor.execute("""
+                        SELECT * FROM players 
+                        WHERE id >= ? AND id <= ?
+                    """, (id_start, id_end))
+                    
+                    players = cursor.fetchall()
+                    column_names = [description[0] for description in cursor.description]
+                    
+                    for player_row in players:
+                        player_data = dict(zip(column_names, player_row))
+                        
+                        # Calculate overall
+                        overall = calculate_player_overall(player_data)
+                        
+                        # Calculate bundled ratings
+                        bundled_ratings = calculate_bundled_skill_ratings(player_data)
+                        
+                        # Update database
+                        cursor.execute("""
+                            UPDATE players 
+                            SET overall = ?, attack_rating = ?, defense_rating = ?, physical_rating = ?, 
+                                power_rating = ?, technique_rating = ?, goalkeeping_rating = ?
+                            WHERE id = ?
+                        """, (
+                            overall,
+                            bundled_ratings['attack_rating'],
+                            bundled_ratings['defense_rating'],
+                            bundled_ratings['physical_rating'],
+                            bundled_ratings['power_rating'],
+                            bundled_ratings['technique_rating'],
+                            bundled_ratings['goalkeeping_rating'],
+                            player_data['id']
+                        ))
+                    
+                    self.conn.commit()
+                    print(f"   ✅ Overall and bundled ratings calculated for {updates_made} players")
+            
+            return True
+            
+        except FileNotFoundError:
+            print(f"❌ File not found: {csv_path}")
+            return False
+        except Exception as e:
+            print(f"❌ Error updating players: {e}")
+            import traceback
+            traceback.print_exc()
+            if self.conn:
+                self.conn.rollback()
+            return False
+    
     def update_players_from_newcomers_csv(self, csv_path: str = 'newcomers.csv') -> bool:
         """Update players from newcomers.csv when their name differs from pe6_player_data.csv (by ID).
 
@@ -1283,7 +1568,7 @@ def display_menu():
     print("7. Create new team for user")
     print("8. Add budget to team")
     print("9. Subtract budget from team")
-    print("10. Update players from newcomers.csv")
+    print("10. Update players from NewcomerII.csv (ID range → Draftees)")
     print("11. Calculate overalls and export to CSV")
     print("12. Fix team ID mismatches")
     print("13. Replace player from CSV by ID")
@@ -1483,18 +1768,33 @@ def subtract_budget_from_team(manager: TeamManager):
     manager.modify_team_budget(team_id, amount, 'subtract')
 
 def update_players_from_newcomers(manager: TeamManager):
-    """Update players from newcomers.csv"""
-    csv_path = input("Enter path to newcomers CSV file (default: newcomers.csv): ").strip()
+    """Update players from NewcomerII.csv with ID range, mark as draftees and blacklist"""
+    csv_path = input("Enter path to newcomers CSV file (default: NewcomerII.csv): ").strip()
     if not csv_path:
-        csv_path = 'newcomers.csv'
+        csv_path = 'NewcomerII.csv'
+    
+    # Get ID range
+    id_start = input("Enter starting player ID: ").strip()
+    id_end = input("Enter ending player ID: ").strip()
+    
+    try:
+        id_start = int(id_start)
+        id_end = int(id_end)
+    except ValueError:
+        print("❌ Invalid ID range. Must be integers.")
+        return
+    
+    if id_start > id_end:
+        print("❌ Start ID must be less than or equal to end ID")
+        return
     
     # Confirm update
-    confirm = input(f"Update players from '{csv_path}'? This will overwrite existing player data if names differ. (y/N): ").strip().lower()
+    confirm = input(f"Update player IDs {id_start}-{id_end} from '{csv_path}'? Players will be set to No Club, marked as draftees, and blacklisted. (y/N): ").strip().lower()
     if confirm != 'y':
         print("❌ Update cancelled")
         return
     
-    manager.update_players_from_newcomers_csv(csv_path)
+    manager.update_players_from_newcomers_csv_range(csv_path, id_start, id_end)
 
 def calculate_overalls_and_export(manager: TeamManager):
     """Calculate overall ratings for all players and export to CSV"""
