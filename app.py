@@ -6503,6 +6503,7 @@ def retire_player_manual():
             UPDATE players SET
                 player_name = ?, age = ?, nationality = ?, skin_color = ?,
                 strong_foot = ?, favoured_side = ?, registered_position = ?,
+                height = ?, weight = ?,
                 salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?,
                 development_key = ?, trait_key = ?, games_played = ?, goals = ?, assists = ?,
                 attack = ?, defense = ?, balance = ?, stamina = ?, top_speed = ?,
@@ -6529,6 +6530,7 @@ def retire_player_manual():
         """, (
             regen_data['player_name'], regen_data['age'], regen_data['nationality'], regen_data['skin_color'],
             regen_data['strong_foot'], regen_data['favoured_side'], regen_data['registered_position'],
+            regen_data['height'], regen_data['weight'],
             regen_data['salary'], regen_data['contract_years_remaining'], regen_data['yearly_wage_rise'],
             regen_data['development_key'], regen_data['trait_key'], regen_data['games_played'], regen_data['goals'], regen_data['assists'],
             regen_data['attack'], regen_data['defense'], regen_data['balance'], regen_data['stamina'], regen_data['top_speed'],
@@ -7514,6 +7516,7 @@ def end_of_season_process():
                         UPDATE players SET
                             player_name = ?, age = ?, nationality = ?, skin_color = ?,
                             strong_foot = ?, favoured_side = ?, registered_position = ?,
+                            height = ?, weight = ?,
                             salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?,
                             development_key = ?, trait_key = ?, games_played = ?, goals = ?, assists = ?,
                             attack = ?, defense = ?, balance = ?, stamina = ?, top_speed = ?,
@@ -7540,8 +7543,8 @@ def end_of_season_process():
                     """, (
                         new_player_data['player_name'], new_player_data['age'], new_player_data['nationality'],
                         new_player_data['skin_color'], new_player_data['strong_foot'], new_player_data['favoured_side'],
-                        new_player_data['registered_position'], new_player_data['salary'],
-                        new_player_data['contract_years_remaining'], new_player_data['yearly_wage_rise'],
+                        new_player_data['registered_position'], new_player_data['height'], new_player_data['weight'],
+                        new_player_data['salary'], new_player_data['contract_years_remaining'], new_player_data['yearly_wage_rise'],
                         new_player_data['development_key'], new_player_data['trait_key'],
                         new_player_data['games_played'], new_player_data['goals'], new_player_data['assists'],
                         new_player_data['attack'], new_player_data['defense'], new_player_data['balance'],

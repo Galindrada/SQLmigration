@@ -877,15 +877,15 @@ class CPUAI:
                 elif player_overall >= 70:
                     interest_score += 5   # Decent player
                 
-                # Lower threshold for heavily subsidized loans - 100% support should ALWAYS pass
-                # With 100% support, interest_score will be 500+200+bonuses = 700+ minimum
-                # Lower threshold significantly for heavily subsidized loans
+                # Threshold based on salary support - CPU is selective about unsupported loans
                 if subsidy_ratio >= 1.0:  # 100% support
-                    min_threshold = 0  # Always accept 100% subsidized loans regardless of other factors
+                    min_threshold = 0  # Always accept free loans
                 elif subsidy_ratio >= 0.80:  # 80%+ support
-                    min_threshold = 10  # Very low threshold
-                else:
-                    min_threshold = 25  # Standard threshold
+                    min_threshold = 20  # Low threshold (was 10)
+                elif subsidy_ratio >= 0.50:  # 50%+ support
+                    min_threshold = 60  # Medium threshold (NEW)
+                else:  # < 50% support
+                    min_threshold = 100  # High threshold - must be excellent fit (was 25)
                 
                 if interest_score >= min_threshold:
                     loan_candidates.append({
