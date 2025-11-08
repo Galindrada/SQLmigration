@@ -1476,6 +1476,131 @@ class TeamManager:
             self.conn.rollback()
             return False
 
+    def fix_invalid_face_skin_combinations(self) -> bool:
+        """Fix invalid preset_face_number values based on skin_color using data from original.sqlite"""
+        if not self.conn:
+            print("❌ Not connected to database")
+            return False
+        
+        try:
+            import random
+            
+            # Valid face numbers for each skin color (from original.sqlite IDs 1-4783)
+            VALID_FACES_BY_SKIN = {
+                1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 34, 36, 37, 38, 40, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 102, 104, 105, 106, 107, 108, 109, 110, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 123, 124, 125, 126, 129, 130, 131, 133, 134, 135, 136, 138, 139, 140, 141, 142, 143, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 158, 159, 160, 161, 162, 163, 164, 167, 168, 169, 170, 171, 172, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 193, 194, 196, 197, 198, 199, 200, 201, 203, 206, 207, 208, 212, 215, 219, 221, 222, 224, 225, 226, 228, 230, 235, 236, 239, 242, 246, 247, 249, 250, 251, 252, 255, 260, 263, 266, 268, 269, 274, 275, 278, 283, 288, 295, 296, 298, 301, 304, 305, 306, 308, 311, 313, 314, 315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325, 327, 328, 329, 330, 331, 332, 333, 334, 338, 340, 341, 342, 343, 345, 346, 350, 354, 356, 361],
+                2: [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 29, 30, 33, 34, 36, 39, 42, 43, 45, 48, 50, 51, 59, 69, 81, 82, 83, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 103, 104, 105, 107, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 126, 130, 148, 149, 152, 164, 168, 169, 171, 172],
+                3: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 35, 36, 38, 39, 40, 41, 44, 45, 46, 48, 49, 50, 53, 54, 55, 58, 61, 63, 64, 66, 67, 68],
+                4: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 36, 37, 42, 43, 44, 47]
+            }
+            
+            cursor = self.conn.cursor()
+            
+            print("🔍 Checking for invalid face/skin combinations...")
+            
+            # Get all players with their skin_color and preset_face_number
+            cursor.execute("""
+                SELECT id, player_name, skin_color, preset_face_number 
+                FROM players 
+                WHERE skin_color IS NOT NULL AND preset_face_number IS NOT NULL
+            """)
+            
+            players = cursor.fetchall()
+            
+            if not players:
+                print("❌ No players found with skin_color and preset_face_number")
+                return False
+            
+            print(f"📊 Checking {len(players)} players...")
+            
+            invalid_players = []
+            
+            for player in players:
+                player_id = player['id']
+                player_name = player['player_name']
+                skin_color = player['skin_color']
+                face_number = player['preset_face_number']
+                
+                # Check if skin_color is valid
+                if skin_color not in VALID_FACES_BY_SKIN:
+                    print(f"   ⚠️  Player ID {player_id} ({player_name}): Invalid skin_color {skin_color}")
+                    continue
+                
+                # Check if face_number is valid for this skin_color
+                valid_faces = VALID_FACES_BY_SKIN[skin_color]
+                if face_number not in valid_faces:
+                    invalid_players.append({
+                        'id': player_id,
+                        'name': player_name,
+                        'skin_color': skin_color,
+                        'old_face': face_number,
+                        'valid_faces': valid_faces
+                    })
+            
+            if not invalid_players:
+                print("✅ All players have valid face/skin combinations!")
+                return True
+            
+            print(f"\n⚠️  Found {len(invalid_players)} players with invalid combinations:")
+            print("-" * 80)
+            print(f"{'ID':<6} {'Name':<25} {'Skin':<5} {'Old Face':<10} {'Status':<20}")
+            print("-" * 80)
+            
+            for player in invalid_players[:10]:  # Show first 10
+                print(f"{player['id']:<6} {player['name']:<25} {player['skin_color']:<5} {player['old_face']:<10} {'Invalid':<20}")
+            
+            if len(invalid_players) > 10:
+                print(f"   ... and {len(invalid_players) - 10} more")
+            
+            # Ask for confirmation
+            confirm = input(f"\n🔧 Fix all {len(invalid_players)} invalid combinations? (y/N): ").strip().lower()
+            if confirm != 'y':
+                print("❌ Operation cancelled")
+                return False
+            
+            # Fix invalid combinations
+            fixed_count = 0
+            
+            for player in invalid_players:
+                player_id = player['id']
+                player_name = player['name']
+                old_face = player['old_face']
+                valid_faces = player['valid_faces']
+                
+                # Select a random valid face number
+                new_face = random.choice(valid_faces)
+                
+                # Update the player
+                cursor.execute("""
+                    UPDATE players 
+                    SET preset_face_number = ? 
+                    WHERE id = ?
+                """, (new_face, player_id))
+                
+                fixed_count += 1
+                
+                if fixed_count <= 20:  # Show first 20 fixes
+                    print(f"   ✅ {player_name} (ID: {player_id}): Face {old_face} → {new_face}")
+            
+            if fixed_count > 20:
+                print(f"   ... and {fixed_count - 20} more fixes")
+            
+            # Commit changes
+            self.conn.commit()
+            
+            print(f"\n✅ Successfully fixed {fixed_count} invalid face/skin combinations!")
+            print(f"📊 Summary:")
+            print(f"   - Players checked: {len(players)}")
+            print(f"   - Invalid combinations found: {len(invalid_players)}")
+            print(f"   - Fixed: {fixed_count}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error fixing face/skin combinations: {e}")
+            if self.conn:
+                self.conn.rollback()
+            return False
+    
     def refresh_league_standings(self, division_id: int):
         """Manually refresh and display league standings for a division"""
         try:
@@ -1576,7 +1701,8 @@ def display_menu():
     print("15. Rename players with long names (16+ characters)")
     print("16. Duplicate player stats for a team")
     print("17. Delete a game from Colados League")
-    print("18. Exit")
+    print("18. Fix invalid face/skin combinations")
+    print("19. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -2088,6 +2214,16 @@ def duplicate_player_stats(manager: TeamManager):
         if manager.conn:
             manager.conn.rollback()
 
+def fix_face_skin_combinations(manager: TeamManager):
+    """Fix invalid face/skin combinations in the database"""
+    print("\n🎭 FIX INVALID FACE/SKIN COMBINATIONS")
+    print("-" * 40)
+    print("This will check all players and fix any preset_face_number values")
+    print("that are not valid for their skin_color based on original.sqlite data.")
+    print()
+    
+    manager.fix_invalid_face_skin_combinations()
+
 def delete_colados_game(manager: TeamManager):
     """Delete a game from Colados League"""
     print("\n🗑️ DELETE GAME FROM COLADOS LEAGUE")
@@ -2191,7 +2327,7 @@ def main():
     try:
         while True:
             display_menu()
-            choice = input("\nEnter your choice (1-18): ").strip()
+            choice = input("\nEnter your choice (1-19): ").strip()
             
             if choice == '1':
                 list_users(manager)
@@ -2228,10 +2364,12 @@ def main():
             elif choice == '17':
                 delete_colados_game(manager)
             elif choice == '18':
+                fix_face_skin_combinations(manager)
+            elif choice == '19':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-18.")
+                print("❌ Invalid choice. Please enter 1-19.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")

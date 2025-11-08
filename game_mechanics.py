@@ -2097,6 +2097,10 @@ def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict
     """
     import sqlite3
     import random
+    import time
+    
+    # Seed the random number generator to ensure different results on each restart
+    random.seed(time.time())
     
     # Randomly select a base player ID from 1 to 4783
     base_player_id = random.randint(1, 4783)
@@ -2242,13 +2246,14 @@ def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict
     
     return regen_data
 
-def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dict:
+def generate_proper_regen(retired_player_data: Dict, db_path: str = None, override_nationality: str = None) -> Dict:
     """
     Generate a proper regen based on the retiring player's attributes.
     
     Args:
         retired_player_data: Dictionary containing the retiring player's data
         db_path: Path to the database (optional, for position averages)
+        override_nationality: Optional nationality to use instead of random selection
     
     Returns:
         Dictionary with the new regen player data
@@ -2318,10 +2323,17 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
             return {}
     
     # Generate regen based on retiring player
-    nationality = retired_player_data.get('nationality', 'England')  # Use retiring player's nationality, fallback to England
+    # Use override nationality if provided, otherwise use retiring player's nationality
+    if override_nationality and override_nationality in NATIONALITY_DATA:
+        nationality = override_nationality
+    else:
+        nationality = retired_player_data.get('nationality', 'England')  # Fallback to England
     
     first_name, surname = generate_player_name(nationality)
     full_name = f"{first_name} {surname}".strip() if surname else first_name
+    
+    # Shirt name: surname in uppercase (or first name if no surname)
+    shirt_name = surname.upper() if surname else first_name.upper()
     
     # Age: 16-18 for regens
     age = random.randint(16, 18)
@@ -2607,41 +2619,49 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
             else:
                 special_attributes[skill] = 0
     
-    # Physical attributes: use realistic ranges (override database ranges if unrealistic)
+    # Physical attributes: use realistic ranges with distribution
     physical_attributes = {}
     
-    # Height: realistic range for footballers (160-200cm, not 148-203cm)
-    # Override database range if it includes unrealistic values
-    if 'height' in column_ranges:
-        db_min_height, db_max_height = column_ranges['height']
-        # Use database range only if it's realistic
-        if db_min_height >= 160 and db_max_height <= 200:
-            physical_attributes['height'] = random.randint(db_min_height, db_max_height)
-        else:
-            # Use realistic range instead
-            physical_attributes['height'] = random.randint(160, 200)
-    else:
-        physical_attributes['height'] = random.randint(160, 200)
+    # Height: Normal distribution centered at 177cm, range 148-205cm
+    # Use normal distribution (mean=177, std=12) to create bell curve with extremes possible
+    height = int(np.random.normal(177, 12))
     
-    # Weight: realistic range for footballers (66-100kg, not 0-105kg)
-    # Override database range if it includes unrealistic values
-    if 'weight' in column_ranges:
-        db_min_weight, db_max_weight = column_ranges['weight']
-        # Use database range only if it's realistic
-        if db_min_weight >= 66 and db_max_weight <= 100:
-            physical_attributes['weight'] = random.randint(db_min_weight, db_max_weight)
-        else:
-            # Use realistic range instead
-            physical_attributes['weight'] = random.randint(66, 100)
-    else:
-        physical_attributes['weight'] = random.randint(66, 100)
+    # Clamp to realistic min/max
+    height = max(148, min(205, height))
+    
+    # Apply position-based height boost for defensive positions (GK=0, CB=2, DMF=3, DM=5)
+    # These positions benefit from extra height if they're below 180cm
+    if registered_position_num in [0, 2, 3, 5] and height < 180:
+        height_boost = random.randint(8, 15)
+        height = min(205, height + height_boost)  # Still respect max limit
+    
+    physical_attributes['height'] = height
+    
+    # Weight: calculated from height with random variation
+    # Formula: weight = height - 100 + random(-8, 8)
+    weight = height - 100 + random.randint(-8, 8)
+    
+    # Ensure weight stays in reasonable bounds (50-120kg)
+    weight = max(50, min(120, weight))
+    
+    physical_attributes['weight'] = weight
     
     # Physical appearance attributes: generate realistic values
     appearance_attributes = {}
     
     # Face and appearance settings
     appearance_attributes['face_type'] = random.randint(0, 2)  # 0-2
-    appearance_attributes['preset_face_number'] = random.randint(1, 361)  # 1-361
+    
+    # Preset face number depends on skin color (only use combinations that exist in original.sqlite IDs 1-4783)
+    VALID_FACES_BY_SKIN = {
+        1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 34, 36, 37, 38, 40, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 102, 104, 105, 106, 107, 108, 109, 110, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 123, 124, 125, 126, 129, 130, 131, 133, 134, 135, 136, 138, 139, 140, 141, 142, 143, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 158, 159, 160, 161, 162, 163, 164, 167, 168, 169, 170, 171, 172, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 193, 194, 196, 197, 198, 199, 200, 201, 203, 206, 207, 208, 212, 215, 219, 221, 222, 224, 225, 226, 228, 230, 235, 236, 239, 242, 246, 247, 249, 250, 251, 252, 255, 260, 263, 266, 268, 269, 274, 275, 278, 283, 288, 295, 296, 298, 301, 304, 305, 306, 308, 311, 313, 314, 315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325, 327, 328, 329, 330, 331, 332, 333, 334, 338, 340, 341, 342, 343, 345, 346, 350, 354, 356, 361],
+        2: [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 29, 30, 33, 34, 36, 39, 42, 43, 45, 48, 50, 51, 59, 69, 81, 82, 83, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 103, 104, 105, 107, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 126, 130, 148, 149, 152, 164, 168, 169, 171, 172],
+        3: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 35, 36, 38, 39, 40, 41, 44, 45, 46, 48, 49, 50, 53, 54, 55, 58, 61, 63, 64, 66, 67, 68],
+        4: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 36, 37, 42, 43, 44, 47]
+    }
+    
+    valid_faces = VALID_FACES_BY_SKIN.get(skin_color, VALID_FACES_BY_SKIN[1])  # Default to skin_color 1 if not found
+    appearance_attributes['preset_face_number'] = random.choice(valid_faces)
     
     # Body measurements: realistic ranges for footballers (-7 to +7, but weighted toward 0)
     body_measurements = ['head_width', 'neck_length', 'neck_width', 'shoulder_height', 
@@ -2698,6 +2718,7 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None) -> Dic
     # Create the complete regen data
     regen_data = {
         'player_name': full_name,
+        'shirt_name': shirt_name,
         'age': age,
         'nationality': nationality,
         'skin_color': skin_color,

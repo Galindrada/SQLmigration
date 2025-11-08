@@ -277,14 +277,25 @@
                 <h5>👴 Retire Player & Generate Regen</h5>
                 <p>Manually retire a specific player and generate a new regen to replace them. This uses the same regen generation system as the end-of-season process.</p>
                 <form method="post" action="{{ url_for('retire_player_manual') }}" onsubmit="return confirm('Retire this player and generate a regen?\n\nThis will:\n- Retire the selected player immediately\n- Generate a new young regen with random attributes\n- Replace the player in the same team\n- Create a blog post about the retirement\n\nThis action cannot be undone!')">
-                    <label for="retire_player_id">Select Player to Retire:</label>
-                    <select name="player_id" id="retire_player_id" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
-                        <option value="" disabled selected>-- Select Player --</option>
-                        {% for player in players %}
-                            <option value="{{ player[0] }}">{{ player[1] }} (Age: {{ player[2] }}, Team: {{ player[3] }})</option>
-                        {% endfor %}
-                    </select>
-                    <button type="submit" class="button" style="background-color: #d9534f; font-weight: bold; margin-left: 20px;">👴 Retire Player</button>
+                    <div style="margin-bottom: 15px;">
+                        <label for="retire_player_id">Select Player to Retire:</label>
+                        <select name="player_id" id="retire_player_id" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
+                            <option value="" disabled selected>-- Select Player --</option>
+                            {% for player in players %}
+                                <option value="{{ player[0] }}">{{ player[1] }} (Age: {{ player[2] }}, Team: {{ player[3] }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="retire_nationality">Regen Nationality:</label>
+                        <select name="nationality" id="retire_nationality" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
+                            <option value="" disabled selected>-- Select Nationality --</option>
+                            {% for nationality in nationalities %}
+                                <option value="{{ nationality }}">{{ nationality }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="button" style="background-color: #d9534f; font-weight: bold;">👴 Retire Player</button>
                 </form>
             </div>
         </div>

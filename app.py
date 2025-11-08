@@ -1232,12 +1232,15 @@ def tools():
     players_salary = cur.fetchall()
     cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
     teams = cur.fetchall()
+    # Get distinct nationalities for retire player tool
+    cur.execute("SELECT DISTINCT nationality FROM players WHERE nationality IS NOT NULL ORDER BY nationality ASC")
+    nationalities = [row[0] for row in cur.fetchall()]
     cur.close()
 
     # Get season message from flash if available
     season_message = None
 
-    return render_template('tools.html', players=players, players_salary=players_salary, teams=teams, season_message=season_message)
+    return render_template('tools.html', players=players, players_salary=players_salary, teams=teams, nationalities=nationalities, season_message=season_message)
 
 @app.route('/download_updated_csv')
 @login_required # Often good to require login for tools/downloads
@@ -6465,6 +6468,7 @@ def retire_player_manual():
     """Manually retire a player and generate a regen to replace them"""
     try:
         player_id = request.form.get('player_id')
+        selected_nationality = request.form.get('nationality')
 
         if not player_id:
             flash("❌ No player selected", 'error')
@@ -6495,13 +6499,13 @@ def retire_player_manual():
         # Convert player data to dictionary format for regen generation
         retired_player_data = dict(player)
 
-        # Create regen data
-        regen_data = generate_proper_regen(retired_player_data)
+        # Create regen data with optional nationality override
+        regen_data = generate_proper_regen(retired_player_data, override_nationality=selected_nationality)
 
         # Update the player with regen data (reuse the same ID)
         cur.execute("""
             UPDATE players SET
-                player_name = ?, age = ?, nationality = ?, skin_color = ?,
+                player_name = ?, shirt_name = ?, age = ?, nationality = ?, skin_color = ?,
                 strong_foot = ?, favoured_side = ?, registered_position = ?,
                 height = ?, weight = ?,
                 salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?,
@@ -6525,10 +6529,10 @@ def retire_player_manual():
                 waist_circumference = ?, arm_circumference = ?, leg_circumference = ?,
                 calf_circumference = ?, leg_length = ?, wristband = ?, wristband_color = ?,
                 international_number = ?, classic_number = ?, club_number = ?,
-                dribble_style = ?, free_kick_style = ?, pk_style = ?, drop_kick_style = ?
+                dribble_style = ?, free_kick_style = ?, pk_style = ?, drop_kick_style = ?, seed_player = ?
             WHERE id = ?
         """, (
-            regen_data['player_name'], regen_data['age'], regen_data['nationality'], regen_data['skin_color'],
+            regen_data['player_name'], regen_data['shirt_name'], regen_data['age'], regen_data['nationality'], regen_data['skin_color'],
             regen_data['strong_foot'], regen_data['favoured_side'], regen_data['registered_position'],
             regen_data['height'], regen_data['weight'],
             regen_data['salary'], regen_data['contract_years_remaining'], regen_data['yearly_wage_rise'],
@@ -6553,6 +6557,7 @@ def retire_player_manual():
             regen_data['calf_circumference'], regen_data['leg_length'], regen_data['wristband'], regen_data['wristband_color'],
             regen_data['international_number'], regen_data['classic_number'], regen_data['club_number'],
             regen_data['dribble_style'], regen_data['free_kick_style'], regen_data['pk_style'], regen_data['drop_kick_style'],
+            regen_data.get('seed_player'),
             player_id
         ))
 
@@ -7514,7 +7519,7 @@ def end_of_season_process():
                     # Update the retiring player with regen data (keeping the same ID)
                     cur.execute("""
                         UPDATE players SET
-                            player_name = ?, age = ?, nationality = ?, skin_color = ?,
+                            player_name = ?, shirt_name = ?, age = ?, nationality = ?, skin_color = ?,
                             strong_foot = ?, favoured_side = ?, registered_position = ?,
                             height = ?, weight = ?,
                             salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?,
@@ -7541,7 +7546,7 @@ def end_of_season_process():
                             dribble_style = ?, free_kick_style = ?, pk_style = ?, drop_kick_style = ?, seed_player = ?
                         WHERE id = ?
                     """, (
-                        new_player_data['player_name'], new_player_data['age'], new_player_data['nationality'],
+                        new_player_data['player_name'], new_player_data['shirt_name'], new_player_data['age'], new_player_data['nationality'],
                         new_player_data['skin_color'], new_player_data['strong_foot'], new_player_data['favoured_side'],
                         new_player_data['registered_position'], new_player_data['height'], new_player_data['weight'],
                         new_player_data['salary'], new_player_data['contract_years_remaining'], new_player_data['yearly_wage_rise'],
