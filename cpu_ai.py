@@ -217,8 +217,8 @@ class CPUAI:
                 SELECT t.id, t.club_name, t.budget
                 FROM teams t
                 WHERE t.id != 141 
-                AND t.id IN (
-                    SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = 1
+                AND t.club_name IN (
+                    SELECT lt.team_name FROM league_teams lt WHERE lt.user_id = 1
                 )
             """)
             
@@ -364,30 +364,53 @@ class CPUAI:
             if not player:
                 return None
             
-            # Decide salary support percentage between 0-100%
-            # Be more generous for very young or overpaid players
+            # Decide salary support percentage between 0-100% with randomness per tier
+            # Calculate fair salary for overpayment analysis
             try:
                 fair_salary = self.calculate_fair_salary(dict(player))
             except Exception:
                 fair_salary = player['salary'] or 0
 
             player_salary = player['salary'] or 0
-            support_pct = 0.0
-            if player_salary > 0:
-                if player['age'] <= 21:
-                    support_pct = 0.75
-                elif fair_salary and player_salary > fair_salary * 1.3:
-                    support_pct = 1.0
-                elif fair_salary and player_salary > fair_salary * 1.1:
-                    support_pct = 0.6
+            player_age = player['age']
+            
+            # Multi-tier system with randomness in each tier
+            if player_salary > 0 and fair_salary > 0:
+                overpayment_ratio = player_salary / fair_salary
+                
+                # Tier 1: Extremely Toxic Contracts (overpaid >50%)
+                if overpayment_ratio > 1.5:
+                    support_pct = random.uniform(0.85, 1.0)  # 85-100% support (dump toxic contract)
+                
+                # Tier 2: Very Overpaid (overpaid 30-50%)
+                elif overpayment_ratio > 1.3:
+                    support_pct = random.uniform(0.70, 0.85)  # 70-85% support
+                
+                # Tier 3: Youth Development (age ≤21, regardless of salary)
+                elif player_age <= 21:
+                    support_pct = random.uniform(0.80, 1.0)  # 60-80% support (invest in youth)
+                
+                # Tier 4: Moderately Overpaid (overpaid 10-30%)
+                elif overpayment_ratio > 1.1:
+                    support_pct = random.uniform(0.45, 0.65)  # 45-65% support
+                
+                # Tier 5: Young but Fair Contract (age 22-24)
+                elif player_age <= 24:
+                    support_pct = random.uniform(0.35, 0.55)  # 35-55% support
+                
+                # Tier 6: Veterans (age 30+)
+                elif player_age >= 30:
+                    support_pct = random.uniform(0.10, 0.30)  # 10-30% support (less attractive)
+                
+                # Tier 7: Standard Loans (fair contract, normal age)
                 else:
-                    support_pct = 0.3
-
+                    support_pct = random.uniform(0.25, 0.45)  # 25-45% support
+            else:
+                # Fallback if salary data is missing
+                support_pct = random.uniform(0.20, 0.40)
+            
             # Clamp between 0 and 1
-            if support_pct < 0:
-                support_pct = 0.0
-            if support_pct > 1:
-                support_pct = 1.0
+            support_pct = max(0.0, min(1.0, support_pct))
 
             salary_support_percentage = int(support_pct * 100)
             subsidy_amount = int(player_salary * support_pct)
@@ -1198,7 +1221,7 @@ class CPUAI:
                         adjusted_max = min(base_max + contract_bonus, market_value * 1.2)  # Cap at 120% of market value
                     
                     # Check if asking price is within acceptable range OR is a great deal OR is CPU-to-CPU with lenient criteria
-                    is_great_deal = asking_price < market_value * 0.5  # Less than 50% of market value
+                    is_great_deal = asking_price < market_value * 0.3  # Less than 50% of market value
                     is_acceptable_price = adjusted_min <= asking_price <= adjusted_max
                     is_cpu_to_cpu_reasonable = is_cpu_to_cpu and asking_price <= market_value * 1.5  # More lenient for CPU-to-CPU
                     
@@ -1530,6 +1553,7 @@ class CPUAI:
                 AND p.registered_position IN ({positions_str})
                 AND p.overall >= 70  -- Only consider decent free agents
                 AND fao.player_id IS NULL  -- No active non-expired offers
+                AND (p.draftee IS NULL OR p.draftee = 0)  -- Exclude draftees from CPU offers
                 ORDER BY p.overall DESC, p.salary ASC
                 LIMIT 20
             """, (current_time,))
@@ -1695,6 +1719,7 @@ class CPUAI:
                 JOIN players p ON fao.player_id = p.id
                 WHERE fao.status = 'active'
                 AND p.overall >= 75
+                AND (p.draftee IS NULL OR p.draftee = 0)
                 ORDER BY p.overall DESC, fao.offered_salary ASC
                 LIMIT 50
             """)
@@ -1816,6 +1841,7 @@ class CPUAI:
                 JOIN players p ON fao.player_id = p.id
                 WHERE fao.status = 'active'
                 AND p.overall >= 70
+                AND (p.draftee IS NULL OR p.draftee = 0)
                 ORDER BY p.overall DESC, fao.offered_salary ASC
                 LIMIT 100
             """)
@@ -2786,8 +2812,8 @@ class CPUAI:
                 SELECT t.id, t.club_name
                 FROM teams t
                 WHERE t.id != 141 
-                AND t.id IN (
-                    SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = 1
+                AND t.club_name IN (
+                    SELECT lt.team_name FROM league_teams lt WHERE lt.user_id = 1
                 )
             """)
             
@@ -2812,8 +2838,15 @@ class CPUAI:
                 team_id = team['id']
                 team_name = team['club_name']
                 
-                # Random chance for CPU actions (40% chance per team - increased to be more active)
-                if random.random() < 0.4:
+                # Get team's current roster size
+                cur.execute("SELECT COUNT(*) as player_count FROM players WHERE club_id = ?", (team_id,))
+                player_count = cur.fetchone()['player_count']
+                
+                # Teams with < 16 players ALWAYS act (need players urgently)
+                # Other teams have 40% chance to act
+                should_act = (player_count < 16) or (random.random() < 0.4)
+                
+                if should_act:
                     # CPU actions: prioritize buying/loaning existing listings, then make offers
                     action_choice = random.random()
                     if action_choice < 0.4:  # 40% chance to buy existing listings
@@ -2879,8 +2912,20 @@ class CPUAI:
                 team_id = team['id']
                 team_name = team['club_name']
                 
-                # Lower chance for listing (15% per team) to avoid market flooding
-                if random.random() < 0.20:
+                # Get team's current roster size
+                cur.execute("SELECT COUNT(*) as player_count FROM players WHERE club_id = ?", (team_id,))
+                player_count = cur.fetchone()['player_count']
+                
+                # Teams with > 25 players more likely to list (need to trim roster)
+                # Teams with < 16 players skip listing (need to acquire, not sell)
+                if player_count < 16:
+                    continue  # Small teams don't list players
+                elif player_count > 30:
+                    should_list = random.random() < 0.55 # 55% chance for large rosters
+                else:
+                    should_list = random.random() < 0.15  # 15% chance for normal rosters
+                
+                if should_list:
                     action_choice = random.random()
                     if action_choice < 0.9:  # 90% chance to list for sale
                         list_result = self.list_cpu_player_for_sale(team_id)
@@ -2920,16 +2965,21 @@ class CPUAI:
             print(f"Total teams processed: {len(cpu_teams)}")
             print(f"Total actions taken: {total_actions}")
             print(f"\nAction breakdown:")
-            print(f"  - 40% base chance per team to take any action")
-            print(f"  - Of actions taken:")
-            print(f"    • Buy existing listings: ~40% of actions")
-            print(f"    • Loan existing listings: ~20% of actions")
-            print(f"    • Free agency (raise/new): ~25% of actions")
-            print(f"    • Market bazaar offers: ~5% of actions")
-            print(f"    • User player offers (unlisted): ~10% of actions")
-            print(f"  - Phase 2: 20% chance per team to create listings")
-            print(f"    • List for sale: ~90% of listings")
-            print(f"    • List for loan: ~10% of listings")
+            print(f"  Phase 1: Market Actions")
+            print(f"    • Teams with <16 players: ALWAYS act (priority)")
+            print(f"    • Other teams: 40% chance to act")
+            print(f"  Action types (when acting):")
+            print(f"    • Buy existing listings: ~40%")
+            print(f"    • Loan existing listings: ~20%")
+            print(f"    • Free agency (raise/new): ~25%")
+            print(f"    • Market bazaar offers: ~5%")
+            print(f"    • User player offers: ~10%")
+            print(f"  Phase 2: Listing Actions")
+            print(f"    • Teams with <16 players: Don't list (need to buy)")
+            print(f"    • Teams with 16-30 players: 15% chance to list")
+            print(f"    • Teams with >30 players: 55% chance to list (trim roster)")
+            print(f"      - List for sale: ~90% of listings")
+            print(f"      - List for loan: ~10% of listings")
             if action_percentages:
                 print(f"\nActual action distribution this run:")
                 for action_type, percentage in sorted(action_percentages.items(), key=lambda x: x[1], reverse=True):

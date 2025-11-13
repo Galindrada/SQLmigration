@@ -218,6 +218,135 @@ class TeamManager:
             self.conn.rollback()
             return False
     
+    def list_and_delete_secondary_teams(self) -> bool:
+        """List all secondary teams and optionally delete them"""
+        if not self.conn:
+            return False
+        
+        try:
+            cursor = self.conn.cursor()
+            
+            # Get all secondary teams (csv_visible = 0)
+            cursor.execute("""
+                SELECT t.id, t.club_name, t.budget, t.csv_visible,
+                       COUNT(p.id) as player_count
+                FROM teams t
+                LEFT JOIN players p ON t.id = p.club_id
+                WHERE t.csv_visible = 0
+                GROUP BY t.id, t.club_name, t.budget, t.csv_visible
+                ORDER BY t.club_name
+            """)
+            
+            secondary_teams = cursor.fetchall()
+            
+            if not secondary_teams:
+                print("✅ No secondary teams found in database")
+                return True
+            
+            print(f"\n🏪 Found {len(secondary_teams)} secondary market teams:")
+            print("-" * 80)
+            print(f"{'ID':<6} {'Team Name':<30} {'Budget':<15} {'Players':<10}")
+            print("-" * 80)
+            
+            for team in secondary_teams:
+                print(f"{team['id']:<6} {team['club_name']:<30} €{team['budget']:,}".ljust(52) + f"{team['player_count']:<10}")
+            
+            # Ask if user wants to delete them
+            confirm = input(f"\n🗑️  Delete all {len(secondary_teams)} secondary teams? (y/N): ").strip().lower()
+            if confirm != 'y':
+                print("❌ Operation cancelled")
+                return False
+            
+            # Ask what to do with players
+            print("\n📋 What should happen to players on these teams?")
+            print("1. Move to No Club (ID 141)")
+            print("2. Delete players entirely")
+            player_action = input("Choose option (1/2): ").strip()
+            
+            deleted_teams = 0
+            moved_players = 0
+            deleted_players = 0
+            
+            for team in secondary_teams:
+                team_id = team['id']
+                team_name = team['club_name']
+                player_count = team['player_count']
+                
+                if player_count > 0:
+                    if player_action == '1':
+                        # Move players to No Club
+                        cursor.execute("UPDATE players SET club_id = 141 WHERE club_id = ?", (team_id,))
+                        moved_players += player_count
+                        print(f"   ✅ Moved {player_count} players from {team_name} to No Club")
+                    elif player_action == '2':
+                        # Delete players
+                        cursor.execute("DELETE FROM players WHERE club_id = ?", (team_id,))
+                        deleted_players += player_count
+                        print(f"   ✅ Deleted {player_count} players from {team_name}")
+                
+                # Delete from league_teams first (foreign key)
+                cursor.execute("DELETE FROM league_teams WHERE team_name = ?", (team_name,))
+                
+                # Delete the team
+                cursor.execute("DELETE FROM teams WHERE id = ?", (team_id,))
+                deleted_teams += 1
+            
+            self.conn.commit()
+            
+            print(f"\n✅ Successfully deleted {deleted_teams} secondary teams")
+            if moved_players > 0:
+                print(f"   📦 {moved_players} players moved to No Club")
+            if deleted_players > 0:
+                print(f"   🗑️  {deleted_players} players deleted")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error managing secondary teams: {e}")
+            if self.conn:
+                self.conn.rollback()
+            return False
+    
+    def create_secondary_market_team(self, team_name: str, budget: int = 400000000) -> bool:
+        """Create a secondary team for market depth (invisible in CSV exports)"""
+        if not self.conn:
+            return False
+        
+        try:
+            cursor = self.conn.cursor()
+            
+            # Check if team name already exists
+            cursor.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+            if cursor.fetchone():
+                print(f"❌ Team '{team_name}' already exists")
+                return False
+            
+            # Create new secondary team with csv_visible=0
+            cursor.execute("""
+                INSERT INTO teams (club_name, budget, available_cap, stance, total_salaries, csv_visible)
+                VALUES (?, ?, ?, 'Tinkering', 0, 0)
+            """, (team_name, budget, budget))
+            
+            team_id = cursor.lastrowid
+            
+            # Assign to CPU (user_id = 1)
+            cursor.execute("""
+                INSERT INTO league_teams (team_name, user_id)
+                VALUES (?, 1)
+            """, (team_name,))
+            
+            self.conn.commit()
+            print(f"✅ Successfully created secondary market team '{team_name}' with ID {team_id}")
+            print(f"   Budget: €{budget:,}")
+            print(f"   CSV Visible: NO (players will appear as 'No Club' in CSV exports)")
+            print(f"   Owner: CPU")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error creating secondary team: {e}")
+            self.conn.rollback()
+            return False
+    
     def modify_team_budget(self, team_id: int, amount: int, operation: str) -> bool:
         """Add or subtract budget from a team"""
         if not self.conn:
@@ -1702,7 +1831,9 @@ def display_menu():
     print("16. Duplicate player stats for a team")
     print("17. Delete a game from Colados League")
     print("18. Fix invalid face/skin combinations")
-    print("19. Exit")
+    print("19. Create secondary market team (CSV-invisible)")
+    print("20. List/Delete secondary teams")
+    print("21. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -2224,6 +2355,43 @@ def fix_face_skin_combinations(manager: TeamManager):
     
     manager.fix_invalid_face_skin_combinations()
 
+def create_secondary_team(manager: TeamManager):
+    """Create a secondary market team (invisible in CSV exports)"""
+    print("\n🏪 CREATE SECONDARY MARKET TEAM")
+    print("-" * 40)
+    print("Secondary teams operate like normal teams but their players appear as")
+    print("'No Club' in CSV exports. This keeps the market active without affecting")
+    print("the downloadable CSV format for PES6.")
+    print()
+    
+    team_name = input("Enter team name (e.g., 'Market Team 1', 'Transfer Pool A'): ").strip()
+    if not team_name:
+        print("❌ Team name cannot be empty")
+        return
+    
+    budget_input = input("Enter team budget (default: 400,000,000): ").strip()
+    if budget_input.isdigit():
+        budget = int(budget_input)
+    else:
+        budget = 400000000
+    
+    # Confirm creation
+    print(f"\n📋 Creating secondary team:")
+    print(f"   Name: {team_name}")
+    print(f"   Budget: €{budget:,}")
+    print(f"   CSV Visible: NO")
+    print(f"   Owner: CPU")
+    confirm = input(f"\nCreate this secondary team? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Team creation cancelled")
+        return
+    
+    manager.create_secondary_market_team(team_name, budget)
+
+def list_delete_secondary_teams(manager: TeamManager):
+    """List and optionally delete secondary teams"""
+    manager.list_and_delete_secondary_teams()
+
 def delete_colados_game(manager: TeamManager):
     """Delete a game from Colados League"""
     print("\n🗑️ DELETE GAME FROM COLADOS LEAGUE")
@@ -2327,7 +2495,7 @@ def main():
     try:
         while True:
             display_menu()
-            choice = input("\nEnter your choice (1-19): ").strip()
+            choice = input("\nEnter your choice (1-21): ").strip()
             
             if choice == '1':
                 list_users(manager)
@@ -2366,10 +2534,14 @@ def main():
             elif choice == '18':
                 fix_face_skin_combinations(manager)
             elif choice == '19':
+                create_secondary_team(manager)
+            elif choice == '20':
+                list_delete_secondary_teams(manager)
+            elif choice == '21':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-19.")
+                print("❌ Invalid choice. Please enter 1-21.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")

@@ -1089,7 +1089,7 @@
                     </form>
                 </div>
                 <div class="col-md-4 text-center">
-                    <button type="button" class="btn btn-warning btn-lg" id="mendesSellBtn" onclick="sellToMendes()" disabled>
+                    <button type="button" class="btn btn-warning btn-lg" id="mendesSellBtn" onclick="console.log('Button clicked!'); sellToMendes(); return false;" disabled>
                         🚀 Sell Now Mendinhos!
                     </button>
                     <div class="mt-2">
@@ -1102,7 +1102,16 @@
 
     <script>
         // Jorge Mendes functionality
-        document.getElementById('mendesPlayerSelect').addEventListener('change', function() {
+        console.log('Jorge Mendes script loaded');
+        
+        // Test if elements exist
+        const mendesSelect = document.getElementById('mendesPlayerSelect');
+        const mendesBtnTest = document.getElementById('mendesSellBtn');
+        console.log('mendesPlayerSelect element:', mendesSelect);
+        console.log('mendesSellBtn element:', mendesBtnTest);
+        
+        if (mendesSelect) {
+            mendesSelect.addEventListener('change', function() {
             const select = this;
             const sellBtn = document.getElementById('mendesSellBtn');
             const playerInfo = document.getElementById('playerInfo');
@@ -1125,10 +1134,14 @@
                 playerInfo.style.display = 'none';
                 sellBtn.disabled = true;
             }
-        });
+            });
+        } else {
+            console.error('mendesPlayerSelect element not found!');
+        }
 
         function sellToMendes() {
-            console.log('sellToMendes function called');
+            console.log('=== sellToMendes function called ===');
+            console.log('Function is executing!');
             const playerId = document.getElementById('mendesPlayerSelect').value;
             const playerName = document.getElementById('mendesPlayerSelect').options[document.getElementById('mendesPlayerSelect').selectedIndex].dataset.name;
             
@@ -1140,7 +1153,7 @@
                 return;
             }
             
-            if (!confirm(`Are you sure you want to sell ${playerName} through Jorge Mendes? This will generate offers from 50 clubs worldwide. Jorge Mendes takes a 25% commission on any sale.`)) {
+            if (!confirm(`Are you sure you want to sell ${playerName} through Jorge Mendes?\n\nJorge Mendes will:\n• Evaluate contract toxicity\n• Find the best team placement\n• Take 25% commission\n\nNote: Overpaid contracts may result in compensation payments!`)) {
                 return;
             }
             
@@ -1168,10 +1181,33 @@
             .then(data => {
                 console.log('Response data:', data);
                 if (data.success) {
-                    alert(`✅ Jorge Mendes secured the best deal!\n\n${playerName} sold to ${data.buyer_team} for €${data.best_offer.toLocaleString()}\n\nNet amount: €${data.net_amount.toLocaleString()} (after €${data.commission.toLocaleString()} commission)`);
+                    const salePrice = data.best_offer;
+                    const netAmount = data.net_amount;
+                    const toxicity = data.toxicity || 0;
+                    
+                    let message = `✅ Jorge Mendes completed the deal!\n\n`;
+                    message += `Player: ${playerName}\n`;
+                    message += `Buyer: ${data.buyer_team}\n\n`;
+                    
+                    if (salePrice >= 0) {
+                        message += `Sale Price: €${salePrice.toLocaleString()}\n`;
+                        message += `Commission (25%): €${data.commission.toLocaleString()}\n`;
+                        message += `Net Amount: €${netAmount.toLocaleString()}`;
+                    } else {
+                        message += `Compensation Paid: €${Math.abs(salePrice).toLocaleString()}\n`;
+                        message += `Commission (25%): €${data.commission.toLocaleString()}\n`;
+                        message += `Total Cost: €${Math.abs(netAmount).toLocaleString()}\n\n`;
+                        message += `⚠️ Contract was extremely toxic - you paid to offload the player!`;
+                    }
+                    
+                    if (toxicity < -1000000) {
+                        message += `\n\nContract Toxicity: €${(toxicity/1000000).toFixed(1)}M (severely overpaid)`;
+                    }
+                    
+                    alert(message);
                     location.reload(); // Refresh to show updated team
                 } else {
-                    alert(`❌ Error: ${data.message}`);
+                    alert(`❌ Error: ${data.message || 'Unknown error occurred'}`);
                 }
             })
             .catch(error => {

@@ -307,6 +307,17 @@ def safe_refresh_database():
             else:
                 print("  ℹ️  stance column already exists")
         
+        # Add csv_visible column to teams table (for secondary/market teams)
+        print("\n📋 Adding csv_visible column to teams table...")
+        try:
+            cursor.execute("ALTER TABLE teams ADD COLUMN csv_visible INTEGER DEFAULT 1")
+            print("  ✅ Added csv_visible column (1=visible in CSV, 0=hidden secondary team)")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding csv_visible column: {e}")
+            else:
+                print("  ℹ️  csv_visible column already exists")
+        
         # Create CPU leagues tables
         print("\n🏟️ Creating CPU leagues tables...")
         

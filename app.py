@@ -1293,7 +1293,7 @@ def download_updated_csv():
                 p.calf_circumference, p.leg_length, p.wristband, p.wristband_color,
                 p.international_number, p.classic_number, p.club_number,
                 CASE
-                    WHEN t.club_name IS NULL OR t.club_name = 'No Club' THEN ''
+                    WHEN t.club_name IS NULL OR t.club_name = 'No Club' OR t.csv_visible = 0 THEN ''
                     ELSE t.club_name
                 END AS club_team_raw,
                 p.salary, p.contract_years_remaining, p.market_value, p.yearly_wage_rise
@@ -4233,7 +4233,7 @@ def check_expired_offers():
                         SELECT t.id, t.club_name
                         FROM teams t
                         WHERE t.id != 141
-                        AND t.id IN (SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = 1)
+                        AND t.club_name IN (SELECT lt.team_name FROM league_teams lt WHERE lt.user_id = 1)
                         ORDER BY RANDOM()
                         LIMIT 10
                     """)
@@ -4867,21 +4867,17 @@ def mendes_sell():
         # Convert to dict
         player = dict(player)
 
-        # Check if player is already listed
-        cur.execute("""
-            SELECT id FROM market_bazaar_listings
-            WHERE player_id = ? AND status = 'active'
-        """, (player_id,))
+        # Note: Jorge Mendes direct sale doesn't create listings, so no need to check for existing listings
 
-        if cur.fetchone():
-            return jsonify({'success': False, 'message': 'Player is already listed for sale'})
-
-        # Get player's market value and fair salary
+        # Get player's market value from database (don't recalculate)
+        market_value = player.get('market_value', 0) or 0
+        
+        # Only calculate fair_salary for toxicity calculation
         player_data = {
             'overall': player['overall'],
             'registered_position': player['registered_position'],
             'age': player['age'],
-            'club_id': player['club_id']  # Include club_id for market value calculation
+            'club_id': player['club_id']
         }
 
         # Add skill data if available
@@ -4890,8 +4886,8 @@ def mendes_sell():
             'response', 'agility', 'dribble_accuracy', 'dribble_speed',
             'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
             'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve',
-            'header', 'jump', 'technique', 'aggression', 'mentality', 'keeper_skills',
-            'team_work', 'condition', 'weak_foot_accuracy', 'weak_foot_frequency'
+            'heading', 'jump', 'technique', 'aggression', 'mentality', 'goal_keeping',
+            'team_work', 'condition_fitness'
         ]
 
         for skill in skill_columns:
@@ -4900,213 +4896,191 @@ def mendes_sell():
             else:
                 player_data[skill] = 50  # Default value
 
-        financial_data = game_mechanics.calculate_player_financials(player_data)
-        market_value = financial_data['market_value']
-        fair_salary = financial_data['salary']
-
-        # Get 50 random CPU teams (excluding user's team)
-        cur.execute("""
-            SELECT t.id, t.club_name, t.budget, t.total_salaries
-            FROM teams t
-            WHERE t.id NOT IN (SELECT id FROM league_teams WHERE user_id = ?)
-            ORDER BY RANDOM()
-            LIMIT 50
-        """, (current_user.id,))
-
-        cpu_teams = cur.fetchall()
-
-        offers_created = 0
-        offers_data = []
-
-        for team in cpu_teams:
-            team = dict(team)
-
-            # Calculate team's available budget (budget - salaries)
-            available_budget = team['budget'] - team['total_salaries']
-
-            # Ensure offer doesn't leave team with less than 50% of total salaries
-            min_remaining_budget = team['total_salaries'] * 0.5
-            max_offer = available_budget - min_remaining_budget
-
-            if max_offer <= 0:
-                continue  # Skip teams that can't afford the player
-
-            # Calculate offer based on player value and team budget
-            # Base offer is 60-90% of market value, adjusted by team's financial capacity
-            budget_factor = min(1.0, max_offer / market_value)
-            base_offer = market_value * random.uniform(0.6, 0.9)
-
-            # Adjust based on team's financial capacity
-            if budget_factor < 0.5:
-                # Team has limited budget - reduce offer
-                final_offer = base_offer * budget_factor
+        # Calculate fair salary using the same method as contract_renewal.py
+        # This ensures consistency across the system
+        import pandas as pd
+        player_row = pd.Series(player_data)
+        pos_avg_df = game_mechanics.get_cached_position_averages('pes6_league_db.sqlite')
+        
+        skills = ['attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+                 'response', 'agility', 'dribble_accuracy', 'dribble_speed',
+                 'short_pass_accuracy', 'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed',
+                 'shot_accuracy', 'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve',
+                 'heading', 'jump', 'technique', 'aggression', 'mentality', 'goal_keeping',
+                 'team_work', 'consistency', 'condition_fitness']
+        
+        binaries = ['dribbling_skill', 'tactical_dribble', 'positioning', 'reaction', 'playmaking',
+                   'passing', 'scoring', 'one_one_scoring', 'post_player', 'lines', 'middle_shooting',
+                   'side', 'centre', 'penalties', 'one_touch_pass', 'outside', 'marking', 'sliding',
+                   'covering', 'd_line_control', 'penalty_stopper', 'one_on_one_stopper', 'long_throw']
+        
+        # Calculate base salary
+        base_salary = game_mechanics.calculate_player_salary_base(player_row, pos_avg_df, skills, binaries)
+        
+        # Apply defensive position boost (same as contract_renewal.py)
+        registered_position = player.get('registered_position')
+        try:
+            if isinstance(registered_position, str):
+                pos_int = int(registered_position.strip())
             else:
-                # Team has good budget - can pay closer to market value
-                final_offer = base_offer * (0.7 + budget_factor * 0.3)
-
-            # Ensure offer doesn't exceed team's capacity
-            final_offer = min(final_offer, max_offer)
-
-            # Round to nearest 100k
-            final_offer = int(final_offer / 100000) * 100000
-
-            if final_offer < 100000:  # Minimum 100k offer
-                continue
-
-            # Check if player would improve the team (simple check)
-            cur.execute("""
-                SELECT MAX(overall) as best_overall, COUNT(*) as position_count
-                FROM players
-                WHERE club_id = ? AND registered_position = ?
-            """, (team['id'], player['registered_position']))
-
-            position_data = cur.fetchone()
-            if position_data:
-                best_overall = position_data['best_overall'] or 0
-                position_count = position_data['position_count'] or 0
-
-                # If player is significantly better than current best, increase offer
-                if player['overall'] > best_overall + 5:
-                    final_offer *= 1.2
-                elif player['overall'] > best_overall:
-                    final_offer *= 1.1
-                elif player['overall'] < best_overall - 10:
-                    final_offer *= 0.8  # Reduce offer for weaker players
-
-            # Check if salary is toxic for the team
-            if fair_salary > team['total_salaries'] * 0.15:  # More than 15% of team's salary budget
-                final_offer *= 0.7  # Reduce offer for toxic salary
-
-            # Round again after adjustments
-            final_offer = int(final_offer / 100000) * 100000
-
-            if final_offer < 100000:
-                continue
-
-            # Create temporary listing for this offer
-            expires_at = datetime.now() + timedelta(days=random.randint(3, 7))
-
-            cur.execute("""
-                INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type)
-                VALUES (?, ?, ?, ?, 'active', 'mendes_offer')
-            """, (player_id, current_user.id, final_offer, expires_at.isoformat()))
-
-            listing_id = cur.lastrowid
-
-            # Create the offer
-            cur.execute("""
-                INSERT INTO market_bazaar_offers (listing_id, buyer_team_id, offered_price, expires_at, status)
-                VALUES (?, ?, ?, ?, 'active')
-            """, (listing_id, team['id'], final_offer, expires_at.isoformat()))
-
-            offers_created += 1
-            offers_data.append({
-                'team_name': team['club_name'],
-                'offer': final_offer,
-                'budget': team['budget'],
-                'salaries': team['total_salaries']
-            })
-
-        if offers_created == 0:
-            return jsonify({'success': False, 'message': 'No clubs could afford this player'})
-
-        # Jorge Mendes automatically accepts the best offer
-        best_offer = max(offers_data, key=lambda x: x['offer'])
-
-        # Find the corresponding offer in the database
+                pos_int = int(registered_position)
+            
+            if pos_int in [0, 2, 3, 4]:
+                base_salary = int(base_salary * 1.75)
+        except (ValueError, TypeError):
+            pass
+        
+        # Apply random adjustment (market variation ±15%)
+        fair_salary = game_mechanics.apply_random_salary_adjustment(base_salary)
+        
+        # Calculate toxicity based on contract overpayment
+        current_salary = player.get('salary', 0) or 0
+        contract_years = player.get('contract_years_remaining', 1) or 1
+        yearly_wage_raise = 0.03  # 3% annual increase
+        
+        # Toxicity: positive if overpaid (bad contract), negative if underpaid (good contract)
+        # Overpaid = current_salary > fair_salary (reduces sale price)
+        # Underpaid = current_salary < fair_salary (increases sale price)
+        toxicity = (current_salary - fair_salary) * contract_years * (1 + yearly_wage_raise)
+        
+        # Calculate sale price: 50-75% of market value, adjusted by toxicity
+        import random
+        base_percentage = random.uniform(0.50, 0.75)
+        sale_price = int((market_value * base_percentage) - toxicity)
+        
+        # No minimum cap - toxic contracts can result in negative prices (user pays to offload)
+        
+        # Apply 25% commission - always positive, calculated on absolute value
+        commission = int(abs(sale_price) * 0.25)
+        
+        # Net amount calculation:
+        # If sale_price >= 0: user receives (sale_price - commission)
+        # If sale_price < 0: user pays (abs(sale_price) + commission)
+        if sale_price >= 0:
+            net_amount = sale_price - commission
+        else:
+            net_amount = sale_price - commission  # Both negative, so total cost increases
+        
+        # Find CPU team with least players in this position
         cur.execute("""
-            SELECT mbo.id, mbo.listing_id, mbo.buyer_team_id, mbo.offered_price
-            FROM market_bazaar_offers mbo
-            JOIN market_bazaar_listings mbl ON mbo.listing_id = mbl.id
-            WHERE mbl.player_id = ? AND mbo.offered_price = ? AND mbo.status = 'active'
+            SELECT t.id, t.club_name, t.budget,
+                   COUNT(CASE WHEN p.registered_position = ? THEN 1 END) as position_count,
+                   COUNT(p.id) as total_players
+            FROM teams t
+            LEFT JOIN players p ON t.id = p.club_id
+            WHERE t.club_name IN (SELECT team_name FROM league_teams WHERE user_id = 1)
+            AND t.budget >= ?
+            GROUP BY t.id, t.club_name, t.budget
+            HAVING total_players < 32
+            ORDER BY position_count ASC, RANDOM()
             LIMIT 1
-        """, (player_id, best_offer['offer']))
+        """, (player['registered_position'], sale_price))
 
-        best_offer_db = cur.fetchone()
-        if not best_offer_db:
-            return jsonify({'success': False, 'message': 'Error finding best offer'})
-
-        # Convert Row to dict
-        best_offer_db = dict(best_offer_db)
-
-        # Calculate commission and net amount
-        commission = int(best_offer['offer'] * 0.25)  # 25% commission
-        net_amount = best_offer['offer'] - commission
-
-        # Transfer player to the best offer team
-        cur.execute("UPDATE players SET club_id = ? WHERE id = ?",
-                   (best_offer_db['buyer_team_id'], player_id))
-
-        # Update CPU buyer team budget
-        cur.execute("UPDATE teams SET budget = budget - ? WHERE id = ?",
-                   (best_offer['offer'], best_offer_db['buyer_team_id']))
-
-        # Mark all offers as completed
-        cur.execute("UPDATE market_bazaar_offers SET status = 'completed' WHERE listing_id = ?", (best_offer_db['listing_id'],))
-        cur.execute("UPDATE market_bazaar_listings SET status = 'completed' WHERE id = ?", (best_offer_db['listing_id']))
-
-        # Record transaction in user_movements and update unified budget
-        add_user_movement(current_user.id, 'Transfer In',
-                        f"Sold {player['player_name']} for €{best_offer['offer']:,} (Net: €{net_amount:,} after €{commission:,} commission)",
-                        net_amount)
-
-        # Create blog post about the Mendes activity
-        blog_title = f"Agent News: {player['player_name']} Marketed by Jorge Mendes"
-        blog_content = f"🎯 <strong>Jorge Mendes</strong> has taken <strong>{player['player_name']}</strong> to the global market!<br><br>"
-        blog_content += f"The super agent has presented the {player['registered_position']} to <strong>{offers_created} clubs worldwide</strong>, generating significant interest.<br><br>"
-        blog_content += f"<strong>Top Offers:</strong><br>"
-
-        # Sort offers by value and show top 5
-        top_offers = sorted(offers_data, key=lambda x: x['offer'], reverse=True)[:5]
-        for i, offer in enumerate(top_offers, 1):
-            blog_content += f"{i}. {offer['team_name']}: €{offer['offer']:,}<br>"
-
-        blog_content += f"<br>The player is now available for immediate transfer through the market bazaar."
-
-        post_transfer_news(blog_title, blog_content, current_user.id)
-
-        # Create Fabrizio Romano "Here we go" blog post
-        fabrizio_title = f"Here we go! {player['player_name']} - Jorge Mendes takes charge"
-        fabrizio_content = f"🔴 <strong>HERE WE GO!</strong> <br><br>"
-        fabrizio_content += f"<strong>Fabrizio Romano</strong> can confirm that super agent <strong>Jorge Mendes</strong> has taken control of <strong>{player['player_name']}'s</strong> transfer situation.<br><br>"
-        fabrizio_content += f"The {player['registered_position']} has been presented to <strong>{offers_created} clubs worldwide</strong> by Mendes, with multiple offers already on the table.<br><br>"
-        fabrizio_content += f"<strong>Top 3 Offers Received:</strong><br>"
-
-        # Show top 3 offers in Fabrizio style
-        for i, offer in enumerate(top_offers[:3], 1):
-            fabrizio_content += f"• {offer['team_name']}: €{offer['offer']:,}<br>"
-
-        fabrizio_content += f"<br>Mendes is known for his ability to secure the best deals for his clients, and this situation is no different. The player is now available for immediate transfer through the market bazaar.<br><br>"
-        fabrizio_content += f"<em>More updates to follow as the situation develops...</em>"
-
-        post_transfer_news(fabrizio_title, fabrizio_content, user_id=1)  # CPU user for system news
-
-        # Create final transfer completion blog post
-        completion_title = f"Transfer Complete: {player['player_name']} joins {best_offer['team_name']}"
-        completion_content = f"✅ <strong>Transfer Completed!</strong><br><br>"
-        completion_content += f"<strong>{player['player_name']}</strong> has completed his move to <strong>{best_offer['team_name']}</strong> for <strong>€{best_offer['offer']:,}</strong>.<br><br>"
-        completion_content += f"Jorge Mendes secured the best possible deal for his client, taking a <strong>€{commission:,}</strong> commission (25%) and ensuring the player received the highest offer available.<br><br>"
-        completion_content += f"The {player['registered_position']} will now continue his career at {best_offer['team_name']}."
-
-        post_transfer_news(completion_title, completion_content, current_user.id)
-
+        buyer_team = cur.fetchone()
+        
+        if not buyer_team:
+            return jsonify({
+                'success': False, 
+                'message': 'No CPU teams available with sufficient budget or roster space'
+            })
+        
+        buyer_team_id = buyer_team['id']
+        buyer_team_name = buyer_team['club_name']
+        seller_team_id = player['team_id']
+        
+        # Execute the transfer
+        # 1. Transfer player to new club
+        cur.execute("""
+            UPDATE players 
+            SET club_id = ?
+            WHERE id = ?
+        """, (buyer_team_id, player_id))
+        
+        # 2. Update buyer team budget and salaries
+        # Note: if sale_price is negative, buyer actually receives money to take the player
+        cur.execute("""
+            UPDATE teams 
+            SET budget = budget - ?,
+                total_salaries = total_salaries + ?,
+                available_cap = available_cap - ?
+            WHERE id = ?
+        """, (sale_price, current_salary, current_salary, buyer_team_id))
+        
+        # 3. Update seller team (user's team) budget and salaries
+        cur.execute("""
+            UPDATE teams
+            SET budget = budget + ?,
+                total_salaries = total_salaries - ?,
+                available_cap = available_cap + ?
+            WHERE id = ?
+        """, (net_amount, current_salary, current_salary, seller_team_id))
+        
+        # 4. Register movement in user_movements for financial tracking
+        # Get current user budget to calculate balance_after
+        cur.execute("SELECT budget FROM teams WHERE id = ?", (seller_team_id,))
+        current_budget_result = cur.fetchone()
+        balance_after = current_budget_result['budget'] if current_budget_result else net_amount
+        
+        # Use the standard add_user_movement function
+        movement_type = 'Transfer In' if net_amount >= 0 else 'Transfer Out'
+        add_user_movement(
+            current_user.id,
+            movement_type,
+            f"Jorge Mendes sale: {player['player_name']} to {buyer_team_name}",
+            net_amount
+        )
+        
+        # 5. Create blog post announcing the sale
+        from datetime import datetime
+        
+        # Simple blog post with just the essential information
+        if sale_price >= 0:
+            blog_title = f"Transfer: {player['player_name']} to {buyer_team_name}"
+            blog_content = f"""
+<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px; color: white;">
+    <h3>🎯 Transfer Completed</h3>
+    <p><strong>{player['player_name']}</strong> has joined <strong>{buyer_team_name}</strong> from <strong>{player['club_name']}</strong>.</p>
+    <p><strong>Fee:</strong> €{sale_price:,}</p>
+    <p style="margin-top: 10px; font-size: 0.9em; opacity: 0.9;">Agent: Jorge Mendes | Commission: €{commission:,}</p>
+</div>
+"""
+        else:
+            blog_title = f"Transfer: {player['player_name']} to {buyer_team_name}"
+            blog_content = f"""
+<div style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); padding: 20px; border-radius: 10px; color: white;">
+    <h3>⚠️ Compensation Transfer</h3>
+    <p><strong>{player['player_name']}</strong> has joined <strong>{buyer_team_name}</strong> from <strong>{player['club_name']}</strong>.</p>
+    <p><strong>Compensation Paid:</strong> €{abs(sale_price):,}</p>
+    <p><strong>Total Cost:</strong> €{abs(net_amount):,} (includes €{commission:,} agent commission)</p>
+    <p style="margin-top: 10px; font-size: 0.9em; opacity: 0.9;">Agent: Jorge Mendes</p>
+</div>
+"""
+        
+        # Post to blog using correct function
+        post_transfer_news(blog_title, blog_content, user_id=current_user.id)
+        
         db_helper.commit()
-        cur.close()
-
+        
         return jsonify({
             'success': True,
-            'offers_count': offers_created,
-            'best_offer': best_offer['offer'],
+            'buyer_team': buyer_team_name,
+            'best_offer': sale_price,
             'commission': commission,
             'net_amount': net_amount,
-            'buyer_team': best_offer['team_name'],
-            'message': f'Jorge Mendes secured the best deal! {player["player_name"]} sold to {best_offer["team_name"]} for €{best_offer["offer"]:,} (Net: €{net_amount:,} after €{commission:,} commission)'
+            'toxicity': int(toxicity),
+            'market_value': market_value,
+            'message': f'Jorge Mendes sold {player["player_name"]} to {buyer_team_name}!'
         })
 
     except Exception as e:
-        db_helper.get_connection().rollback()
-        app.logger.error(f"Error in mendes_sell: {e}")
+        import traceback
+        traceback.print_exc()
+        if hasattr(db_helper, 'get_connection'):
+            db_helper.get_connection().rollback()
         return jsonify({'success': False, 'message': f'Error: {str(e)}'})
+
+# OLD IMPLEMENTATION REMOVED - Jorge Mendes now uses direct sale with toxicity calculation
+# The old loop-based offer system has been replaced with instant placement
 
 @app.route('/market_bazaar/process_cpu_offers', methods=['POST'])
 @login_required
@@ -6561,6 +6535,43 @@ def retire_player_manual():
             player_id
         ))
 
+        # Calculate overall rating and bundled skills for the new regen
+        from refresh_and_reimport import calculate_player_overall
+        from game_mechanics import calculate_bundled_skill_ratings
+        
+        # Get the updated player data to calculate overall
+        cur.execute("SELECT * FROM players WHERE id = ?", (player_id,))
+        updated_player = cur.fetchone()
+        updated_player_dict = dict(updated_player)
+        
+        # Calculate overall rating
+        overall = calculate_player_overall(updated_player_dict)
+        
+        # Calculate bundled skill ratings
+        bundled_ratings = calculate_bundled_skill_ratings(updated_player_dict)
+        
+        # Update player with overall and bundled ratings
+        cur.execute("""
+            UPDATE players SET
+                overall = ?,
+                attack_rating = ?,
+                defense_rating = ?,
+                physical_rating = ?,
+                power_rating = ?,
+                technique_rating = ?,
+                goalkeeping_rating = ?
+            WHERE id = ?
+        """, (
+            overall,
+            bundled_ratings['attack_rating'],
+            bundled_ratings['defense_rating'],
+            bundled_ratings['physical_rating'],
+            bundled_ratings['power_rating'],
+            bundled_ratings['technique_rating'],
+            bundled_ratings['goalkeeping_rating'],
+            player_id
+        ))
+
         # Create blog post about the retirement
         blog_title = f"Player Retirement: {player_name} Retires from {team_name}"
         blog_content = f"""
@@ -7498,8 +7509,8 @@ def end_of_season_process():
                             retired_player.get('reason', f'Retired at age {retired_player["age"]}'),
                             career_stats['seasons_played'],
                             current_season,
-                            full_player_data[7] or 0,  # championships_won
-                            full_player_data[8] or 0   # cups_won
+                            full_player_data[10] or 0,  # championships_won
+                            full_player_data[11] or 0   # cups_won
                         ))
 
                         hall_of_fame_recorded += 1

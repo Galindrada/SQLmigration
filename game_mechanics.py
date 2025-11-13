@@ -1730,71 +1730,71 @@ from typing import Dict, List, Tuple
 
 # Nationality data with skin color mapping (PES6 numbering: 1python 4=dark)
 NATIONALITY_DATA = {
-    'Brazil': {'skin_color': 3, 'weight': 0.10, 'names': ['Joelinton','Beto','Aloisio','Evandro','Didinho','Alan','Jair','Preto','Rato','Dudu','Junior','Zelito','Zeca','Thiago','Edilson','Wallyson','Gedson','Sonny','Sidney','Paulinho']},
-    'Argentina': {'skin_color': 1, 'weight': 0.07, 'names': ['Javier','Sergio','Enzo','Nicolas','Franco','Ezequiel','Alejandro','Facundo','Lisandro','Luzo','Agustin','Maxi','Sebastian','Osvaldo','Ramon','Hector','Diego','Esteban','Pablo','Nando']},
-    'Spain': {'skin_color': 1, 'weight': 0.05, 'names': ['Roberto','Iker','Andres','Xavier','Gerard','Chico','Carles','Juanito','Michel','Victor','Julen','Pipi','Dani','Lobo','Antonio','Santi','Raul','Pico','Ferran','Nacho']},
-    'France': {'skin_color': 1, 'weight': 0.04, 'names': ['Antoine','Robert','Olivier','Marcel','Didier','Claude','Fabien','Pierre','Raymond','Raphael','Aurelie','Edouard','Kyllian','Jeremy','Dominique','Florent','Bernard','Samir','Andreu','Djibril']},
-    'England': {'skin_color': 1, 'weight': 0.03, 'names': ['Bobby','Wayne','Frank','Joseph','John','Harry','Phil','Gary','Kyle','Jordan','Peter','James','Joe','Andy', 'Michael','Steve','Richard','William','Charles','Winston']},
-    'Germany': {'skin_color': 1, 'weight': 0.03, 'names': ['Philip','Franz','Adolf','Bastian','Jurgen','Fritz','Andrea','Felix','Thomas','Karl','Bernard','Stefan','Marcus','Mario','Max','Robin','Deniz','Julian','Heinz','Lukas']},
-    'Italy': {'skin_color': 1, 'weight': 0.03, 'names': ['Vito','Carlo','Fredo','Salvatore','Bruno','Amerigo','Tomaso','Francesco','Giorgino','Fabrizio','Benito','Gianluigi','Gianluca','Giuseppe','Leonardo','Filippo','Gennaro','Luigi','Vincenzo','Riccardo']},
-    'Portugal': {'skin_color': 1, 'weight': 0.03, 'names': ['Zequinha','Tiago','Bruno','Litos','Josue','Nelson','Anibal','Pedrinho','Fábio','Quim','Luciano','Jota','Ricardinho','Nandinho','Joca','Titinho','David','Nuno','Diogo','Filipe']},
-    'Netherlands': {'skin_color': 1, 'weight': 0.03, 'names': ['Jan','Jaap','Frank','Memphis','Virgil','Clarence','Wesley','Edwin','Dennis','Ruud','Luuk','Justin','Kevin','Jetro','Maarten','Ronald','Robin','Arjen','Dick','Roy']},
-    'Belgium': {'skin_color': 1, 'weight': 0.03, 'names': ['Vincent','Thibaut','Wilfried','Fernand','Dries','Divock','Timothy','Jeremy','Emile','Silvio','Matz','Simon','Jean','Claude','Sven','Maxim','Filip','Arthur','Charles','Luc']},
-    'Croatia': {'skin_color': 1, 'weight': 0.03, 'names': ['Luka','Ivan','Dejan','Andrej','Marko','Ante','Josko','Igor','Mila','Nikola']},
-    'Serbia': {'skin_color': 1, 'weight': 0.03, 'names': ['Milic','Srdjan','Milos','Ludovic','Nikola','Lukic','Savo','Alek','Lazar','Josevic']},
-    'Poland': {'skin_color': 1, 'weight': 0.03, 'names': ['Henryk','Pawel','Lukas','Tomasz','Jakub','Marek','Jerzy','Gregor','Euzebiusz','Karol']},
-    'Ukraine': {'skin_color': 1, 'weight': 0.03, 'names': ['Valdomir','Andrey','Artem','Dmytro','Viktor','Vitaliy','Mykola','Roman','Yuri','Vasyl']},
-    'Russia': {'skin_color': 1, 'weight': 0.03, 'names': ['Lev','Igor','Vladimir','Yuri','Sergey','Dmitri','Denis','Roman','Aleksei','Marat','Ivan']},
-    'Turkey': {'skin_color': 3, 'weight': 0.03, 'names': ['Hakan','Arda','Hasan','Ozan','Volkan','Fatih','Hamit','Kazim','Sabri','Gokhan']},
-    'Morocco': {'skin_color': 3, 'weight': 0.03, 'names': ['Hakim','Nassir','Youssef','Brahim','Omar','Yassine','Younes','Adel','Medhi','Marrouane']},
-    'Algeria': {'skin_color': 3, 'weight': 0.03, 'names': ['Yacine','Nabil','Rabah','Islam','Mehdi','Zinedine','Oussama','Youcef','Ismael','Karim']},
-    'Senegal': {'skin_color': 4, 'weight': 0.03, 'names': ['Lamine','Pape','Papiss','Issa','Idrissa','Saido','Moussa','Demba','Salif','Fode']},
-    'Nigeria': {'skin_color': 4, 'weight': 0.03, 'names': ['John','Joseph','Kalu','Ola','Sanusi','Haruna','Julius','Ideye','Tony','Sam']},
-    'Ghana': {'skin_color': 4, 'weight': 0.03, 'names': ['Samuel','Thomas','Jeffrey','Tony','Michael','Asamoah','Jordan','Raphael','Christian','Eric']},
-    'Ivory Coast': {'skin_color': 4, 'weight': 0.03, 'names': ['Yaya','Didier','Emmanuel','Bakari','Seydou','Sylvain','Siaka','Patrice','Lassina','Wilfried']},
-    'Cameroon': {'skin_color': 4, 'weight': 0.03, 'names': ['Roger','Samuel','Lauren','Lucien','Stephane','Joel','Vincent','Benjamim','Fabrice','Pierre']},
-    'Egypt': {'skin_color': 3, 'weight': 0.03, 'names': ['Mohamed','Ahmed','Hossan','Yasser','Ismail','Mustafa','Omar','Saleh','Mokthar','Ibrahim']},
-    'Tunisia': {'skin_color': 3, 'weight': 0.02, 'names': ['Youssef','Hatem','Riad','Nabil','Oussef','Karim','Nizar','Ali','Sofie','Ziad']},
-    'South Africa': {'skin_color': 4, 'weight': 0.02, 'names': ['Bennedict','Quinton','Phil','Aaron','John','Andre','Steven','Eric','David','Manuel']},
-    'Japan': {'skin_color': 3, 'weight': 0.02, 'names': ['Keisuke','Hidetoshi','Sakura','Ryo','Genzo','Ozora','Akira','Hikaro', 'Sheinsuke','Takeshi']},
-    'South Korea': {'skin_color': 3, 'weight': 0.02, 'names': ['Son','Sung','Young','Lee','Heung','Ping','Pee','Jing','Din','Sun']},
+    'Brazil': {'skin_color': 3, 'weight': 0.10, 'names': ['Romeu','Estevio','Junior','Gerson','Lituca','Cravão','Jaco','Gusto','Setembrino','Susu','Vitelinho','Juninho','Murici','Joelinton','Beto','Aloisio','Evandro','Didinho','Alex','Jair','Preto','Otavio','Dudu','Junior','Zelito','Zeca','Thiago','Diego','Givanildo','Roque','Sonny','Sidney','Matheus']},
+    'Argentina': {'skin_color': 1, 'weight': 0.07, 'names': ['Javier','Martin','Rocco','Queiroga','Juasmin','Nendez','Iturra','Salesio','Sergio','Enzo','Nicolas','Franco','Ezequiel','Alejandro','Facundo','Lisandro','Esteban','Agustin','Maxi','Sebastian','Osvaldo','Giovanni','Hector','Diego','Rodrigo','Pablo','Hernando']},
+    'Spain': {'skin_color': 1, 'weight': 0.05, 'names': ['Roberto','Iker','Andres','Xavier','Gerardo','Kiko','Carles','Juanito','Alberto','Alfonso','Ituxarra','Goskitz','Arturo','Sibutche','Michel','Marc','Julen','Ruben','Daniel','Lobo','Pep','Santi','Raul','Pico','Ferran','Nacho']},
+    'France': {'skin_color': 1, 'weight': 0.04, 'names': ['Antoine','Robert','Olivier','Marcel','Didier','Claude','Le Savoir','Lemarchall','Julian','Sosy','Zargoiux','Molinneux','Fabien','Pierre','Raymond','Raphael','Aurelie','Edouard','Kyllian','Jeremy','Dominique','Florent','Bernard','Samir','Andreu','Djibril']},
+    'England': {'skin_color': 1, 'weight': 0.03, 'names': ['Jamie','Wayne','Frank','Joseph','Edward','Harry','Phil','Gary','Kyle','Jordan','Peter','Keith','Clint','Mac','Christopher','Shawn','Drown','James','Joe','Andrew','Henry','David','Richard','William','Charles','Jude']},
+    'Germany': {'skin_color': 1, 'weight': 0.03, 'names': ['Philip','Franz','Adolf','Bastian','Jurgen','Fritz','Andrea','Felix','Thomas','Karl','Bernard','Stefan','Marcus','Mario','Max','Robin','Deniz','Julian','Heinz','Lukas','Gerb','Leon','Jurgenspittzer','Kirstenwolff','Gutten','Daven','Nistchze','Neuville','Soth','Dutreisch','Kloden','Drikens','Muff','Der Gutz']},
+    'Italy': {'skin_color': 1, 'weight': 0.03, 'names': ['Vito','Carlo','Fredo','Salvatore','Bruno','Amerigo','Tomaso','Francesco','Giorgino','Fabrizio','Benito','Gianluigi','Gianluca','Giuseppe','Leonardo','Lorentino','Moscardo','Sauvino','Antonio','Popo','Filippo','Gennaro','Luigi','Vincenzo','Riccardo']},
+    'Portugal': {'skin_color': 1, 'weight': 0.03, 'names': ['Zéquinha','Toni','Pedro','Mário','Rubén','André','Ricardo','Leandro','Diogo','Tarcisio','Filomeno','Tiago','Bruno','Carlos','Josué','Nélson','Aníbal','Pedrinho','Fábio','Quim','Leonardo','Jota','Ricardinho','Vasco','Joca','Santiago','David','Nuno','Diogo','Cristiano']},
+    'Netherlands': {'skin_color': 1, 'weight': 0.03, 'names': ['Jan','Jaap','Frank','Memphis','Virgil','Clarence','Wesley','Edwin','Dennis','Ruud','Luuk','Justin','Kevin','Jetro','Maarten','Ronald','Robin','Arjen','Dick','Roy','Fehn','Drost','Van de']},
+    'Belgium': {'skin_color': 1, 'weight': 0.03, 'names': ['Vincent','Thibaut','Wilfried','Fernand','Dries','Divock','Timothy','Jeremy','Emile','Silvio','Matz','Simon','Jean','Claude','Sven','Maxim','Filip','Arthur','Charles','Luc','Boir','Chemo','Bizimana']},
+    'Croatia': {'skin_color': 1, 'weight': 0.03, 'names': ['Luka','Ivan','Dejan','Andrej','Marko','Ante','Josko','Igor','Mila','Nikola','Karl','Marsej','Dalibor','Davor']},
+    'Serbia': {'skin_color': 1, 'weight': 0.03, 'names': ['Milic','Srdjan','Milos','Ludovic','Nikola','Lukic','Savo','Alek','Lazar','Josevic','Kristian','Mikokola','Palik','Salim']},
+    'Poland': {'skin_color': 1, 'weight': 0.03, 'names': ['Henryk','Pawel','Lukas','Tomasz','Jakub','Marek','Jerzy','Gregor','Euzebiusz','Karol','Krystowik','Schzlyonyk','Garzcsinktz']},
+    'Ukraine': {'skin_color': 1, 'weight': 0.03, 'names': ['Valdomir','Andrey','Artem','Dmytro','Viktor','Vitaliy','Mykola','Roman','Yuri','Vasyl','Artemi','Ivan','Alexander','Yevgeny','Golovka']},
+    'Russia': {'skin_color': 1, 'weight': 0.03, 'names': ['Lev','Igor','Vladimir','Yuri','Sergey','Dmitri','Denis','Roman','Aleksei','Marat','Ivan','Denis','Alieksey','Fedor']},
+    'Turkey': {'skin_color': 3, 'weight': 0.03, 'names': ['Hakan','Arda','Hasan','Ozan','Volkan','Fatih','Hamit','Kazim','Sabri','Gokhan','Zorkan','Okan','Zermit','Jukhan','Ozzimen']},
+    'Morocco': {'skin_color': 3, 'weight': 0.03, 'names': ['Hakim','Nassir','Youssef','Brahim','Omar','Yassine','Younes','Adel','Medhi','Marrouane','Zalladin','Mokhtari','Al','Rabat']},
+    'Algeria': {'skin_color': 3, 'weight': 0.03, 'names': ['Yacine','Nabil','Rabah','Islam','Mehdi','Zinedine','Oussama','Youcef','Ismael','Karim','Cahri','Souleimahne','Al-Ranjit']},
+    'Senegal': {'skin_color': 4, 'weight': 0.03, 'names': ['Lamine','Pape','Papiss','Issa','Idrissa','Saido','Moussa','Demba','Salif','Fode','Bobo','Kalulu','Zohne','Guitane']},
+    'Nigeria': {'skin_color': 4, 'weight': 0.03, 'names': ['Obi','Joseph','Kalu','Ola','Sanusi','Haruna','Julius','Ideye','Obafemi','Sam','Emmanuel','Martial','Orunfinjana','Horogulushe','Tembo']},
+    'Ghana': {'skin_color': 4, 'weight': 0.03, 'names': ['Samuel','Thomas','Jeffrey','Tony','Michael','Asamoah','Jordan','Raphael','Christian','Eric','Manfred','Jules','Erique']},
+    'Ivory Coast': {'skin_color': 4, 'weight': 0.03, 'names': ['Yaya','Didier','Emmanuel','Bakari','Seydou','Sylvain','Siaka','Patrice','Lassina','Wilfried','Yopo','Domoraud','Saint-Preux','Sogiane']},
+    'Cameroon': {'skin_color': 4, 'weight': 0.03, 'names': ['Roger','Samuel','Lauren','Lucien','Stephane','Joel','Vincent','Benjamim','Fabrice','Pierre','Columbu','Sanoh','Le-Merrienne']},
+    'Egypt': {'skin_color': 3, 'weight': 0.03, 'names': ['Mohamed','Ahmed','Hossan','Yasser','Ismail','Mustafa','Omar','Saleh','Mokthar','Ibrahim','Yamine','Ecleh','Hassan']},
+    'Tunisia': {'skin_color': 3, 'weight': 0.02, 'names': ['Youssef','Hatem','Riad','Nabil','Oussef','Karim','Nizar','Ali','Sofie','Ziad','Zorbon','Nikia','Gille']},
+    'South Africa': {'skin_color': 4, 'weight': 0.02, 'names': ['Bennedict','Quinton','Phil','Aaron','John','Andre','Steven','Eric','David','Manuel','Kerwit','Durmu','Vincent','Weld','Hansi']},
+    'Japan': {'skin_color': 3, 'weight': 0.02, 'names': ['Keisuke','Hidetoshi','Sakura','Ryo','Genzo','Ozora','Akira','Hikaro', 'Sheinsuke','Takeshi','Suneo','Kenzo','Koji']},
+    'South Korea': {'skin_color': 3, 'weight': 0.02, 'names': ['Son','Sung','Young','Lee','Heung','Ping','Pee','Jing','Din','Sun','Hoon','Soon','Geung']},
     'China': {'skin_color': 2, 'weight': 0.02, 'names': ['Wu', 'Zhang', 'Li', 'Wang', 'Chen', 'Liu', 'Yang', 'Huang', 'Zhao', 'Zhou', 'An', 'Bao', 'Dong', 'En', 'Feng', 'Gang', 'Hao', 'In', 'Jian']},
-    'Australia': {'skin_color': 1, 'weight': 0.02, 'names': ['John','Tim', 'Robert','Hugh','Lauren','Joe','Aaron','Harry','Craig','Mark','Sam']},
-    'USA': {'skin_color': 1, 'weight': 0.03, 'names': ['Kevin','Lebron','Barrack','Denzel','Michael','Donald','Geogre','Vince','Cody', 'Randy']},
-    'Mexico': {'skin_color': 3, 'weight': 0.03, 'names': ['Javier','Roberto','Rafael','Gepeto','Jorge','Kinkin','Luis','Ramon','Octavio','Gonzalo']},
-    'Colombia': {'skin_color': 3, 'weight': 0.03, 'names': ['Tolo','Hernan', 'Faustino','Carlitos','Radamel','Andres','Rubio','Jackson','Manel','Panzo']},
-    'Chile': {'skin_color': 3, 'weight': 0.02, 'names': ['Arturo', 'Alexis', 'Eduardo','Claudio', 'Jorge', 'Mauricio', 'Matías', 'Alejandro', 'Diego']},
-    'Uruguay': {'skin_color': 1, 'weight': 0.02, 'names': ['Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Romero','Armando','Miguel','Gonzalo']},
-    'Paraguay': {'skin_color': 3, 'weight': 0.02, 'names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio', 'Carlos']},
-    'Peru': {'skin_color': 3, 'weight': 0.02, 'names': ['Paolo', 'Jefferson', 'André', 'Christian', 'Yoshimar', 'Renato', 'Luis', 'Carlos', 'Miguel', 'Raúl']},
-    'Ecuador': {'skin_color': 3, 'weight': 0.02, 'names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Gabriel', 'Walter', 'Benito']},
-    'Venezuela': {'skin_color': 3, 'weight': 0.02, 'names': ['Salomón', 'Rómulo', 'Fernando', 'Carlos', 'Roberto', 'José', 'Manuel', 'Eduardo', 'Gabriel', 'Héctor']},
-    'Canada': {'skin_color': 1, 'weight': 0.02, 'names': ['Mitch', 'Alphonso', 'Jonathan','Scott', 'Samuel', 'Mark', 'Russell', 'Blake', 'Declan', 'Ethan']},
+    'Australia': {'skin_color': 1, 'weight': 0.02, 'names': ['John','Tim', 'Robert','Hugh','Lauren','Joe','Aaron','Harry','Craig','Mark','Sam','Mark','Daniel','Marshment']},
+    'USA': {'skin_color': 1, 'weight': 0.03, 'names': ['Kevin','Lebron','Barrack','Denzel','Michael','Donald','George','Vince','Cody','Randy','Jack','Auston','Cole','Jimmy','Billy','Marvin','Leshondo']},
+    'Mexico': {'skin_color': 3, 'weight': 0.03, 'names': ['Javier','Roberto','Rafael','Alejandro','Jorge','Kinkin','Luiz','Ramon','Hector','Gonzalo','Rivero','Juanito','Cabezo','Rogério','Lo Chito','Lionel','Hernando','Vidal']},
+    'Colombia': {'skin_color': 3, 'weight': 0.03, 'names': ['Ricco','Tisco','Torpedero','Tolo','Hernan', 'Faustino','Carlitos','Radamel','Andres','Rubio','Jackson','Manelito','Panzo']},
+    'Chile': {'skin_color': 3, 'weight': 0.02, 'names': ['Carlos','Juan','Jose','Miguel','Albino','Nicolás','Arturo', 'Alexis', 'Eduardo','Claudio', 'Jorge', 'Mauricio', 'Matías', 'Cassandro', 'Diego']},
+    'Uruguay': {'skin_color': 1, 'weight': 0.02, 'names': ['Fede','Antonio','Silvio','Diego','Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Romero','Armando','Miguel','Gonzalo']},
+    'Paraguay': {'skin_color': 3, 'weight': 0.02, 'names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio', 'Carlos','Rocio','Ponzio','Nel']},
+    'Peru': {'skin_color': 3, 'weight': 0.02, 'names': ['Paolo', 'Jefferson', 'André', 'Christian', 'Yoshimar', 'Renato', 'Luis', 'Carlos', 'Miguel', 'Raúl','Damian','Lamino','Laro','Rimondes']},
+    'Ecuador': {'skin_color': 3, 'weight': 0.02, 'names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Gabriel', 'Walter', 'Benito','Engelmann']},
+    'Venezuela': {'skin_color': 3, 'weight': 0.02, 'names': ['Salomón', 'Rómulo', 'Fernando', 'Carlos', 'Roberto', 'José', 'Camilo', 'Eduardo', 'Gabriel', 'Héctor','Portillez','Navez','De la Playa']},
+    'Canada': {'skin_color': 1, 'weight': 0.02, 'names': ['Mitch', 'Alphonso', 'Jonathan','Scott', 'Samuel', 'Mark', 'Russell', 'Blake', 'Declan', 'Ethan','Mikey','Macklin','Connor','Brandon','Jake','Saint']},
     
     # Additional countries from database
     'Austria': {'skin_color': 1, 'weight': 0.02, 'names': ['Adolf','Jurgen','Heinrich','Michael','George','Manuel','Lukas','Angel','Markus','Julian']},
-    'Switzerland': {'skin_color': 1, 'weight': 0.02, 'names': ['Lionel','Granit','Henrique','Michel','Jean','Diego','Lukas','Patrick','Markus','Julles']},
-    'Sweden': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','Andreas','Olaf','Merk','Isak','Manuel','Fredrik','Joseph','Max']},
-    'Norway': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','John','Olef','Erling','Alexander','Gustav','Fredrik','Puntus','Max']},
-    'Denmark': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','Christian','Rasmus','Peter','Hugh','Greg','Fredrik','Leonel','Dedrik']},
-    'Finland': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','Jared','Olav','Peter','Mika','Jasper','Fredrik','Thor','Lukas']},
-    'Iceland': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','Gylfi','Bjorn','Herman','Johan','Jasper','Fredrik','Alfred','Lukas']},
-    'Ireland': {'skin_color': 1, 'weight': 0.02, 'names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven']},
-    'Scotland': {'skin_color': 1, 'weight': 0.01, 'names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven']},
-    'Wales': {'skin_color': 1, 'weight': 0.01, 'names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven']},
-    'Northern Ireland': {'skin_color': 1, 'weight': 0.01, 'names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven']},
+    'Switzerland': {'skin_color': 1, 'weight': 0.02, 'names': ['Lionel','Granit','Henrique','Michel','Jean','Diego','Lukas','Patrick','Markus','Julles','Lohren','Karim','Volz','Gennaro']},
+    'Sweden': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','Andreas','Olaf','Merk','Isak','Manuel','Fredrik','Joseph','Max','William','Alexander','Alfred']},
+    'Norway': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','John','Olef','Erling','Alexander','Gustav','Fredrik','Puntus','Max','Tore','Perth','Oslo']},
+    'Denmark': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','Christian','Rasmus','Peter','Hugh','Greg','Fredrik','Leonel','Dedrik','Morten','Morgan','Brian','Samuel']},
+    'Finland': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','Jared','Olav','Peter','Mika','Jasper','Fredrik','Thor','Lukas','Lauri','Mika','Christopher']},
+    'Iceland': {'skin_color': 1, 'weight': 0.02, 'names': ['Viktor','Henrik','Gylfi','Bjorn','Herman','Johan','Jasper','Fredrik','Alfred','Lukas','Fylkir','Lyomir','Gryk']},
+    'Ireland': {'skin_color': 1, 'weight': 0.02, 'names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Roy','Olmen']},
+    'Scotland': {'skin_color': 1, 'weight': 0.01, 'names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Ballantines','Logan']},
+    'Wales': {'skin_color': 1, 'weight': 0.01, 'names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Logan']},
+    'Northern Ireland': {'skin_color': 1, 'weight': 0.01, 'names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Bono']},
     
     # Additional missing countries from database
-    'Albania': {'skin_color': 1, 'weight': 0.005, 'names': ['Abazi', 'Xerdan', 'Granit', 'Endrit', 'Kavor', 'Lorik', 'Luka', 'Semir', 'Jeton', 'Kastriot']},
-    'Angola': {'skin_color': 4, 'weight': 0.005, 'names': ['Jorginho', 'Bruno', 'Carlos', 'Domingos', 'Manel', 'Fernando', 'Gilberto', 'Leao', 'Ivan', 'João']},
-    'Armenia': {'skin_color': 1, 'weight': 0.005, 'names': ['Arman', 'David', 'Gor', 'Hayk', 'Karen', 'Levon', 'Mher', 'Narek', 'Ruben', 'Sargis']},
-    'Belarus': {'skin_color': 1, 'weight': 0.005, 'names': ['Aliaksandr', 'Dzmitry', 'Ihar', 'Kanstantsin', 'Maksim', 'Pavel', 'Siarhei', 'Uladzimir', 'Vitali', 'Yury']},
+    'Albania': {'skin_color': 1, 'weight': 0.005, 'names': ['Krish','Eduard', 'Xerdan', 'Granit', 'Endrit', 'Kavor', 'Lorik', 'Luka', 'Semir', 'Jeton', 'Petro']},
+    'Angola': {'skin_color': 4, 'weight': 0.005, 'names': ['Lumueno','Kiko','Jorginho', 'Bruno', 'Carlinhos', 'Domingos', 'Manel', 'Nandinho', 'Gilberto', 'Rafa', 'Rogério', 'João','Gervásio']},
+    'Armenia': {'skin_color': 1, 'weight': 0.005, 'names': ['Yermen','Islam','Arman', 'David', 'Gor', 'Hayk', 'Karen', 'Levon', 'Mher', 'Narek', 'Ruben', 'Sargis']},
+    'Belarus': {'skin_color': 1, 'weight': 0.005, 'names': ['Boronov','Aliaksandr', 'Dzmitry', 'Ihar', 'Kanstantsin', 'Maksim', 'Pavel', 'Siarhei', 'Uladzimir', 'Vitali', 'Yury']},
     'Benin': {'skin_color': 4, 'weight': 0.005, 'names': ['Abel', 'Benoît', 'Célestin', 'Désiré', 'Emmanuel', 'Félix', 'Gabriel', 'Henri', 'Ignace', 'Jean']},
     'Bolivia': {'skin_color': 3, 'weight': 0.005, 'names': ['Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Hugo', 'Iván', 'Jorge', 'Luis', 'Miguel']},
     'Bosnia and Herzegovina': {'skin_color': 1, 'weight': 0.005, 'names': ['Adnan', 'Benjamin', 'Srdjan', 'Emir', 'Faruk', 'Goran', 'Haris', 'Ivan', 'Jasmin', 'Kenan']},
     'Bulgaria': {'skin_color': 1, 'weight': 0.005, 'names': ['Aleksandar', 'Boris', 'Dimitar', 'Emil', 'Georgi', 'Hristo', 'Ivan', 'Jordan', 'Krasimir', 'Lyubomir']},
     'Burkina Faso': {'skin_color': 4, 'weight': 0.005, 'names': ['Abdoulaye', 'Boureima', 'Cheick', 'Daouda', 'Emmanuel', 'François', 'Gérard', 'Hervé', 'Issouf', 'Jean']},
-    'Cape Verde': {'skin_color': 4, 'weight': 0.005, 'names': ['Adilson', 'Bruno', 'Carlos', 'Domingos', 'Eduardo', 'Fernando', 'Gilberto', 'Helder', 'Ivan', 'João']},
+    'Cape Verde': {'skin_color': 4, 'weight': 0.005, 'names': ['Adilson', 'Bruno', 'Litos', 'Domingos', 'Eduardo', 'Quinzinho', 'Gilberto', 'Chiquinho', 'Manecas', 'João']},
     'Congo': {'skin_color': 4, 'weight': 0.005, 'names': ['Alain', 'Boris', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
     'Costa Rica': {'skin_color': 3, 'weight': 0.005, 'names': ['Alejandro', 'Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge', 'Luis']},
     'Cote d\'Ivoire': {'skin_color': 4, 'weight': 0.005, 'names': ['Abou', 'Bakary', 'Cheick', 'Didier', 'Emmanuel', 'Franck', 'Gervinho', 'Hervé', 'Ibrahim', 'Jean']},
@@ -1807,7 +1807,7 @@ NATIONALITY_DATA = {
     'Gabon': {'skin_color': 4, 'weight': 0.002, 'names': ['Alain', 'Bruno', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
     'Gambia': {'skin_color': 4, 'weight': 0.002, 'names': ['Abdoulie', 'Bakary', 'Cherno', 'Demba', 'Ebrima', 'Foday', 'Gibril', 'Habib', 'Ibrahim', 'Jallow']},
     'Georgia': {'skin_color': 1, 'weight': 0.003, 'names': ['Aleksandre', 'Beka', 'Davit', 'Giorgi', 'Irakli', 'Jaba', 'Kakha', 'Levan', 'Mikheil', 'Nika']},
-    'Greece': {'skin_color': 1, 'weight': 0.01, 'names': ['Alexandros', 'Dimitrios', 'Georgios', 'Ioannis', 'Konstantinos', 'Michalis', 'Nikolaos', 'Panagiotis', 'Spyros', 'Vasileios']},
+    'Greece': {'skin_color': 1, 'weight': 0.01, 'names': ['Labros','Takis','Pakis','Alexandros', 'Dimitrios', 'Georgios', 'Ioannis', 'Konstantinos', 'Josuelius', 'Nikolaos', 'Panagiotis', 'Alexios', 'Vannidis']},
     'Grenada': {'skin_color': 4, 'weight': 0.001, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
     'Guadeloupe': {'skin_color': 4, 'weight': 0.001, 'names': ['Alain', 'Bruno', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
     'Guinea': {'skin_color': 4, 'weight': 0.001, 'names': ['Aboubacar', 'Boubacar', 'Cheick', 'Daouda', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ibrahim', 'Jean']},
@@ -1825,20 +1825,20 @@ NATIONALITY_DATA = {
     'Macedonia': {'skin_color': 1, 'weight': 0.001, 'names': ['Aleksandar', 'Bojan', 'Darko', 'Emil', 'Filip', 'Goran', 'Hristijan', 'Ivan', 'Jovan', 'Kristijan']},
     'Mali': {'skin_color': 4, 'weight': 0.001, 'names': ['Abdoulaye', 'Boureima', 'Cheick', 'Daouda', 'Emmanuel', 'François', 'Gérard', 'Hervé', 'Issouf', 'Jean']},
     'Martinique': {'skin_color': 4, 'weight': 0.001, 'names': ['Alain', 'Bruno', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean']},
-    'Mozambique': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Bruno', 'Carlos', 'Daniel', 'Emmanuel', 'Fernando', 'Gabriel', 'Henri', 'Ivan', 'João']},
+    'Mozambique': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Gildo', 'Carlos', 'Clésio', 'Emmanuel', 'Edson', 'Gabriel', 'Rique', 'Reinildo', 'Ronaldo']},
     'Netherlands Antilles': {'skin_color': 3, 'weight': 0.001, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
     'New Zealand': {'skin_color': 1, 'weight': 0.002, 'names': ['Aaron', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John', 'Blake', 'Connor', 'Declan', 'Ethan', 'Flynn', 'Harrison', 'Isaac', 'Jake']},
     'Oman': {'skin_color': 2, 'weight': 0.001, 'names': ['Ahmed', 'Badr', 'Fahad', 'Hamed', 'Ibrahim', 'Jaber', 'Khalid', 'Majid', 'Nasser', 'Omar']},
     'Panama': {'skin_color': 3, 'weight': 0.001, 'names': ['Alejandro', 'Carlos', 'Diego', 'Eduardo', 'Fernando', 'Gabriel', 'Héctor', 'Iván', 'Jorge', 'Luis']},
-    'Romania': {'skin_color': 1, 'weight': 0.01, 'names': ['Alexandru', 'Bogdan', 'Cristian', 'Daniel', 'Eduard', 'Florin', 'Gabriel', 'Horia', 'Ionut', 'Johan']},
-    'Saudi Arabia': {'skin_color': 2, 'weight': 0.003, 'names': ['Ahmed', 'Badr', 'Fahad', 'Hamed', 'Ibrahim', 'Jaber', 'Khalid', 'Majid', 'Nasser', 'Omar']},
-    'Serbia and Montenegro': {'skin_color': 1, 'weight': 0.001, 'names': ['Aleksandar', 'Bojan', 'Darko', 'Emil', 'Filip', 'Goran', 'Hristijan', 'Ivan', 'Jovan', 'Kristijan']},
+    'Romania': {'skin_color': 1, 'weight': 0.01, 'names': ['Alexandru', 'Bogdan', 'Cristian', 'Daniel', 'Eduard', 'Florin', 'Adrian', 'Razvan', 'Iannis', 'Leo']},
+    'Saudi Arabia': {'skin_color': 2, 'weight': 0.003, 'names': ['Ahmed','Jehad','Abdulelah','Yasser','Mohammed','Ziyad','Saleh','Turki','Ali','Mukhtar']},
+    'Serbia and Montenegro': {'skin_color': 1, 'weight': 0.001, 'names': ['Aleksandar', 'Bojan', 'Darko', 'Nikolas', 'Filip', 'Goran', 'Srdjan', 'Ivan', 'Jovan', 'Kristijan']},
     'Sierra Leone': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
     'Slovakia': {'skin_color': 1, 'weight': 0.001, 'names': ['Adam', 'Branislav', 'Daniel', 'Erik', 'Filip', 'Gabriel', 'Henrich', 'Ivan', 'Jozef', 'Kamil']},
     'Slovenia': {'skin_color': 1, 'weight': 0.001, 'names': ['Aleš', 'Bojan', 'Dejan', 'Erik', 'Filip', 'Gregor', 'Henrik', 'Igor', 'Jure', 'Klemen']},
-    'Togo': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Benoît', 'Célestin', 'Désiré', 'Emmanuel', 'Félix', 'Gabriel', 'Henri', 'Ignace', 'Jean']},
+    'Togo': {'skin_color': 4, 'weight': 0.001, 'names': ['Franck','Emmanuel','Eric','Prince','Désire','Moustapha','Richmond','Adékambi','Jean-Paul','Ouro']},
     'Trinidad and Tobago': {'skin_color': 4, 'weight': 0.001, 'names': ['Anthony', 'Brian', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
-    'United States': {'skin_color': 1, 'weight': 0.001, 'names': ['Aaron', 'Ben', 'Chris', 'David', 'Erik', 'Frank', 'George', 'Henry', 'Ivan', 'John', 'Blake', 'Connor', 'Declan', 'Ethan', 'Flynn', 'Harrison', 'Isaac', 'Jake']},
+    'United States': {'skin_color': 1, 'weight': 0.001, 'names': ['Kevin','Lebron','Barrack','Denzel','Michael','Donald','Geogre','Vince','Cody', 'Randy']},
     'Uzbekistan': {'skin_color': 2, 'weight': 0.001, 'names': ['Akmal', 'Bakhtiyor', 'Dilshod', 'Eldor', 'Farrukh', 'Gulom', 'Hikmat', 'Ibrohim', 'Javlon', 'Karim']},
     'Zambia': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']},
     'Zimbabwe': {'skin_color': 4, 'weight': 0.001, 'names': ['Abel', 'Ben', 'Carl', 'David', 'Eric', 'Frank', 'George', 'Henry', 'Ivan', 'John']}
@@ -1846,15 +1846,15 @@ NATIONALITY_DATA = {
 
 # Surname data by nationality
 SURNAME_DATA = {
-    'Brazil': ['Maravilha','Cruel','Xareca','Silva','Mineiro','Paulista','Pinga','Gaucho','Baiano','Chupeta','Damiao','Pikachu','Santana','Jesus','Junior','Galindro','Oliveira','Nitro','Filho','Ronaldo'],
-    'Argentina': ['Palermo','Cruz','Almeyda','Castro','Valdano','Diaz','Messi','Maria','Gallego','Lopez','Sotto','Correa','Rulli','Martinez','Farias','Mareque','Toro','Pibe','Burrito','Gomez'],
-    'Spain': ['Banderas','Hernandez','Gonzalez','de la Costa','Laporte','de Marcos','Garcia','Honesto','Salazar','Gusto','Perez','Rico','Pino','Fernandez','Lopetegui','Enrique','Guerrero','Sanchez','Camacho','de la Buena'],
+    'Brazil': ['Maravilha','Amazonia','Xareca','Silva','Mineiro','Paulista','Luso','Gaucho','Baiano','Chupeta','Nazario','Aveiro','Santana','Jesus','Junior','Galindro','Souza','Nitro','Melo','Ronaldo','Pato','Ribas'],
+    'Argentina': ['Palermo','Cruz','Almeyda','Varela','Valdano','Diaz','Messi','Bautista','Simeone','Lopez','Sotto','Correa','Rulli','Farias','Mareque','Toro','Pavon','Di Santi','Gomez'],
+    'Spain': ['Banderas','Hernandez','Gonzalez','de la Costa','Laporte','del Campo','Garcia','Navarro','Salazar','Gusto','Peralta','Rico','Pinjuan','Fernandez','Lopetegui','Enrique','del Rio','Begiristáin','Camacho','de la Buena'],
     'France': ['Benoit','Saint Laurent','Chanel','Givenchy','Gaultier','Papisse','Candela','Papin','Patrice','Fontaine','Remy','Pavard','Ratatouille','Gusteau','Jacquin','Bonaparte','Dior','Chalamet','Brouyche','Dujardin'],
     'England': ['Beckham','Adams','Cole','McCoy','Xavier','Pearce','Baines','Holmes','Wallace','Potter','Weasley','Baggins','Reigns','Kross','McDonagh','Flair','Owen','Charlton','Stark','King'],
     'Germany': ['Meyer','Muller','Nicholas','Schumacher','Schawrz','Einstein','Kant','Marx','Kaiser','Panzer','von Bismarck','Fassbender','Otto','Kruger','Rudof','Hoss','Goring','Effenberg','Himmler','Schneider'],
-    'Italy': ['Corleone','Rossi','Gentile','Zola','Dimarco','Di Lorenzo','Bastoni','Gorgonzola','Fetuccini','Rossini','Clemenza','Fanucci','del Neri','Bello','Lamberto','Berlusconi','da Vinci','Baggio','Pavarotti','Bocetti'],
-    'Portugal': ['Silva','Galindro','Da Rocha','Rochinha','Amaral','Felix','Capelao','Quaresma','Carvalho','Leitinho','Madureira','Fernandes','Da Costa','Abreu','Seabra','Cardoso','Ferreirinha','Varandas','Leão','Martins','Moreira'],
-    'Netherlands': ['van der Vaart','Kluivert','De Jong','Van Bommel','de Boer','Janssen','van de Beek','de Vrijens','van Gallen','Basten','Berg','Bosman','Rijens','Schaar','Cruijff','Wetterman','Dumfries','Stan','de Ligt'],
+    'Italy': ['Corleone','Rossi','Gentile','Zola','Dimarco','Della Rocca','Bastoni','Negroni','Fetuccini','Rossini','Clemenza','Fanucci','del Neri','Constanzini','Lamberto','Berlusconi','da Vinci','Baggio','Pavarotti','Bucetti'],
+    'Portugal': ['Silva','Galindro','Da Rocha','Rochinha','Amaral','Felix','Capelao','Quaresma','Carvalho','Leitinho','Fernandes','Da Costa','Abreu','Seabra','Cardoso','Ferreirinha','Varandas','Martins','Gastão','Guedes'],
+    'Netherlands': ['van der Vaart','Kluivert','De Jong','Van Bommel','de Boer','Janssen','van de Beek','de Vrijens','van Gallen','Basten','Berg','Bosman','Rijens','Schaar','Cruijff','Wetterman','Dumfries','Stan','de Ligt',],
     'Belgium': ['den Borr','Meunier','Preud','Yannick','Gillet','Praet','Sels','van Prist','Chalomet','van Zeno','Cuyper','Wilde','Brunyet','Castagne','Weiss','Goose','Bruyne','Ruus','Emmers','Boyata'],
     'Croatia': ['Subasic','Kovacic','Petric','Vlasic','Pilitic','Milic','Bilic','Pjaca','Zivjaca','Badelj'],
     'Serbia': ['Slagalo','Jovanovic','Milosevic','Ibisevic','Drulovic','Rochovic','Milosevic','Popovic','Krenkov','Dukic'],
@@ -1866,53 +1866,53 @@ SURNAME_DATA = {
     'Algeria': ['Madjer','Assad','Kadir','Soudani','Ghilas','Saifi','Djebour','Saiid','Brahimi','Boudaoui'],
     'Senegal': ['Sylva','Diop','Ndiaye','Sow','Gueye','Babacar','Diao','Diarra','Gomis','Ba'],
     'Nigeria': ['Zaidu','Agu','Kanu','Taribo','Babayaro','Omeru','Akwue','Obafemi','Aina','Owusuwelele'],
-    'Ghana': ['Diouf','Atsu','Boateng','Prince','Addo','Kudus','Mensah','Fatu','Gyan','Sunday'],
+    'Ghana': ['Diouf','Atsu','Boateng','Prince','Addo','Kudus','Mensah','Fatu','Gyan','Sunday','Essien'],
     'Ivory Coast': ['Ettien','Rochelu','Konan','Traore','Fofana','Kalou','Keita','Coulibaly','Sanogo'],
-    'Cameroon': ['Mbeuna','Kongolo','Ekotto','Milla','Song','Bilong','Nego','Onana','Matip'],
+    'Cameroon': ['Mbeuna','Kongolo','Ekotto','Milla','Song','Bilong','Nego','Onana','Matip','Preto o'],
     'Egypt': ['Marmoush','Ghaly','Imoteph','Zidan','Elneny','Faisel','Nahmed','Saleht','Rafaat','Zamal'],
     'Tunisia': ['Trabelsi','Jaziri','Khazim','Quedir','Nejib','Houssem','Slim','Meriah','Belaid','Achouri'],
-    'South Africa': ['Fortune','McCarthy','Zuma','Mokoena','John','Joseph','Pistorious','Kulele','Fish','Zwane'],
+    'South Africa': ['Fortune','McCarthy','Zuma','Mokoena','Mandela','Joseph','Pistorious','Kulele','Tsahbalala','Zwane'],
     'Japan': ['Hyuga','Wakabayashi','Misaki','Tsubasa','Inamoto','Nakamura','Nakazawa','Gohan','Nakata','Fujimoto'],
     'South Korea': ['Ming','Park','Ling','Chun','Gun','Son','Young','Ben','Choy','Mill'],
     'China': ['Wang', 'Li', 'Zhang', 'Liu', 'Chen', 'Yang', 'Huang', 'Zhao', 'Wu', 'Zhou'],
-    'Australia': ['Cahill','Ingles','Viduka','Markus','Kennedy','Foster','Rodwell','Rocha','Tulius','Kerr'],
-    'USA': ['James','Page','Rhodes','Heyman','Curry','Jordan','Michaels','London','Summer','Copeland','Saint John'],
-    'Mexico': ['Hernandez','Gutierrez','Banderas','Martinez','Fonseca','Herrera','Sanchez','Lopez','Fernandez'],
-    'Colombia': ['Martinez','Diaz','Escobar','Yepes','Leon','Ortiz','Rincon','Eusebio','Marillo','Rodriguez'],
+    'Australia': ['Cahill','Ingles','Viduka','Morten','Kennedy','Foster','Rodwell','Winchester','Jackman','Kerr'],
+    'USA': ['James','Page','Rhodes','Heyman','Curry','Jordan','Michaels','London','Summer','Copeland','Saint-John'],
+    'Mexico': ['Hernandez','Gutierrez','Banderas','Martinez','Fonseca','Herrera','Sanchez','Marquez','de la Vega'],
+    'Colombia': ['Martinez','Diaz','Escobar','Yepes','Leon','Ortiz','Rincon','Eusebio','Rios','Rodriguez'],
     'Chile': ['González', 'Muñoz', 'Rojas', 'Díaz', 'Pérez', 'Soto', 'Silva', 'Morales', 'Flores', 'Castro'],
-    'Uruguay': ['Rodríguez', 'González', 'Silva', 'Pérez', 'García', 'Fernández', 'López', 'Martínez', 'Díaz', 'Hernández'],
-    'Paraguay': ['Cardozo', 'González', 'Silva', 'Pérez', 'Santa Cruz', 'Fernández', 'López', 'Martínez', 'Díaz', 'Hernández'],
-    'Peru': ['Rodríguez', 'González', 'Silva', 'Pérez', 'García', 'Fernández', 'López', 'Martínez', 'Díaz', 'Hernández'],
-    'Ecuador': ['Rodríguez', 'González', 'Silva', 'Cabra', 'García', 'Fernández', 'López', 'Martínez', 'Díaz', 'Hernández'],
-    'Venezuela': ['Rodríguez', 'González', 'Lucho', 'Pérez', 'García', 'Fernández', 'Libre', 'Martínez', 'Díaz', 'Hernández'],
+    'Uruguay': ['Rodríguez', 'González', 'Silva', 'Pastore', 'García', 'Formentera', 'Ruiz', 'Martínez', 'Díaz', 'Hernández'],
+    'Paraguay': ['Cardozo', 'González', 'Silva', 'Pérez', 'Santa Cruz', 'Ballasteros', 'López', 'Martínez', 'Díaz', 'Hernández'],
+    'Peru': ['Rodríguez', 'González', 'Silva', 'Bakero', 'García', 'Fernández', 'López', 'Martínez', 'Díaz', 'Hernández'],
+    'Ecuador': ['Rodríguez', 'González', 'Silva', 'Cabra', 'García', 'Fernández', 'Vasquez', 'Martínez', 'Díaz', 'Hernández'],
+    'Venezuela': ['Rodríguez', 'González', 'Lucho', 'Pérez', 'García', 'Buenavista', 'Libre', 'Martínez', 'Díaz', 'Hernández'],
     'Canada': ['Mark', 'Thomas','Rodrigo','Edgar','Philip','Kirr','Dacourt','Falurein','Gustaff','Moore'],
     
     # Additional countries surnames
-    'Austria': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann', 'Bauer', 'Wagner', 'Schwarz', 'Huber', 'Klein', 'Richter', 'Wolf', 'Neumann', 'Schwarz', 'Zimmermann', 'Braun', 'Krüger', 'Hofmann', 'Lange', 'Schmitt', 'Werner', 'Krause', 'Meier', 'Lehmann', 'Schmid', 'Schulze', 'Maier', 'Köhler', 'Herrmann', 'König', 'Walter', 'Mayer', 'Huber', 'Kaiser', 'Fuchs', 'Peters', 'Lang', 'Scholz', 'Möller', 'Weiß', 'Jung', 'Hahn', 'Schubert', 'Schwarz', 'Ziegler'],
-    'Switzerland': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann', 'Bauer', 'Wagner', 'Schwarz', 'Huber', 'Klein', 'Richter', 'Wolf', 'Neumann', 'Schwarz', 'Zimmermann', 'Braun', 'Krüger', 'Hofmann', 'Lange', 'Schmitt', 'Werner', 'Krause', 'Meier', 'Lehmann', 'Schmid', 'Schulze', 'Maier', 'Köhler', 'Herrmann', 'König', 'Walter', 'Mayer', 'Huber', 'Kaiser', 'Fuchs', 'Peters', 'Lang', 'Scholz', 'Möller', 'Weiß', 'Jung', 'Hahn', 'Schubert', 'Schwarz', 'Ziegler'],
-    'Sweden': ['Liljgren', 'Rantanen', 'Sundin', 'Nylander', 'Andersson', 'Johansson', 'Karlsson', 'Nilsson', 'Eriksson', 'Larsson', 'Olsson', 'Persson', 'Svensson', 'Gustafsson', 'Pettersson', 'Jonsson', 'Jansson', 'Hansson', 'Bengtsson', 'Jönsson', 'Lindberg', 'Jakobsson', 'Magnusson', 'Olofsson', 'Lindström', 'Eklund', 'Lindqvist', 'Lindgren', 'Axelsson', 'Bergström', 'Lundberg', 'Mattsson', 'Holmberg', 'Sandberg', 'Nyström', 'Lundqvist', 'Holm', 'Månsson', 'Palm', 'Hellström', 'Björk', 'Ekström', 'Berg', 'Lundin', 'Ström', 'Hedberg', 'Sjöberg', 'Forsberg', 'Engström', 'Lundgren', 'Blomqvist', 'Nordström', 'Samuelsson'],
-    'Norway': ['Hansen', 'Johansen', 'Olsen', 'Larsen', 'Andersen', 'Pedersen', 'Nilsen', 'Kristiansen', 'Jensen', 'Karlsen', 'Johnsen', 'Pettersen', 'Eriksen', 'Berg', 'Haugen', 'Hagen', 'Johannessen', 'Andreassen', 'Jacobsen', 'Dahl', 'Henriksen', 'Jørgensen', 'Halvorsen', 'Lund', 'Sørensen', 'Jakobsen', 'Moen', 'Gundersen', 'Iversen', 'Svendsen', 'Knudsen', 'Eide', 'Hauge', 'Solberg', 'Bakke', 'Danielsen', 'Berntsen', 'Christensen', 'Rasmussen', 'Lien', 'Mathisen', 'Paulsen', 'Holm', 'Aas', 'Sandvik', 'Lie', 'Haugland', 'Nygård', 'Vik', 'Ødegård'],
-    'Denmark': ['Nielsen', 'Jensen', 'Hansen', 'Pedersen', 'Andersen', 'Christensen', 'Larsen', 'Sørensen', 'Rasmussen', 'Jørgensen', 'Petersen', 'Madsen', 'Kristensen', 'Olsen', 'Thomsen', 'Christiansen', 'Poulsen', 'Johansen', 'Møller', 'Knudsen', 'Andreasen', 'Iversen', 'Jeppesen', 'Mikkelsen', 'Frederiksen', 'Jakobsen', 'Lauridsen', 'Henriksen', 'Lund', 'Svendsen', 'Eriksen', 'Holm', 'Bach', 'Bech', 'Bendtsen', 'Birk', 'Bjerre', 'Bøgh', 'Carlsen', 'Dahl', 'Dam', 'Eskildsen', 'Frandsen', 'Gravesen', 'Hansen', 'Hedegaard', 'Hjorth', 'Hoffmann', 'Jensen', 'Kjær'],
-    'Finland': ['Virtanen', 'Korhonen', 'Mäkinen', 'Nieminen', 'Mäkelä', 'Hämäläinen', 'Laine', 'Heikkinen', 'Koskinen', 'Järvinen', 'Lehtonen', 'Saarinen', 'Salminen', 'Heinonen', 'Niemi', 'Heikkilä', 'Kinnunen', 'Salonen', 'Turunen', 'Salo', 'Laitinen', 'Rantanen', 'Ahonen', 'Ojala', 'Lehto', 'Väisänen', 'Miettinen', 'Pitkänen', 'Hakkarainen', 'Mattila', 'Anttila', 'Hiltunen', 'Simonen', 'Manninen', 'Kivinen', 'Koski', 'Kangas', 'Peltola', 'Toivonen', 'Kokkonen', 'Nurmi', 'Kettunen', 'Seppänen', 'Aaltonen', 'Kallio', 'Karjalainen', 'Koivisto', 'Lindberg', 'Pekkanen', 'Rautio'],
-    'Iceland': ['Jónsson', 'Sigurðsson', 'Guðmundsson', 'Gunnarsson', 'Ólafsson', 'Einarsson', 'Kristjánsson', 'Magnússon', 'Stefánsson', 'Jóhannesson', 'Björnsson', 'Helgason', 'Pétursson', 'Óskarsson', 'Sveinsson', 'Þorsteinsson', 'Haraldsson', 'Árnason', 'Baldursson', 'Eiríksson', 'Friðriksson', 'Geirsson', 'Hauksson', 'Ingvarsson', 'Jónasson', 'Karlsson', 'Lárusson', 'Mársson', 'Níels', 'Ólafursson', 'Pállsson', 'Ragnarsson', 'Sigfússon', 'Tómas', 'Úlfsson', 'Vilhjálmsson', 'Þórsson', 'Ægirsson', 'Örnsson', 'Ásgeirsson', 'Bragi', 'Dagursson', 'Eiríkursson', 'Freyrsson', 'Gísli', 'Hrafnsson', 'Ívarsson', 'Jökull', 'Kári', 'Loki'],
-    'Ireland': ['Murphy', 'Kelly', 'O\'Sullivan', 'Walsh', 'Smith', 'O\'Brien', 'Byrne', 'Ryan', 'O\'Connor', 'O\'Neill', 'McCarthy', 'O\'Reilly', 'Doyle', 'Kennedy', 'Lynch', 'Quinn', 'Moore', 'O\'Callaghan', 'O\'Donnell', 'O\'Mahony', 'Burke', 'O\'Shea', 'O\'Leary', 'Daly', 'O\'Connell', 'Wilson', 'Dunne', 'Brennan', 'Murray', 'Collins', 'Campbell', 'Clarke', 'Johnston', 'Hughes', 'O\'Farrell', 'Fitzgerald', 'O\'Grady', 'Power', 'Sullivan', 'White', 'Hayes', 'O\'Dwyer', 'Martin', 'O\'Keeffe', 'O\'Rourke', 'O\'Malley', 'O\'Hara', 'O\'Donovan', 'O\'Sullivan', 'O\'Brien', 'O\'Connor'],
-    'Scotland': ['Smith', 'Brown', 'Wilson', 'Stewart', 'Thomson', 'Robertson', 'Campbell', 'Anderson', 'MacDonald', 'Scott', 'Reid', 'Murray', 'Taylor', 'Clark', 'Ross', 'Watson', 'Morrison', 'Paterson', 'Young', 'Mitchell', 'Fraser', 'Walker', 'Graham', 'Hamilton', 'Johnston', 'Cameron', 'Hunter', 'Kelly', 'Bell', 'Grant', 'McDonald', 'Miller', 'McLeod', 'McKenzie', 'Allan', 'Black', 'McKay', 'McLean', 'McIntosh', 'McPherson', 'McLaren', 'McGregor', 'McLaughlin', 'McBride', 'McFarlane', 'McTavish', 'McDougall', 'McInnes', 'McLennan', 'McNab', 'McNeill'],
-    'Wales': ['Jones', 'Williams', 'Davies', 'Evans', 'Thomas', 'Roberts', 'Lewis', 'Hughes', 'Morgan', 'Griffiths', 'Edwards', 'Owen', 'James', 'Price', 'Rees', 'Jenkins', 'Phillips', 'Harris', 'Lloyd', 'Powell', 'Morris', 'Richards', 'Taylor', 'Watkins', 'Bennett', 'Cook', 'Wood', 'Bailey', 'Cooper', 'Ward', 'Turner', 'Parker', 'Gray', 'Collins', 'Bell', 'Murphy', 'Cox', 'Howard', 'Ward', 'Torres', 'Peterson', 'Gray', 'Ramirez', 'James', 'Watson', 'Brooks', 'Kelly', 'Sanders', 'Price', 'Bennett'],
-    'Northern Ireland': ['Murphy', 'Kelly', 'O\'Sullivan', 'Walsh', 'Smith', 'O\'Brien', 'Byrne', 'Ryan', 'O\'Connor', 'O\'Neill', 'McCarthy', 'O\'Reilly', 'Doyle', 'Kennedy', 'Lynch', 'Quinn', 'Moore', 'O\'Callaghan', 'O\'Donnell', 'O\'Mahony', 'Burke', 'O\'Shea', 'O\'Leary', 'Daly', 'O\'Connell', 'Wilson', 'Dunne', 'Brennan', 'Murray', 'Collins', 'Campbell', 'Clarke', 'Johnston', 'Hughes', 'O\'Farrell', 'Fitzgerald', 'O\'Grady', 'Power', 'Sullivan', 'White', 'Hayes', 'O\'Dwyer', 'Martin', 'O\'Keeffe', 'O\'Rourke', 'O\'Malley', 'O\'Hara', 'O\'Donovan', 'O\'Sullivan', 'O\'Brien', 'O\'Connor'],
+    'Austria': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Muschaft', 'Becker', 'Schulz', 'Goring', 'Eisenwoer','Ziegler'],
+    'Switzerland': ['Blanc', 'Schmidt', 'Dubois', 'Robertstein', 'Frei', 'Meyer', 'Raffaello', 'Becker', 'Schulz', 'Perrin', 'Silva','Ziegler'],
+    'Sweden': ['Marksson', 'Larsson', 'Svensson', 'Karlsson', 'Eriksson', 'Junstorm', 'Hallstrom', 'Rottenberg', 'Storm', 'Vannaheim', 'Andersson','Hiccup'],
+    'Norway': ['Markssen', 'Larssen', 'Olsen', 'Vaalaand', 'Erikssen', 'Braut', 'Pedersen', 'Berg', 'Dahl', 'Haaland', 'Andersen','Estoic'],
+    'Denmark': ['Eriksen', 'Larsen', 'Kjaer', 'Froholt', 'Huljmand', 'Tommasson', 'Jorgensen', 'Kasper', 'Hojlmund', 'Christensen', 'Andersen','Sorensen'],
+    'Finland': ['Heikinen', 'Makela', 'Litmanem', 'Hyppia', 'Moller', 'Trosten', 'Niemi', 'Koivist', 'Virtanen', 'Iltamen', 'Jarvinen','Sulkvist'],
+    'Iceland': ['Jónsson', 'Sigurðsson', 'Guðmundsson', 'Gunnarsson', 'Ólafsson', 'Einarsson', 'Kristjánsson', 'Magnússon', 'Stefánsson', 'Jóhannesson', 'Björnsson','Loki'],
+    'Ireland': ['Murphy', 'Kelly', 'Sullivan', 'Guiness', 'Smith', 'O\'Brien',  'O\'Connor', 'O\'Neill', 'O\'Reilly' 'Quinn','O\'Callaghan', 'O\'Shea', 'Dunne', 'Fitzgerald'],
+    'Scotland': ['Smith', 'MacGregor','Ferguson','MacDonald','McLean','Stewart','Robertson','Murray','Graham','Armstrong','Douglas'],
+    'Wales': ['Williams','Evans','Hughes','Pritchard','Powell','Bale','Griffiths','Lancelot','Percival','Price'],
+    'Northern Ireland': ['Murphy', 'Kelly', 'Sullivan', 'Guiness', 'Smith', 'O\'Brien',  'O\'Connor', 'O\'Neill', 'O\'Reilly' 'Quinn','O\'Callaghan', 'O\'Shea', 'Dunne', 'Fitzgerald'],
     
     # Additional missing countries surnames
-    'Albania': ['Hoxha', 'Krasniqi', 'Berisha', 'Gashi', 'Kadriu', 'Morina', 'Pajaziti', 'Rexhepi', 'Shala', 'Zejnullahu'],
-    'Angola': ['Santos', 'Fernandes', 'Teta', 'Costa', 'Ferradura', 'Oliveira', 'Rodrigues', 'Ferreira', 'Alves', 'Gomes'],
-    'Armenia': ['Grigoryan', 'Khachatryan', 'Harutyunyan', 'Sargsyan', 'Vardanyan', 'Petrosyan', 'Karapetyan', 'Ghazaryan', 'Mkrtchyan', 'Avetisyan'],
+    'Albania': ['Abazaj', 'Mitaj', 'Berisha', 'Gashi', 'Kadriu', 'Euzabaj', 'Pajaziti', 'Rexhepi', 'Durmisi', 'Cana'],
+    'Angola': ['Santos', 'Fernandes', 'Teta', 'Costa', 'Ferradura', 'Cacimbo', 'Rodrigues', 'Ferreira', 'Vemba', 'Gomes'],
+    'Armenia': ['Grigoryan', 'Khachatryan', 'Harutyunyan', 'Sargsyan', 'Vardanyan', 'Petrosyan', 'Mkhitaryan', 'Ghazaryan', 'Chyan', 'Avetisyan'],
     'Belarus': ['Ivanov', 'Petrov', 'Sidorov', 'Kozlov', 'Morozov', 'Volkov', 'Alekseev', 'Lebedev', 'Semenov', 'Egorov'],
-    'Cape Verde': ['Santos', 'Fernandes', 'Patrao', 'Costa', 'Pereira', 'Mota', 'Rodrigues', 'Luvinha', 'Alves', 'Gomes'],
+    'Cape Verde': ['Santos', 'Varela', 'Patrao', 'Costa', 'Pereira', 'Mota', 'Rodrigues', 'Luvinha', 'Alves', 'Gomes'],
     'Benin': ['Adjanohoun', 'Agbessi', 'Akplogan', 'Bokonon', 'Dossou', 'Gbaguidi', 'Houngbédji', 'Kouassi', 'Migan', 'Tchibozo'],
     'Bolivia': ['García', 'Rodríguez', 'González', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
     'Bosnia and Herzegovina': ['Kovačević', 'Petrović', 'Nikolić', 'Marković', 'Đorđević', 'Stojanović', 'Ilić', 'Stanković', 'Pavlović', 'Milošević'],
     'Bulgaria': ['Ivanov', 'Petrov', 'Georgiev', 'Dimitrov', 'Stoyanov', 'Nikolov', 'Todorov', 'Hristov', 'Atanasov', 'Vasilev'],
     'Burkina Faso': ['Ouédraogo', 'Traoré', 'Sawadogo', 'Kaboré', 'Zongo', 'Ouattara', 'Bikienga', 'Boukary', 'Compaoré', 'Dabiré'],
     'Congo': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
-    'Costa Rica': ['Rodríguez', 'González', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
+    'Costa Rica': ['Rodríguez', 'González', 'Romero', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Bolanos', 'Díaz'],
     'Cote d\'Ivoire': ['Traoré', 'Ouattara', 'Koné', 'Diabaté', 'Bamba', 'Coulibaly', 'Drogba', 'Kalou', 'Tiéné', 'Zokora'],
     'Cyprus': ['Georgiou', 'Ioannou', 'Christou', 'Michael', 'Andreou', 'Constantinou', 'Papa', 'Kyprianou', 'Charalambous', 'Demetriou'],
     'Czech Republic': ['Novák', 'Svoboda', 'Novotný', 'Dvořák', 'Černý', 'Procházka', 'Kučera', 'Veselý', 'Horák', 'Němec'],
@@ -1923,16 +1923,16 @@ SURNAME_DATA = {
     'Gabon': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
     'Gambia': ['Jallow', 'Sanneh', 'Ceesay', 'Jobe', 'Manneh', 'Colley', 'Barry', 'Sarr', 'Gomez', 'Bojang'],
     'Georgia': ['Gelashvili', 'Kvaratskhelia', 'Mamardashvili', 'Kakabadze', 'Davitashvili', 'Kvaratskhelia', 'Mamardashvili', 'Kakabadze', 'Davitashvili', 'Gelashvili'],
-    'Greece': ['Papadopoulos', 'Georgiou', 'Karagiannis', 'Nikolaou', 'Antoniou', 'Vasileiou', 'Ioannou', 'Christou', 'Dimitriou', 'Konstantinou'],
+    'Greece': ['Papadopoulos', 'Forneiridis', 'Karagiannis', 'Leonidas', 'Kratos', 'Nikolaidis', 'Samaris', 'Malakaidis', 'Pretorius', 'Pyssas'],
     'Grenada': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
     'Guadeloupe': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
     'Guinea': ['Diallo', 'Bah', 'Camara', 'Traoré', 'Sow', 'Barry', 'Keita', 'Sylla', 'Cissé', 'Touré'],
     'Guinea-Bissau': ['Mendes', 'Fernandes', 'Silva', 'Costa', 'Pereira', 'Oliveira', 'Rodrigues', 'Ferreira', 'Alves', 'Gomes'],
-    'Honduras': ['Rodríguez', 'González', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
+    'Honduras': ['Rodríguez', 'González', 'García', 'Martínez', 'López', 'Pérez', 'Suazo', 'Fernández', 'Rondon', 'Díaz'],
     'Hungary': ['Nagy', 'Kovács', 'Tóth', 'Szabó', 'Horváth', 'Varga', 'Kiss', 'Molnár', 'Németh', 'Farkas'],
     'Iran': ['Mohammadi', 'Rezaei', 'Hassani', 'Karimi', 'Ahmadi', 'Nouri', 'Gholami', 'Faraji', 'Ebrahimi', 'Rahmani'],
     'Israel': ['Cohen', 'Levy', 'Mizrahi', 'Avraham', 'David', 'Shalom', 'Ben-David', 'Rosenberg', 'Goldberg', 'Weiss'],
-    'Jamaica': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Jamaica': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Kingston', 'Marley'],
     'Kenya': ['Mwangi', 'Njoroge', 'Kipchoge', 'Ochieng', 'Wanjiku', 'Kamau', 'Nyong\'o', 'Odinga', 'Kenyatta', 'Moi'],
     'Latvia': ['Bērziņš', 'Kalniņš', 'Ozols', 'Liepiņš', 'Dzērve', 'Priede', 'Eglītis', 'Vītols', 'Mežs', 'Silis'],
     'Liberia': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
@@ -1941,20 +1941,20 @@ SURNAME_DATA = {
     'Macedonia': ['Nikolovski', 'Petrovski', 'Georgievski', 'Dimitrovski', 'Stojanovski', 'Todorovski', 'Hristovski', 'Atanasovski', 'Vasilevski', 'Ilievski'],
     'Mali': ['Traoré', 'Keita', 'Coulibaly', 'Diallo', 'Sangaré', 'Diarra', 'Koné', 'Doumbia', 'Touré', 'Sissoko'],
     'Martinique': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
-    'Mozambique': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou'],
+    'Mozambique': ['Mabiala', 'Silva', 'Mexer', 'Quembo', 'Makengo', 'Néné', 'Lourenço', 'Catamo', 'Martins', 'Dove'],
     'Netherlands Antilles': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
     'New Zealand': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
     'Oman': ['Al-Rashid', 'Al-Zahra', 'Al-Mansouri', 'Al-Hajri', 'Al-Balushi', 'Al-Saadi', 'Al-Mahrouqi', 'Al-Hinai', 'Al-Kharusi', 'Al-Shamsi'],
     'Panama': ['Rodríguez', 'González', 'García', 'Martínez', 'López', 'Pérez', 'Sánchez', 'Fernández', 'Silva', 'Díaz'],
-    'Romania': ['Popescu', 'Ionescu', 'Popa', 'Radu', 'Stoica', 'Stan', 'Dumitrescu', 'Gheorghe', 'Constantinescu', 'Marin'],
-    'Saudi Arabia': ['Al-Rashid', 'Al-Zahra', 'Al-Mansouri', 'Al-Hajri', 'Al-Balushi', 'Al-Saadi', 'Al-Mahrouqi', 'Al-Hinai', 'Al-Kharusi', 'Al-Shamsi'],
-    'Serbia and Montenegro': ['Jovanović', 'Petrović', 'Nikolić', 'Marković', 'Đorđević', 'Stojanović', 'Ilić', 'Stanković', 'Pavlović', 'Milošević'],
+    'Romania': ['Popescu', 'Ionescu', 'Popa', 'Radu', 'Mutu', 'Hagi', 'Dumitrescu', 'Pilitanescu', 'Constantinescu', 'Marin'],
+    'Saudi Arabia': ['Kadesh','Hamidou','Ali','Hazzazi','Fallatah','Saad','Salem','Hassan','Al-Najei','Al-Boushal'],
+    'Serbia and Montenegro': ['Jovanović', 'Petrović', 'Nikolić', 'Marković', 'Đorđević','Slagalo', 'Stojanović', 'Ilić', 'Stanković', 'Pavlović', 'Milošević'],
     'Sierra Leone': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
     'Slovakia': ['Horváth', 'Kováč', 'Varga', 'Tóth', 'Nagy', 'Szabó', 'Molnár', 'Németh', 'Balog', 'Lukáč'],
     'Slovenia': ['Novak', 'Horvat', 'Krajnc', 'Zupančič', 'Kovačič', 'Mlakar', 'Vidmar', 'Petek', 'Kos', 'Zajc'],
-    'Togo': ['Adjanohoun', 'Agbessi', 'Akplogan', 'Bokonon', 'Dossou', 'Gbaguidi', 'Houngbédji', 'Kouassi', 'Migan', 'Tchibozo'],
-    'Trinidad and Tobago': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
-    'United States': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'],
+    'Togo': ['Adebayor','Salifou','Atsou','Akotou','Abalo','Boukari','Senaya','Touré','Salou','Wazo'],
+    'Trinidad and Tobago': ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Latapy', 'Miller', 'Davis', 'Rodriguez', 'Sparow'],
+    'United States': ['James','Page','Rhodes','Heyman','Curry','Jordan','Michaels','London','Summer','Copeland','Saint-John'],
     'Uzbekistan': ['Karimov', 'Rashidov', 'Toshev', 'Nazirov', 'Khamidov', 'Usmanov', 'Yuldashev', 'Rakhimov', 'Saidov', 'Kurbanov'],
     'Zambia': ['Mwamba', 'Chilufya', 'Banda', 'Mwanza', 'Sichone', 'Katongo', 'Kalaba', 'Mweene', 'Sunzu', 'Mulenga'],
     'Zimbabwe': ['Mugabe', 'Tsvangirai', 'Nkomo', 'Mugabe', 'Chinamasa', 'Mpofu', 'Mugabe', 'Tsvangirai', 'Nkomo', 'Mugabe']
@@ -2139,17 +2139,17 @@ def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict
         # Calculate age-based skill modifier
         age_modifier = 0
         if age == 15:
-            age_modifier = 4 + random.randint(-2, 2)  # Youngest = most penalty
+            age_modifier = 4 + random.randint(-3, 3)  # Youngest = most penalty
         elif age == 16:
-            age_modifier = 2 + random.randint(-2, 2)
+            age_modifier = 2 + random.randint(-3, 3)
         elif age == 17:
-            age_modifier = 1 + random.randint(-2, 2)
+            age_modifier = 1 + random.randint(-3, 3)
         elif age == 18:
-            age_modifier = -2 + random.randint(-2, 2)  # Baseline
+            age_modifier = -2 + random.randint(-3, 3)  # Baseline
         elif age == 19:
-            age_modifier = -4 + random.randint(-2, 2)   # Older = less penalty
+            age_modifier = -4 + random.randint(-3, 3)   # Older = less penalty
         elif age == 20:
-            age_modifier = -6 + random.randint(-2, 2)   # Oldest = least penalty
+            age_modifier = -6 + random.randint(-3, 3)   # Oldest = least penalty
         
         # Get inner_strength from regen_data (should be set previously)
         inner_strength = regen_data.get('inner_strength', 5)  # Default to 5 if not set
@@ -2182,6 +2182,14 @@ def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict
         # Inherit registered position from base player
         regen_data['registered_position'] = base_player_dict.get('registered_position', 'CMF')
         regen_data['game_position'] = base_player_dict.get('registered_position', 'CMF')
+        
+        # Get registered position to check if player is a goalkeeper (position 0)
+        base_registered_position = base_player_dict.get('registered_position', None)
+        is_goalkeeper = False
+        if base_registered_position is not None:
+            # Handle both string and integer formats
+            if base_registered_position == 0 or base_registered_position == '0' or str(base_registered_position) == '0':
+                is_goalkeeper = True
         
         # Define special attributes (overwrite with base player values)
         special_attributes = {
@@ -2223,11 +2231,17 @@ def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict
         for skill in skill_fields:
             base_value = base_player_dict.get(skill, 0)
             if base_value is not None:
-                # Apply inner_strength penalty + age modifier, but ensure minimum value of 1
+                # Apply inner_strength penalty + age modifier with per-skill randomness (-6 to +6)
                 total_penalty = inner_strength_penalty + age_modifier
-                skill_attributes[skill] = max(1, int(base_value - total_penalty))
+                # Add per-skill random variation (-6 to +6)
+                skill_randomness = random.randint(-6, 6)
+                skill_attributes[skill] = max(1, int(base_value - total_penalty + skill_randomness))
             else:
                 skill_attributes[skill] = 1
+        
+        # If player is not a goalkeeper, set goal_keeping to 50
+        if not is_goalkeeper:
+            skill_attributes['goal_keeping'] = 50
         
         # Keep consistency unchanged
         skill_attributes['consistency'] = int(base_player_dict.get('consistency', 50))
