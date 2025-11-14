@@ -209,7 +209,8 @@ def safe_refresh_database():
         performance_columns = [
             ('players', 'games_played', 'INTEGER DEFAULT 0'),
             ('players', 'goals', 'INTEGER DEFAULT 0'),
-            ('players', 'assists', 'INTEGER DEFAULT 0')
+            ('players', 'assists', 'INTEGER DEFAULT 0'),
+            ('players', 'MVP', 'INTEGER DEFAULT 0')
         ]
         
         for table, column, definition in performance_columns:
@@ -432,6 +433,7 @@ def safe_refresh_database():
                     games_played INTEGER DEFAULT 0,
                     goals INTEGER DEFAULT 0,
                     assists INTEGER DEFAULT 0,
+                    MVP INTEGER DEFAULT 0,
                     salary INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (player_id) REFERENCES players(id),
@@ -442,6 +444,35 @@ def safe_refresh_database():
             print("  ✅ Created player_season_history table")
         except Exception as e:
             print(f"  ❌ Error creating player_season_history table: {e}")
+        
+        # Add MVP column to existing player_season_history table if it doesn't exist
+        print("\n📊 Adding MVP column to player_season_history table...")
+        try:
+            cursor.execute("ALTER TABLE player_season_history ADD COLUMN MVP INTEGER DEFAULT 0")
+            print("  ✅ Added MVP column to player_season_history table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding MVP column to player_season_history: {e}")
+            else:
+                print("  ℹ️  MVP column already exists in player_season_history table")
+        
+        # Create player_individual_achievements table
+        print("\n🏆 Creating player_individual_achievements table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS player_individual_achievements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id INTEGER NOT NULL,
+                    season TEXT NOT NULL,
+                    achievement TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+                    UNIQUE(player_id, season, achievement)
+                )
+            """)
+            print("  ✅ Created player_individual_achievements table")
+        except Exception as e:
+            print(f"  ❌ Error creating player_individual_achievements table: {e}")
         
         # Create blog_posts table for contract renewal announcements
         print("\n📝 Creating blog_posts table...")

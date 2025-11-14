@@ -1510,7 +1510,7 @@ class TeamManager:
                 'head_width', 'neck_length', 'neck_width', 'shoulder_height', 'shoulder_width', 'chest_measurement',
                 'waist_circumference', 'arm_circumference', 'leg_circumference', 'calf_circumference', 'leg_length',
                 'wristband', 'wristband_color', 'international_number', 'classic_number', 'club_number', 'salary',
-                'contract_years_remaining', 'market_value', 'yearly_wage_rise', 'games_played', 'goals', 'assists',
+                'contract_years_remaining', 'market_value', 'yearly_wage_rise', 'games_played', 'goals', 'assists', 'MVP',
                 'championships_won', 'cups_won', 'seed_player'
             ]
             
@@ -1563,7 +1563,7 @@ class TeamManager:
                                    'arm_circumference', 'leg_circumference', 'calf_circumference', 'leg_length',
                                    'international_number', 'classic_number', 'club_number', 'age', 'weight',
                                    'preset_face_number', 'salary', 'contract_years_remaining', 'market_value',
-                                   'yearly_wage_rise', 'games_played', 'goals', 'assists', 'championships_won', 'cups_won',
+                                   'yearly_wage_rise', 'games_played', 'goals', 'assists', 'MVP', 'championships_won', 'cups_won',
                                    'seed_player']:
                             converted_value = int(new_value)
                         else:
@@ -2294,7 +2294,7 @@ def duplicate_player_stats(manager: TeamManager):
         print(f"   ID: {team_id}")
         
         # Get all players on the team
-        cursor.execute("SELECT id, player_name, games_played, goals, assists FROM players WHERE club_id = ?", (team_id,))
+        cursor.execute("SELECT id, player_name, games_played, goals, assists, MVP FROM players WHERE club_id = ?", (team_id,))
         players = cursor.fetchall()
         
         if not players:
@@ -2303,11 +2303,11 @@ def duplicate_player_stats(manager: TeamManager):
         
         print(f"\n📊 Found {len(players)} players on team '{team_name}':")
         print("-" * 80)
-        print(f"{'ID':<6} {'Name':<25} {'Games':<6} {'Goals':<6} {'Assists':<8}")
-        print("-" * 80)
+        print(f"{'ID':<6} {'Name':<25} {'Games':<6} {'Goals':<6} {'Assists':<8} {'MVP':<6}")
+        print("-" * 90)
         
         for player in players:
-            print(f"{player['id']:<6} {player['player_name']:<25} {player['games_played'] or 0:<6} {player['goals'] or 0:<6} {player['assists'] or 0:<8}")
+            print(f"{player['id']:<6} {player['player_name']:<25} {player['games_played'] or 0:<6} {player['goals'] or 0:<6} {player['assists'] or 0:<8} {player['MVP'] or 0:<6}")
         
         # Confirm duplication
         confirm = input(f"\n⚠️  Are you sure you want to DUPLICATE stats for all {len(players)} players on '{team_name}'? (y/N): ").strip().lower()
@@ -2322,16 +2322,18 @@ def duplicate_player_stats(manager: TeamManager):
             current_games = player['games_played'] or 0
             current_goals = player['goals'] or 0
             current_assists = player['assists'] or 0
+            current_mvp = player['MVP'] or 0
             
             new_games = current_games * 2
             new_goals = current_goals * 2
             new_assists = current_assists * 2
+            new_mvp = current_mvp * 2
             
             cursor.execute("""
                 UPDATE players 
-                SET games_played = ?, goals = ?, assists = ? 
+                SET games_played = ?, goals = ?, assists = ?, MVP = ? 
                 WHERE id = ?
-            """, (new_games, new_goals, new_assists, player_id))
+            """, (new_games, new_goals, new_assists, new_mvp, player_id))
             
             updated_count += 1
             print(f"   ✅ {player['player_name']}: Games {current_games}→{new_games}, Goals {current_goals}→{new_goals}, Assists {current_assists}→{new_assists}")

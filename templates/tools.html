@@ -102,6 +102,7 @@
                             <th>Games Played</th>
                             <th>Goals</th>
                             <th>Assists</th>
+                            <th>MVP</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -119,6 +120,10 @@
                             <td>
                                 <input type="number" name="assists_{{ player[0] }}" value="{{ player[4] }}" 
                                        placeholder="{{ player[4] }}" style="width: 80px; padding: 3px;">
+                            </td>
+                            <td>
+                                <input type="number" name="mvp_{{ player[0] }}" value="{{ player[5] }}" 
+                                       placeholder="{{ player[5] }}" style="width: 80px; padding: 3px;">
                             </td>
                         </tr>
                         {% endfor %}
@@ -353,6 +358,92 @@
             <div style="color: green; margin-top: 10px;">{{ historical_message }}</div>
         {% endif %}
     </div>
+
+    {# --- Individual Achievements Management Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>🌟 Manage Individual Achievements</h3>
+        <p>Add individual achievements for players (Rookie of the Year, Top Scorer, Ballon D'or, Draft Picks, etc.).</p>
+        <a href="{{ url_for('manage_individual_achievements') }}" class="button" style="background-color: #ffd700;">
+            <i class="fas fa-trophy"></i> Manage Individual Achievements
+        </a>
+        {% if achievements_message %}
+            <div style="color: green; margin-top: 10px;">{{ achievements_message }}</div>
+        {% endif %}
+    </div>
+
+    {% if players_achievements %}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>🌟 Add Individual Achievement</h3>
+        <form method="post" action="{{ url_for('manage_individual_achievements') }}">
+            <div style="margin-bottom: 15px;">
+                <label for="player_id_achievement">Player:</label>
+                <select name="player_id" id="player_id_achievement" required style="margin-left: 10px; padding: 5px; min-width: 300px;">
+                    <option value="" disabled selected>Select player</option>
+                    {% for player in players_achievements %}
+                        <option value="{{ player[0] }}">{{ player[1] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="season_achievement">Season:</label>
+                <select name="season" id="season_achievement" required style="margin-left: 10px; padding: 5px; width: 150px;">
+                    {% if seasons_list %}
+                        {% for season in seasons_list %}
+                            <option value="{{ season }}">{{ season }}</option>
+                        {% endfor %}
+                    {% else %}
+                        <option value="00/01">00/01</option>
+                        <option value="01/02">01/02</option>
+                        <option value="02/03">02/03</option>
+                        <option value="03/04">03/04</option>
+                        <option value="04/05">04/05</option>
+                        <option value="05/06">05/06</option>
+                        <option value="06/07">06/07</option>
+                        <option value="07/08">07/08</option>
+                        <option value="08/09">08/09</option>
+                        <option value="09/10">09/10</option>
+                        <option value="10/11">10/11</option>
+                        <option value="11/12">11/12</option>
+                        <option value="12/13">12/13</option>
+                        <option value="13/14">13/14</option>
+                        <option value="14/15">14/15</option>
+                        <option value="15/16">15/16</option>
+                        <option value="16/17">16/17</option>
+                        <option value="17/18">17/18</option>
+                        <option value="18/19">18/19</option>
+                        <option value="19/20">19/20</option>
+                    {% endif %}
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="achievement">Achievement:</label>
+                <select name="achievement" id="achievement" required style="margin-left: 10px; padding: 5px; min-width: 250px;">
+                    <option value="" disabled selected>Select achievement</option>
+                    {% if achievements_list %}
+                        {% for achievement in achievements_list %}
+                            <option value="{{ achievement }}">{{ achievement }}</option>
+                        {% endfor %}
+                    {% else %}
+                        <option value="Rookie of the Year">Rookie of the Year</option>
+                        <option value="1st Division Top Scorer">1st Division Top Scorer</option>
+                        <option value="2nd Division Top Scorer">2nd Division Top Scorer</option>
+                        <option value="1st Division Top Assists">1st Division Top Assists</option>
+                        <option value="2nd Division Top Assists">2nd Division Top Assists</option>
+                        <option value="Cup Top Goalscorer">Cup Top Goalscorer</option>
+                        <option value="Ballon D'or">Ballon D'or</option>
+                        <option value="1st Draft Pick">1st Draft Pick</option>
+                        <option value="2nd Draft Pick">2nd Draft Pick</option>
+                        <option value="3rd Draft Pick">3rd Draft Pick</option>
+                    {% endif %}
+                </select>
+            </div>
+            
+            <button type="submit" class="button" style="background-color: #ffd700; font-weight: bold;">🌟 Add Achievement</button>
+        </form>
+    </div>
+    {% endif %}
 
     {% if teams_historical %}
     <div class="tool-section" style="margin-bottom: 30px;">

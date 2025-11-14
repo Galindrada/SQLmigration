@@ -518,7 +518,7 @@ def finances():
     total_salaries = salary_result['total_salaries'] if salary_result else 0
 
     # Calculate available cap
-    available_cap = current_budget - int(total_salaries/2) # UPDATE HERE BY THE END OF SEASON TO FULL SALARY
+    available_cap = current_budget - int(total_salaries) # UPDATE HERE BY THE END OF SEASON TO FULL SALARY
 
     # Get transaction movements
     cur.execute("""
@@ -1074,8 +1074,9 @@ def pes6_player_details(player_id):
         'Registered Position': player_data['registered_position'],
         'Game Position': current_game_position,  # Use updated position
         'Games': player_data['games_played'] if 'games_played' in player_data.keys() else 0,
+        'Goals': player_data['goals'] if 'goals' in player_data.keys() else 0,
         'Assists': player_data['assists'] if 'assists' in player_data.keys() else 0,
-        'Goals': player_data['goals'] if 'goals' in player_data.keys() else 0
+        'MVP': player_data['MVP'] if 'MVP' in player_data.keys() else 0
     }
 
     # Add loan information if player is on loan
@@ -1197,13 +1198,24 @@ def pes6_player_details(player_id):
     # Get player historical data
     history_cur = db_helper.get_cursor()
     history_cur.execute("""
-        SELECT season, club_name, games_played, goals, assists, salary
+        SELECT season, club_name, games_played, goals, assists, MVP, salary
         FROM player_season_history
         WHERE player_id = ?
         ORDER BY season DESC
     """, (player_id,))
     player_history = history_cur.fetchall()
     history_cur.close()
+
+    # Get player individual achievements
+    achievements_cur = db_helper.get_cursor()
+    achievements_cur.execute("""
+        SELECT season, achievement
+        FROM player_individual_achievements
+        WHERE player_id = ?
+        ORDER BY season DESC, achievement ASC
+    """, (player_id,))
+    player_achievements = achievements_cur.fetchall()
+    achievements_cur.close()
 
     return render_template('pes6_player_details.html',
                            player=player_data,
@@ -1212,6 +1224,7 @@ def pes6_player_details(player_id):
                            bundled_skills=bundled_skills,
                            skills_numeric=skills_numeric,
                            player_history=player_history,
+                           player_achievements=player_achievements,
                            positional_skills=positional_skills,
                            special_skills=special_skills)
 
@@ -3514,7 +3527,7 @@ def update_team_stats():
             try:
                 # Get all players for the selected team
                 cur.execute("""
-                    SELECT id, player_name, games_played, goals, assists
+                    SELECT id, player_name, games_played, goals, assists, MVP
                     FROM players
                     WHERE club_id = ?
                     ORDER BY player_name ASC
@@ -3530,6 +3543,7 @@ def update_team_stats():
                     games = request.form.get(f'games_{player_id}')
                     goals = request.form.get(f'goals_{player_id}')
                     assists = request.form.get(f'assists_{player_id}')
+                    mvp = request.form.get(f'mvp_{player_id}')
 
                     updates = []
                     params = []
@@ -3548,6 +3562,11 @@ def update_team_stats():
                         assists = int(assists)
                         updates.append("assists = ?")
                         params.append(assists)
+
+                    if mvp and mvp.strip():
+                        mvp = int(mvp)
+                        updates.append("MVP = ?")
+                        params.append(mvp)
 
                     if updates:
                         params.append(player_id)
@@ -3575,7 +3594,7 @@ def update_team_stats():
     if request.method == 'POST' and request.form.get('team_id'):
         selected_team_id = request.form.get('team_id')
         cur.execute("""
-            SELECT id, player_name, games_played, goals, assists
+            SELECT id, player_name, games_played, goals, assists, MVP
             FROM players
             WHERE club_id = ?
             ORDER BY player_name ASC
@@ -3669,6 +3688,85 @@ def delete_team_historical_data(record_id):
         cur.close()
     
     return redirect(url_for('manage_team_historical_data'))
+
+# --- Player Individual Achievements Management ---
+@app.route('/manage_individual_achievements', methods=['GET', 'POST'])
+@login_required
+def manage_individual_achievements():
+    """Add or manage individual player achievements"""
+    cur = db_helper.get_cursor()
+    
+    if request.method == 'POST':
+        player_id = request.form.get('player_id')
+        season = request.form.get('season')
+        achievement = request.form.get('achievement')
+        
+        if not all([player_id, season, achievement]):
+            flash('All fields are required!', 'danger')
+            cur.close()
+            return redirect(url_for('manage_individual_achievements'))
+        
+        try:
+            # Check if achievement already exists for this player/season/achievement combo
+            cur.execute("""
+                SELECT id FROM player_individual_achievements 
+                WHERE player_id = ? AND season = ? AND achievement = ?
+            """, (player_id, season, achievement))
+            existing = cur.fetchone()
+            
+            if existing:
+                flash(f'This achievement already exists for this player in season {season}!', 'warning')
+            else:
+                # Insert new achievement
+                cur.execute("""
+                    INSERT INTO player_individual_achievements (player_id, season, achievement)
+                    VALUES (?, ?, ?)
+                """, (player_id, season, achievement))
+                db_helper.commit()
+                
+                # Get player name for success message
+                cur.execute("SELECT player_name FROM players WHERE id = ?", (player_id,))
+                player = cur.fetchone()
+                player_name = player['player_name'] if player else 'Unknown'
+                flash(f'Added achievement "{achievement}" for {player_name} in season {season}!', 'success')
+        except Exception as e:
+            db_helper.get_connection().rollback()
+            flash(f'Error saving achievement: {str(e)}', 'danger')
+        finally:
+            cur.close()
+        
+        return redirect(url_for('manage_individual_achievements'))
+    
+    # GET request - show form
+    cur.execute("SELECT id, player_name FROM players ORDER BY player_name ASC")
+    players = cur.fetchall()
+    cur.close()
+    
+    # Define available achievements
+    achievements = [
+        "Rookie of the Year",
+        "1st Division Top Scorer",
+        "2nd Division Top Scorer",
+        "1st Division Top Assists",
+        "2nd Division Top Assists",
+        "Cup Top Goalscorer",
+        "Ballon D'or",
+        "1st Draft Pick",
+        "2nd Draft Pick",
+        "3rd Draft Pick"
+    ]
+    
+    # Define available seasons
+    seasons = []
+    for year in range(0, 20):
+        season_str = f"{year:02d}/{(year+1)%100:02d}"
+        seasons.append(season_str)
+    
+    return render_template('tools.html', 
+                         players_achievements=players, 
+                         achievements_list=achievements,
+                         seasons_list=seasons,
+                         achievements_message=None)
 
 # --- Blacklist Helper Functions ---
 def add_to_blacklist(user_id, player_id):
@@ -6483,7 +6581,7 @@ def retire_player_manual():
                 strong_foot = ?, favoured_side = ?, registered_position = ?,
                 height = ?, weight = ?,
                 salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?,
-                development_key = ?, trait_key = ?, games_played = ?, goals = ?, assists = ?,
+                development_key = ?, trait_key = ?, games_played = ?, goals = ?, assists = ?, MVP = ?,
                 attack = ?, defense = ?, balance = ?, stamina = ?, top_speed = ?,
                 acceleration = ?, response = ?, agility = ?, dribble_accuracy = ?,
                 dribble_speed = ?, short_pass_accuracy = ?, short_pass_speed = ?,
@@ -6510,7 +6608,7 @@ def retire_player_manual():
             regen_data['strong_foot'], regen_data['favoured_side'], regen_data['registered_position'],
             regen_data['height'], regen_data['weight'],
             regen_data['salary'], regen_data['contract_years_remaining'], regen_data['yearly_wage_rise'],
-            regen_data['development_key'], regen_data['trait_key'], regen_data['games_played'], regen_data['goals'], regen_data['assists'],
+            regen_data['development_key'], regen_data['trait_key'], regen_data['games_played'], regen_data['goals'], regen_data['assists'], regen_data.get('MVP', 0),
             regen_data['attack'], regen_data['defense'], regen_data['balance'], regen_data['stamina'], regen_data['top_speed'],
             regen_data['acceleration'], regen_data['response'], regen_data['agility'], regen_data['dribble_accuracy'],
             regen_data['dribble_speed'], regen_data['short_pass_accuracy'], regen_data['short_pass_speed'],
@@ -6571,6 +6669,9 @@ def retire_player_manual():
             bundled_ratings['goalkeeping_rating'],
             player_id
         ))
+
+        # Clear individual achievements for the new regen (they should start with clean records)
+        cur.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (player_id,))
 
         # Create blog post about the retirement
         blog_title = f"Player Retirement: {player_name} Retires from {team_name}"
@@ -7003,7 +7104,7 @@ def calculate_player_career_stats(cur, player_id):
     try:
         # Get current season stats
         cur.execute("""
-            SELECT games_played, goals, assists, salary, championships_won, cups_won
+            SELECT games_played, goals, assists, MVP, salary, championships_won, cups_won
             FROM players
             WHERE id = ?
         """, (player_id,))
@@ -7020,7 +7121,7 @@ def calculate_player_career_stats(cur, player_id):
                 'cups_won': 0
             }
 
-        current_games, current_goals, current_assists, current_salary, championships_won, cups_won = current_stats
+        current_games, current_goals, current_assists, current_mvp, current_salary, championships_won, cups_won = current_stats
 
         # Get historical stats from player_season_history
         cur.execute("""
@@ -7047,6 +7148,7 @@ def calculate_player_career_stats(cur, player_id):
             'total_games': total_games,
             'total_goals': total_goals,
             'total_assists': total_assists,
+            'total_mvp': current_mvp or 0,  # MVP is only current season, not historical
             'seasons_played': total_seasons,
             'championships_won': championships_won or 0,
             'cups_won': cups_won or 0
@@ -7102,6 +7204,7 @@ def end_of_season_process():
             """, (user['id'],))
             result = cur.fetchone()
             total_salary = result['total_salary'] if result and result['total_salary'] else 0
+            total_salary = int(total_salary / 2)  # Only take half of the salary bill
 
             if total_salary > 0:
                 # Get top 3 highest paid players for the blog post
@@ -7172,10 +7275,11 @@ def end_of_season_process():
             team_id = team['id']
             club_name = team['club_name']
             total_salaries = team['total_salaries']
+            total_salaries = int(total_salaries / 2)  # Only take half of the salary bill
             current_budget = team['budget'] or 400000000  # Default if budget is NULL
 
             if total_salaries > 0:
-                # Reduce budget by the salary bill amount
+                # Reduce budget by the salary bill amount (half)
                 new_budget = current_budget - total_salaries
 
                 # Calculate available cap with new budget
@@ -7205,7 +7309,7 @@ def end_of_season_process():
 
         # Step 4: Multiply each player's salary by 2 and add to career earnings (exclude draftees)
         print("🔄 Step 4: Doubling player salaries and updating career earnings...")
-        cur.execute("UPDATE players SET salary = salary, career_earnings = career_earnings + (salary * 2) WHERE club_id != 141 AND (draftee = 0 OR draftee IS NULL)")
+        cur.execute("UPDATE players SET salary = salary, career_earnings = career_earnings + (salary) WHERE club_id != 141 AND (draftee = 0 OR draftee IS NULL)")
         salary_doubled = cur.rowcount
         print(f"  ✅ {salary_doubled} players had their salary doubled and career earnings updated (excluding No Club and draftees)")
 
@@ -7213,7 +7317,7 @@ def end_of_season_process():
         print("🔄 Step 5: Applying yearly wage rises...")
         cur.execute("""
             UPDATE players
-            SET salary = salary * (1 + COALESCE(yearly_wage_rise, 0) + 0.01)
+            SET salary = salary * (1 + COALESCE(yearly_wage_rise, 0))
             WHERE yearly_wage_rise IS NOT NULL AND (draftee = 0 OR draftee IS NULL)
         """)
         wage_rise_applied = cur.rowcount
@@ -7275,7 +7379,8 @@ def end_of_season_process():
 
         # Get all players with their current season stats
         cur.execute("""
-            SELECT p.id, p.player_name, p.club_id, t.club_name, p.games_played, p.goals, p.assists, p.salary
+            SELECT p.id, p.player_name, p.club_id, t.club_name, p.games_played, p.goals, p.assists, 
+                   COALESCE(p.MVP, 0) as MVP, p.salary
             FROM players p
             LEFT JOIN teams t ON p.club_id = t.id
             WHERE p.club_id IS NOT NULL AND p.club_id != 141
@@ -7283,24 +7388,44 @@ def end_of_season_process():
 
         players_for_history = cur.fetchall()
         history_records_created = 0
+        history_errors = 0
 
         for player in players_for_history:
             try:
+                # Ensure MVP is an integer (handle None values)
+                # sqlite3.Row objects use bracket notation, not .get()
+                mvp_value = player['MVP'] if 'MVP' in player.keys() else 0
+                if mvp_value is None:
+                    mvp_value = 0
+                else:
+                    mvp_value = int(mvp_value)
+                
                 cur.execute("""
                     INSERT OR REPLACE INTO player_season_history
-                    (player_id, season, club_id, club_name, games_played, goals, assists, salary)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (player_id, season, club_id, club_name, games_played, goals, assists, MVP, salary)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (player['id'], current_season, player['club_id'], player['club_name'],
-                      player['games_played'], player['goals'], player['assists'], player['salary']))
+                      player['games_played'] or 0, player['goals'] or 0, player['assists'] or 0, 
+                      mvp_value, player['salary'] or 0))
                 history_records_created += 1
             except Exception as e:
-                print(f"  ❌ Error recording history for player {player['player_name']}: {e}")
+                history_errors += 1
+                player_name = player['player_name'] if 'player_name' in player.keys() else 'Unknown'
+                player_id = player['id'] if 'id' in player.keys() else 'N/A'
+                print(f"  ❌ Error recording history for player {player_name} (ID: {player_id}): {e}")
+                import traceback
+                traceback.print_exc()
 
+        # Commit the history records
+        db_helper.commit()
+        
+        if history_errors > 0:
+            print(f"  ⚠️  {history_errors} errors occurred while recording history")
         print(f"  ✅ Created {history_records_created} player historical records for season {current_season}")
 
         # Step 7.5: Reset player statistics for new season
         print("🔄 Step 7.5: Resetting player statistics for new season...")
-        cur.execute("UPDATE players SET games_played = 0, goals = 0, assists = 0 WHERE club_id IS NOT NULL AND club_id != 141")
+        cur.execute("UPDATE players SET games_played = 0, goals = 0, assists = 0, MVP = 0 WHERE club_id IS NOT NULL AND club_id != 141")
         stats_reset_count = cur.rowcount
         print(f"  ✅ Reset statistics for {stats_reset_count} players (games_played, goals, assists = 0)")
 
@@ -7469,7 +7594,7 @@ def end_of_season_process():
                     # Get full player data before it's overwritten
                     cur.execute("""
                         SELECT p.id, p.player_name, p.age, p.nationality, p.registered_position,
-                               p.salary, p.market_value, p.games_played, p.goals, p.assists,
+                               p.salary, p.market_value, p.games_played, p.goals, p.assists, p.MVP,
                                p.championships_won, p.cups_won, t.club_name
                         FROM players p
                         LEFT JOIN teams t ON p.club_id = t.id
@@ -7534,7 +7659,7 @@ def end_of_season_process():
                             strong_foot = ?, favoured_side = ?, registered_position = ?,
                             height = ?, weight = ?,
                             salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?,
-                            development_key = ?, trait_key = ?, games_played = ?, goals = ?, assists = ?,
+                            development_key = ?, trait_key = ?, games_played = ?, goals = ?, assists = ?, MVP = ?,
                             attack = ?, defense = ?, balance = ?, stamina = ?, top_speed = ?,
                             acceleration = ?, response = ?, agility = ?, dribble_accuracy = ?,
                             dribble_speed = ?, short_pass_accuracy = ?, short_pass_speed = ?,
@@ -7562,7 +7687,7 @@ def end_of_season_process():
                         new_player_data['registered_position'], new_player_data['height'], new_player_data['weight'],
                         new_player_data['salary'], new_player_data['contract_years_remaining'], new_player_data['yearly_wage_rise'],
                         new_player_data['development_key'], new_player_data['trait_key'],
-                        new_player_data['games_played'], new_player_data['goals'], new_player_data['assists'],
+                        new_player_data['games_played'], new_player_data['goals'], new_player_data['assists'], new_player_data.get('MVP', 0),
                         new_player_data['attack'], new_player_data['defense'], new_player_data['balance'],
                         new_player_data['stamina'], new_player_data['top_speed'], new_player_data['acceleration'],
                         new_player_data['response'], new_player_data['agility'], new_player_data['dribble_accuracy'],
@@ -7610,6 +7735,9 @@ def end_of_season_process():
 
                     # Clear historical data for the new regen (they should start with clean records)
                     cur.execute("DELETE FROM player_season_history WHERE player_id = ?", (retired_id,))
+                    
+                    # Clear individual achievements for the new regen (they should start with clean records)
+                    cur.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (retired_id,))
                     
                     # Reset career stats for the new regen
                     cur.execute("""
@@ -7887,7 +8015,7 @@ def money_allocator():
 
             # Get current budget
             current_budget = get_user_budget(user_id)
-            new_budget = current_budget + amount
+            new_budget = current_budget + (amount/9999999999)
 
             # Update budget
             update_user_budget(user_id, new_budget)
@@ -9760,6 +9888,9 @@ def create_newcomers():
                     SET {set_clause}
                     WHERE id = ?
                 """, update_values)
+                
+                # Clear individual achievements for the replaced player (they should start with clean records)
+                cur.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (player_id_to_replace,))
                 
                 # Add player to blacklist if not already there
                 cur.execute("SELECT 1 FROM blacklist WHERE user_id = 1 AND player_id = ?", (player_id_to_replace,))

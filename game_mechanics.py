@@ -1108,10 +1108,13 @@ def calculate_performance_boost(player_data: dict) -> dict:
     games_played = player_data.get('games_played', 0)
     goals = player_data.get('goals', 0)
     assists = player_data.get('assists', 0)
+    mvp = player_data.get('MVP', 0)
     
     # Base boosts
     games_boost = min(0.5, games_played * 0.02)  # Max 0.5 boost from games
-    goals_boost = min(0.8, goals * 0.1)  # Max 0.8 boost from goals
+    # Blend goals and MVP together with equal weight (as impactful as goals_scored)
+    goals_mvp_combined = goals + mvp
+    goals_boost = min(0.8, goals_mvp_combined * 0.1)  # Max 0.8 boost from goals + MVP combined
     assists_boost = min(0.6, assists * 0.08)  # Max 0.6 boost from assists
     
     # Additional random factor for performance
@@ -2865,7 +2868,7 @@ def calculate_player_career_stats(cursor, player_id: int) -> Dict:
     try:
         # Get current season stats (from player table)
         cursor.execute("""
-            SELECT games_played, goals, assists, salary, market_value
+            SELECT games_played, goals, assists, MVP, salary, market_value
             FROM players WHERE id = ?
         """, (player_id,))
         current_stats = cursor.fetchone()

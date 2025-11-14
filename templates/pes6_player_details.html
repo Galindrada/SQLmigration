@@ -49,6 +49,30 @@
                 </div>
             </div>
 
+            {% if player_achievements %}
+            <h3>🌟 Individual Achievements</h3>
+            <div class="player-details-section">
+                <div class="history-table">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Season</th>
+                                <th>Achievement</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for achievement in player_achievements %}
+                            <tr>
+                                <td>{{ achievement.season }}</td>
+                                <td>{{ achievement.achievement }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
             {% if player_history %}
             <h3>📊 Season History</h3>
             <div class="player-details-section">
@@ -61,6 +85,7 @@
                                 <th>Games</th>
                                 <th>Goals</th>
                                 <th>Assists</th>
+                                <th>MVP</th>
                                 <th>Salary</th>
                             </tr>
                         </thead>
@@ -72,6 +97,7 @@
                                 <td>{{ season.games_played }}</td>
                                 <td>{{ season.goals }}</td>
                                 <td>{{ season.assists }}</td>
+                                <td>{{ season.MVP or 0 }}</td>
                                 <td>{{ season.salary | int | format_currency }}</td>
                             </tr>
                             {% endfor %}
@@ -82,6 +108,7 @@
                                 <td><strong>{{ player_history | sum(attribute='games_played') }}</strong></td>
                                 <td><strong>{{ player_history | sum(attribute='goals') }}</strong></td>
                                 <td><strong>{{ player_history | sum(attribute='assists') }}</strong></td>
+                                <td><strong>{{ player_history | sum(attribute='MVP') or 0 }}</strong></td>
                                 <td>-</td>
                             </tr>
                             {% endif %}
