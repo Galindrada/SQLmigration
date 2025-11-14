@@ -5,7 +5,7 @@
 {% block content %}
 <div class="container mt-4">
     <h1>🌟 Create Newcomers</h1>
-    <p class="text-muted">Generate new players by overwriting existing ones. Fill in basic info, generate skills based on position, then edit and commit.</p>
+    <p class="text-muted">Generate new players by replacing existing ones or creating new ones. Select a player to replace (optional), fill in basic info, generate skills based on position, then edit and commit.</p>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -28,10 +28,28 @@
                     <form id="newcomerForm" method="POST">
                         <input type="hidden" name="action" id="formAction" value="">
                         
+                        <!-- Player Selection for Replacement -->
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <label class="form-label"><strong>Select Player to Replace:</strong></label>
+                                <select class="form-select" name="player_id_to_replace" id="player_id_to_replace" required>
+                                    <option value="" disabled selected>-- Select a player to replace --</option>
+                                    {% for player in players %}
+                                    <option value="{{ player[0] }}">
+                                        {{ player[1] }} (Age: {{ player[2] }}, Team: {{ player[3] }}, Pos: {{ player[4] }}, Overall: {{ player[5] }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <small class="text-muted">The selected player will be replaced with the new data. You must select a player - new players cannot be created.</small>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
                         <!-- Player Slot -->
                         <div class="player-slot card mb-4">
                             <div class="card-header bg-secondary text-white">
-                                <h6>New Player</h6>
+                                <h6>New Player Data</h6>
                             </div>
                             <div class="card-body">
                                 <!-- Basic Info Row -->

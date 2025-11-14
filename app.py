@@ -18,7 +18,7 @@ from config import Config
 import db_helper  # New helper module for SQLite access
 
 # Market Bazaar Activity Toggle
-MARKET_BAZAAR_ENABLED = True  # Set to False to disable automatic market activity
+MARKET_BAZAAR_ENABLED = False  # Set to False to disable automatic market activity
 
 def get_next_market_activity_time():
     """Get the next market activity time (3 hours from now)"""
@@ -9510,7 +9510,16 @@ def create_newcomers():
         """)
         nationalities = [row[0] for row in cur.fetchall()]
         
-        return render_template('newcomers.html', nationalities=nationalities)
+        # Get all players for replacement selection
+        cur.execute("""
+            SELECT p.id, p.player_name, p.age, t.club_name, p.registered_position, p.overall
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            ORDER BY p.player_name ASC
+        """)
+        players = cur.fetchall()
+        
+        return render_template('newcomers.html', nationalities=nationalities, players=players)
     
     elif request.method == 'POST':
         action = request.form.get('action')
@@ -9608,31 +9617,39 @@ def create_newcomers():
             })
         
         elif action == 'commit':
-            # Create new player in No Club (free agency)
+            # Replace existing player (always - no new players can be created)
             cur = db_helper.get_cursor()
             
             name = request.form.get('name')
+            player_id_to_replace = request.form.get('player_id_to_replace')
             
             if not name:
                 flash("⚠️ Player name is required.", 'warning')
                 return redirect(url_for('create_newcomers'))
             
-            # Collect all form data for INSERT
-            insert_fields = ['player_name', 'age', 'height', 'weight', 'registered_position', 'nationality', 
-                           'contract_years_remaining', 'salary', 'yearly_wage_rise', 'draftee', 'club_id', 'career_earnings']
-            insert_values = [
+            if not player_id_to_replace or not player_id_to_replace.strip():
+                flash("⚠️ You must select a player to replace. New players cannot be created.", 'warning')
+                return redirect(url_for('create_newcomers'))
+            
+            # Verify the player exists
+            cur.execute("SELECT id, player_name, club_id FROM players WHERE id = ?", (player_id_to_replace,))
+            existing_player = cur.fetchone()
+            if not existing_player:
+                flash(f"⚠️ Player ID {player_id_to_replace} not found.", 'warning')
+                return redirect(url_for('create_newcomers'))
+            
+            old_player_name = existing_player[1]
+            old_club_id = existing_player[2]
+            
+            # Collect all form data (always replacing, never creating)
+            update_fields = ['player_name', 'age', 'height', 'weight', 'registered_position', 'nationality']
+            update_values = [
                 name,
                 request.form.get('age'),
                 request.form.get('height'),
                 request.form.get('weight'),
                 request.form.get('position'),
-                request.form.get('nationality', 'Portugal'),
-                3,  # contract_years_remaining
-                1000000,  # salary
-                0.25,  # yearly_wage_rise
-                1,  # draftee (marks as manually created)
-                141,  # No Club (free agency)
-                0  # career_earnings (start fresh)
+                request.form.get('nationality', 'Portugal')
             ]
             
             # Skills - collect all of them for bundled rating calculation
@@ -9650,13 +9667,13 @@ def create_newcomers():
                 value = request.form.get(skill)
                 if value:
                     skill_value = int(value)
-                    insert_fields.append(skill)
-                    insert_values.append(skill_value)
+                    update_fields.append(skill)
+                    update_values.append(skill_value)
                     skill_dict[skill] = skill_value
                 else:
                     # If skill not in form, use default of 50
-                    insert_fields.append(skill)
-                    insert_values.append(50)
+                    update_fields.append(skill)
+                    update_values.append(50)
                     skill_dict[skill] = 50
             
             # Appearance
@@ -9664,8 +9681,8 @@ def create_newcomers():
             for field in appearance_fields:
                 value = request.form.get(field)
                 if value is not None:
-                    insert_fields.append(field)
-                    insert_values.append(value)
+                    update_fields.append(field)
+                    update_values.append(value)
             
             # Special abilities (checkboxes)
             abilities = ['dribbling_skill', 'tactical_dribble', 'positioning', 'reaction', 'playmaking', 
@@ -9676,24 +9693,24 @@ def create_newcomers():
             
             for ability in abilities:
                 value = 1 if request.form.get(ability) else 0
-                insert_fields.append(ability)
-                insert_values.append(value)
+                update_fields.append(ability)
+                update_values.append(value)
             
             # Playing styles (checkboxes)
             styles = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
             for style in styles:
                 value = 1 if request.form.get(style) else 0
-                insert_fields.append(style)
-                insert_values.append(value)
+                update_fields.append(style)
+                update_values.append(value)
             
             # Calculate overall rating and bundled skill ratings based on skills and position
             from refresh_and_reimport import calculate_player_overall
             from game_mechanics import calculate_bundled_skill_ratings
             
-            # Build temp player dict for overall calculation using all inserted data
+            # Build temp player dict for overall calculation
             temp_player_data = {}
-            for i, field in enumerate(insert_fields):
-                temp_player_data[field] = insert_values[i]
+            for i, field in enumerate(update_fields):
+                temp_player_data[field] = update_values[i]
             
             # Calculate overall
             overall = calculate_player_overall(temp_player_data)
@@ -9716,13 +9733,13 @@ def create_newcomers():
                     'goalkeeping_rating': 50
                 }
             
-            # Add overall and bundled ratings to insert
-            insert_fields.append('overall')
-            insert_values.append(overall)
+            # Add overall and bundled ratings
+            update_fields.append('overall')
+            update_values.append(overall)
             
-            insert_fields.extend(['attack_rating', 'defense_rating', 'physical_rating', 
+            update_fields.extend(['attack_rating', 'defense_rating', 'physical_rating', 
                                 'power_rating', 'technique_rating', 'goalkeeping_rating'])
-            insert_values.extend([
+            update_values.extend([
                 bundled_ratings['attack_rating'],
                 bundled_ratings['defense_rating'],
                 bundled_ratings['physical_rating'],
@@ -9731,28 +9748,29 @@ def create_newcomers():
                 bundled_ratings['goalkeeping_rating']
             ])
             
-            print(f"DEBUG: Inserting bundled ratings - Attack: {bundled_ratings['attack_rating']}, Defense: {bundled_ratings['defense_rating']}, Physical: {bundled_ratings['physical_rating']}")
-            
-            # Build INSERT query
-            fields_clause = ', '.join(insert_fields)
-            placeholders = ', '.join(['?' for _ in insert_fields])
+            print(f"DEBUG: Updating bundled ratings - Attack: {bundled_ratings['attack_rating']}, Defense: {bundled_ratings['defense_rating']}, Physical: {bundled_ratings['physical_rating']}")
             
             try:
+                # UPDATE existing player (always replacing, never creating)
+                set_clause = ', '.join([f"{field} = ?" for field in update_fields])
+                update_values.append(player_id_to_replace)  # Add WHERE clause value
+                
                 cur.execute(f"""
-                    INSERT INTO players ({fields_clause})
-                    VALUES ({placeholders})
-                """, insert_values)
+                    UPDATE players 
+                    SET {set_clause}
+                    WHERE id = ?
+                """, update_values)
                 
-                # Get the newly created player ID
-                new_player_id = cur.lastrowid
-                
-                # Add player to blacklist (for all users, use user_id=1 as default)
-                cur.execute("INSERT INTO blacklist (user_id, player_id) VALUES (1, ?)", (new_player_id,))
+                # Add player to blacklist if not already there
+                cur.execute("SELECT 1 FROM blacklist WHERE user_id = 1 AND player_id = ?", (player_id_to_replace,))
+                if not cur.fetchone():
+                    cur.execute("INSERT INTO blacklist (user_id, player_id) VALUES (1, ?)", (player_id_to_replace,))
                 
                 db_helper.commit()
-                flash(f"✅ Successfully created newcomer: {name}! (Overall: {overall}, Player ID: {new_player_id}, placed in No Club, blacklisted)", 'success')
+                flash(f"✅ Successfully replaced player: {old_player_name} → {name}! (Overall: {overall}, Player ID: {player_id_to_replace})", 'success')
             except Exception as e:
-                flash(f"❌ Error creating player: {str(e)}", 'error')
+                db_helper.rollback()
+                flash(f"❌ Error replacing player: {str(e)}", 'error')
             
             return redirect(url_for('create_newcomers'))
     
