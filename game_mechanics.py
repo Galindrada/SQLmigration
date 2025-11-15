@@ -4,6 +4,8 @@ import random
 import math
 import sqlite3
 import re
+import os
+import shutil
 from typing import Dict, List, Optional, Tuple
 
 # --- Global Constants ---
@@ -2768,6 +2770,95 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None, overri
     regen_data = modify_regen_with_base_player(regen_data, db_path)
     
     return regen_data
+
+def assign_regen_face(player_id: int, skin_color: int, app_root: str = None) -> Optional[str]:
+    """
+    Pick a random face from the regen_faces folder based on skin_color,
+    move it to player_images, and return the filename.
+    
+    Args:
+        player_id: The ID of the player to assign the face to
+        skin_color: The skin color (1-4) to select from appropriate folder
+        app_root: Root path of the application (defaults to current directory)
+    
+    Returns:
+        The filename of the assigned image (e.g., 'player_123.png'), or None if no face available
+    """
+    if app_root is None:
+        app_root = os.path.dirname(os.path.abspath(__file__))
+    
+    # Ensure skin_color is in valid range (1-4)
+    if not (1 <= skin_color <= 4):
+        skin_color = 1  # Default to skin_1 if invalid
+    
+    # Paths
+    regen_faces_folder = os.path.join(app_root, 'static', 'regen_faces', f'skin_{skin_color}')
+    player_images_folder = os.path.join(app_root, 'static', 'player_images')
+    
+    # Create player_images folder if it doesn't exist
+    os.makedirs(player_images_folder, exist_ok=True)
+    
+    # Check if regen_faces folder exists and has PNG files
+    if not os.path.exists(regen_faces_folder):
+        print(f"  ⚠️  Regen faces folder not found: {regen_faces_folder}")
+        return None
+    
+    # Get all PNG files from the skin color folder
+    png_files = [f for f in os.listdir(regen_faces_folder) if f.lower().endswith('.png')]
+    
+    if not png_files:
+        print(f"  ⚠️  No PNG files found in {regen_faces_folder}")
+        return None
+    
+    # Pick a random PNG file
+    selected_file = random.choice(png_files)
+    source_path = os.path.join(regen_faces_folder, selected_file)
+    
+    # Destination filename: player_{player_id}.png
+    destination_filename = f'player_{player_id}.png'
+    destination_path = os.path.join(player_images_folder, destination_filename)
+    
+    # Delete old image if it exists (to replace with new regen face)
+    if os.path.exists(destination_path):
+        try:
+            os.remove(destination_path)
+            print(f"  🗑️  Deleted old profile image for player {player_id}")
+        except Exception as delete_error:
+            print(f"  ⚠️  Could not delete old image: {delete_error}")
+    
+    try:
+        # Resize image to 250x250 before moving
+        try:
+            from PIL import Image
+            img = Image.open(source_path)
+            # Resize to 250x250 with high-quality resampling
+            img = img.resize((250, 250), Image.Resampling.LANCZOS)
+            # Convert to RGB if necessary (for formats like PNG with transparency)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                # Create a white background
+                background = Image.new('RGB', (250, 250), (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                img = background
+            # Save as PNG at destination
+            img.save(destination_path, 'PNG', quality=95)
+            # Remove original file from regen_faces
+            os.remove(source_path)
+            print(f"  ✅ Assigned face {selected_file} to player {player_id} (resized to 250x250 and moved to {destination_filename})")
+        except ImportError:
+            # If PIL is not available, just move the file
+            shutil.move(source_path, destination_path)
+            print(f"  ✅ Assigned face {selected_file} to player {player_id} (moved to {destination_filename}, PIL not available for resizing)")
+        except Exception as resize_error:
+            # If resizing fails, just move the file
+            shutil.move(source_path, destination_path)
+            print(f"  ⚠️  Assigned face {selected_file} to player {player_id} (moved without resizing: {resize_error})")
+        
+        return destination_filename
+    except Exception as e:
+        print(f"  ❌ Error processing face file: {e}")
+        return None
 
 def generate_players_for_team(team_id: int, num_players: int = 1) -> List[Dict]:
     """Generate multiple new players for a team."""

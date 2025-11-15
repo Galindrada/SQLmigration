@@ -1217,6 +1217,12 @@ def pes6_player_details(player_id):
     player_achievements = achievements_cur.fetchall()
     achievements_cur.close()
 
+    # Get profile image if available (sqlite3.Row uses bracket notation, not .get())
+    try:
+        profile_image = player_data['profile_image'] if 'profile_image' in player_data.keys() else None
+    except (KeyError, TypeError):
+        profile_image = None
+
     return render_template('pes6_player_details.html',
                            player=player_data,
                            basic_info=basic_info,
@@ -1226,7 +1232,107 @@ def pes6_player_details(player_id):
                            player_history=player_history,
                            player_achievements=player_achievements,
                            positional_skills=positional_skills,
-                           special_skills=special_skills)
+                           special_skills=special_skills,
+                           profile_image=profile_image)
+
+@app.route('/upload_player_image/<int:player_id>', methods=['POST'])
+@login_required
+def upload_player_image(player_id):
+    """Upload a profile image for a player"""
+    from werkzeug.utils import secure_filename
+    
+    # Check if player exists
+    cur = db_helper.get_cursor()
+    cur.execute("SELECT id FROM players WHERE id = ?", (player_id,))
+    if not cur.fetchone():
+        cur.close()
+        flash("Player not found!", "error")
+        return redirect(url_for('pes6_player_details', player_id=player_id))
+    
+    # Check if file was uploaded
+    if 'profile_image' not in request.files:
+        flash("No file selected!", "error")
+        return redirect(url_for('pes6_player_details', player_id=player_id))
+    
+    file = request.files['profile_image']
+    
+    # If user does not select file, browser also submits empty part without filename
+    if file.filename == '':
+        flash("No file selected!", "error")
+        return redirect(url_for('pes6_player_details', player_id=player_id))
+    
+    # Check if file is an image
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    if '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() not in allowed_extensions:
+        flash("Invalid file type! Allowed: PNG, JPG, JPEG, GIF, WEBP", "error")
+        return redirect(url_for('pes6_player_details', player_id=player_id))
+    
+    # Create player_images directory if it doesn't exist
+    player_images_dir = os.path.join(app.root_path, 'static', 'player_images')
+    os.makedirs(player_images_dir, exist_ok=True)
+    
+    # Generate filename: player_{player_id}.png
+    # Always save as PNG to match regen system
+    filename = f'player_{player_id}.png'
+    filepath = os.path.join(player_images_dir, filename)
+    
+    # Delete old image if exists
+    old_image = cur.execute("SELECT profile_image FROM players WHERE id = ?", (player_id,)).fetchone()
+    if old_image and old_image[0]:
+        old_filepath = os.path.join(player_images_dir, old_image[0])
+        if os.path.exists(old_filepath) and old_image[0] != filename:
+            try:
+                os.remove(old_filepath)
+            except:
+                pass  # Ignore errors deleting old file
+    
+    try:
+        # Save the file temporarily first
+        temp_filepath = filepath + '.temp'
+        file.save(temp_filepath)
+        
+        # Resize image to 250x250 using PIL/Pillow
+        try:
+            from PIL import Image
+            img = Image.open(temp_filepath)
+            # Resize to 250x250 with high-quality resampling
+            img = img.resize((250, 250), Image.Resampling.LANCZOS)
+            # Convert to RGB if necessary (for formats like PNG with transparency)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                # Create a white background
+                background = Image.new('RGB', (250, 250), (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                img = background
+            # Save as PNG
+            img.save(filepath, 'PNG', quality=95)
+            # Remove temp file
+            if os.path.exists(temp_filepath):
+                os.remove(temp_filepath)
+        except ImportError:
+            # If PIL is not available, just move the temp file
+            if os.path.exists(temp_filepath):
+                os.rename(temp_filepath, filepath)
+            flash("Image uploaded (PIL not available for resizing)", "warning")
+        except Exception as resize_error:
+            # If resizing fails, just move the temp file
+            if os.path.exists(temp_filepath):
+                os.rename(temp_filepath, filepath)
+            app.logger.warning(f"Could not resize image: {resize_error}")
+        
+        # Update database
+        cur.execute("UPDATE players SET profile_image = ? WHERE id = ?", (filename, player_id))
+        db_helper.commit()
+        cur.close()
+        
+        flash("Profile image uploaded and resized to 250x250 successfully!", "success")
+    except Exception as e:
+        cur.close()
+        flash(f"Error uploading image: {str(e)}", "error")
+        app.logger.error(f"Error uploading player image: {e}")
+    
+    return redirect(url_for('pes6_player_details', player_id=player_id))
 
 # --- NEW ROUTES FOR TOOLS PAGE AND CSV DOWNLOAD ---
 @app.route('/tools')
@@ -6673,6 +6779,14 @@ def retire_player_manual():
         # Clear individual achievements for the new regen (they should start with clean records)
         cur.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (player_id,))
 
+        # Assign a face from the regen_faces folder based on skin_color
+        from game_mechanics import assign_regen_face
+        skin_color = regen_data.get('skin_color', 1)
+        assigned_face = assign_regen_face(player_id, skin_color, app.root_path)
+        if assigned_face:
+            cur.execute("UPDATE players SET profile_image = ? WHERE id = ?", (assigned_face, player_id))
+            db_helper.commit()
+
         # Create blog post about the retirement
         blog_title = f"Player Retirement: {player_name} Retires from {team_name}"
         blog_content = f"""
@@ -7745,6 +7859,13 @@ def end_of_season_process():
                         SET career_earnings = 0, championships_won = 0, cups_won = 0
                         WHERE id = ?
                     """, (retired_id,))
+
+                    # Assign a face from the regen_faces folder based on skin_color
+                    from game_mechanics import assign_regen_face
+                    skin_color = new_player_data.get('skin_color', 1)
+                    assigned_face = assign_regen_face(retired_id, skin_color, app.root_path)
+                    if assigned_face:
+                        cur.execute("UPDATE players SET profile_image = ? WHERE id = ?", (assigned_face, retired_id))
 
                 except Exception as e:
                     print(f"    ❌ Error replacing {replacement['retired_player']['player_name']}: {e}")

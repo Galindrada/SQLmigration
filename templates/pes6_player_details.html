@@ -6,9 +6,10 @@
     <h2>{{ player.player_name }} - Full Skillset</h2>
     <p><a href="{{ url_for('pes6_team_details', team_id=player.club_id) }}">← Back to {{ basic_info.Club }} Roster</a></p>
 
-    <div class="player-summary-grid">
+    <!-- Top row: Basic Information (left) and Profile Picture (right) -->
+    <div class="player-summary-grid-top">
         <div class="player-info-section">
-            <h3>Basic Information</h3>
+            <h3 style="color: #ffd700; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);">Basic Information</h3>
             <div class="player-details-section">
                 <div class="skills-grid">
                     {% for key, value in basic_info.items() %}
@@ -19,6 +20,36 @@
                     {% endfor %}
                 </div>
             </div>
+        </div>
+
+        <div class="profile-picture-section">
+            <h3 style="color: #ffd700; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);">Profile Picture</h3>
+            <div class="player-details-section" style="text-align: center; padding: 20px;">
+                {% if profile_image %}
+                    <img src="{{ url_for('static', filename='player_images/' + profile_image) }}" 
+                         alt="{{ player.player_name }}" 
+                         style="width: 250px; height: 250px; object-fit: cover; border-radius: 10px; border: 3px solid #ffd700; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
+                {% else %}
+                    <div style="width: 250px; height: 250px; background: linear-gradient(145deg, #2a2a2a, #1f1f1f); border-radius: 10px; border: 3px solid #444; display: inline-flex; align-items: center; justify-content: center; color: #999;">
+                        <span style="font-size: 48px;">👤</span>
+                    </div>
+                {% endif %}
+                
+                <div style="margin-top: 20px;">
+                    <form method="POST" action="{{ url_for('upload_player_image', player_id=player.id) }}" enctype="multipart/form-data" style="display: inline-block;">
+                        <input type="file" name="profile_image" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" style="margin-bottom: 10px; display: block;">
+                        <button type="submit" class="btn btn-primary" style="background-color: #ffd700; color: #000; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                            📤 Upload Profile Image
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Second row: Left column for other info, Right column for Skill Ratings (below picture) -->
+    <div class="player-summary-grid">
+        <div class="player-info-section">
 
             <h3>Financial Information</h3>
             <div class="player-details-section">
@@ -156,6 +187,13 @@
     {# Positional Skills and Special Skills sections were removed as requested in that turn #}
 
     <style>
+        .player-summary-grid-top {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* Two columns */
+            gap: 20px; /* Space between columns */
+            margin-bottom: 20px;
+        }
+
         .player-summary-grid {
             display: grid;
             grid-template-columns: 1fr 1fr; /* Two columns */
@@ -163,11 +201,16 @@
             margin-bottom: 20px;
         }
 
-        .player-summary-grid h3 {
+        .player-summary-grid h3,
+        .player-summary-grid-top h3 {
             grid-column: span 1; /* Make headers span only one column in the grid */
             margin-top: 0;
-            color: #1a1a1a;
-            text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
+        }
+
+        .profile-picture-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
         }
 
         .player-details-section {
@@ -203,6 +246,7 @@
 
         /* Adjustments for smaller screens */
         @media (max-width: 768px) {
+            .player-summary-grid-top,
             .player-summary-grid {
                 grid-template-columns: 1fr; /* Stack columns on smaller screens */
             }
