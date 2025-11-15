@@ -58,6 +58,10 @@
                                         <label class="form-label">Name:</label>
                                         <input type="text" class="form-control form-control-sm" name="name" placeholder="Player Name" required>
                                     </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Shirt Name:</label>
+                                        <input type="text" class="form-control form-control-sm" name="shirt_name" placeholder="Shirt Name">
+                                    </div>
                                     <div class="col-md-1">
                                         <label class="form-label">Age:</label>
                                         <input type="number" class="form-control form-control-sm" name="age" min="16" max="45" value="20">
@@ -127,7 +131,7 @@
                                                 {% for skill in skills %}
                                                 <div class="col-md-2 mb-2">
                                                     <label class="form-label" style="font-size: 0.85rem;">{{ skill.replace('_', ' ').title() }}:</label>
-                                                    <input type="number" class="form-control form-control-sm" name="{{ skill }}" min="1" max="99" value="50">
+                                                    <input type="number" class="form-control form-control-sm skill-input" name="{{ skill }}" min="1" max="99" value="50" oninput="updateSkillColor(this)">
                                                 </div>
                                                 {% endfor %}
                                             </div>
@@ -226,6 +230,26 @@
 </div>
 
 <script>
+function updateSkillColor(input) {
+    const value = parseInt(input.value) || 0;
+    let color = '#6c757d'; // Default grey
+    
+    if (value >= 1 && value <= 74) {
+        color = '#6c757d'; // Grey
+    } else if (value >= 75 && value <= 79) {
+        color = '#28a745'; // Green
+    } else if (value >= 80 && value <= 89) {
+        color = '#ffc107'; // Yellow
+    } else if (value >= 90 && value <= 94) {
+        color = '#fd7e14'; // Orange
+    } else if (value >= 95 && value <= 99) {
+        color = '#dc3545'; // Red
+    }
+    
+    input.style.color = color;
+    input.style.fontWeight = 'bold';
+}
+
 function generatePlayers() {
     const form = document.getElementById('newcomerForm');
     const formData = new FormData(form);
@@ -257,6 +281,10 @@ function generatePlayers() {
                             input.checked = data.data[key] == 1;
                         } else {
                             input.value = data.data[key];
+                            // Update color for skill inputs
+                            if (input.classList.contains('skill-input')) {
+                                updateSkillColor(input);
+                            }
                         }
                     }
                 });
@@ -272,6 +300,14 @@ function generatePlayers() {
         alert('Failed to generate player.');
     });
 }
+
+// Initialize colors for all skill inputs on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const skillInputs = document.querySelectorAll('.skill-input');
+    skillInputs.forEach(input => {
+        updateSkillColor(input);
+    });
+});
 </script>
 
 <style>

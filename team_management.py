@@ -1511,7 +1511,7 @@ class TeamManager:
                 'waist_circumference', 'arm_circumference', 'leg_circumference', 'calf_circumference', 'leg_length',
                 'wristband', 'wristband_color', 'international_number', 'classic_number', 'club_number', 'salary',
                 'contract_years_remaining', 'market_value', 'yearly_wage_rise', 'games_played', 'goals', 'assists', 'MVP',
-                'championships_won', 'cups_won', 'seed_player'
+                'championships_won', 'cups_won', 'seed_player', 'draftee'
             ]
             
             # Filter to only include fields that exist in the database
@@ -1564,7 +1564,7 @@ class TeamManager:
                                    'international_number', 'classic_number', 'club_number', 'age', 'weight',
                                    'preset_face_number', 'salary', 'contract_years_remaining', 'market_value',
                                    'yearly_wage_rise', 'games_played', 'goals', 'assists', 'MVP', 'championships_won', 'cups_won',
-                                   'seed_player']:
+                                   'seed_player', 'draftee']:
                             converted_value = int(new_value)
                         else:
                             converted_value = new_value

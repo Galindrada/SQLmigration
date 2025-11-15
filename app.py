@@ -9770,9 +9770,10 @@ def create_newcomers():
             old_club_id = existing_player[2]
             
             # Collect all form data (always replacing, never creating)
-            update_fields = ['player_name', 'age', 'height', 'weight', 'registered_position', 'nationality']
+            update_fields = ['player_name', 'shirt_name', 'age', 'height', 'weight', 'registered_position', 'nationality']
             update_values = [
                 name,
+                request.form.get('shirt_name', ''),
                 request.form.get('age'),
                 request.form.get('height'),
                 request.form.get('weight'),
@@ -9875,6 +9876,10 @@ def create_newcomers():
                 bundled_ratings['technique_rating'],
                 bundled_ratings['goalkeeping_rating']
             ])
+            
+            # Set draftee status and contract details for new players
+            update_fields.extend(['draftee', 'salary', 'contract_years_remaining', 'yearly_wage_rise'])
+            update_values.extend([1, 1000000, 3, 0.25])
             
             print(f"DEBUG: Updating bundled ratings - Attack: {bundled_ratings['attack_rating']}, Defense: {bundled_ratings['defense_rating']}, Physical: {bundled_ratings['physical_rating']}")
             
