@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Player Images Diagnosis</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
+        h1, h2 { color: #ffd700; }
+        table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+        th, td { border: 1px solid #444; padding: 8px; text-align: left; }
+        th { background: #333; color: #ffd700; }
+        .exists { color: #0f0; }
+        .missing { color: #f00; }
+        .old { background: #442200; }
+        .new { background: #002244; }
+    </style>
+</head>
+<body>
+    <h1>Player Images Diagnosis</h1>
+    <p><strong>Total players in database:</strong> {{ total }}</p>
+    <p><strong>Players with images in DB:</strong> {{ (total - no_db_entry_count) }}</p>
+    <p><strong>Players without images in DB:</strong> <span class="missing">{{ no_db_entry_count }}</span></p>
+    <p><strong>Missing files (in DB but file not found):</strong> <span class="missing">{{ missing_files_count }}</span></p>
+    <p><strong>Older files (18:37):</strong> {{ exists_old|length }}</p>
+    <p><strong>Newer files:</strong> {{ exists_new|length }}</p>
+    
+    <h2>Missing Files ({{ missing_files_count }}) - In DB but file not found</h2>
+    {% if missing_files %}
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Filename</th>
+            <th>Path</th>
+            <th>Status</th>
+        </tr>
+        {% for player in missing_files %}
+        <tr>
+            <td>{{ player.id }}</td>
+            <td>{{ player.name }}</td>
+            <td>{{ player.filename }}</td>
+            <td style="font-size: 0.8em; color: #888;">{{ player.path_resolved if player.path_resolved else player.path }}</td>
+            <td class="missing">❌ {{ player.error if player.error else 'Missing' }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>✅ All files with DB entries exist!</p>
+    {% endif %}
+    
+    <h2>Players Without Images in Database ({{ no_db_entry_count }})</h2>
+    {% if no_db_entry_count > 0 %}
+    <p>Showing first 50 players without images:</p>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Status</th>
+        </tr>
+        {% for player in no_db_entry[:50] %}
+        <tr>
+            <td>{{ player.id }}</td>
+            <td>{{ player.name }}</td>
+            <td>No image entry</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% if no_db_entry_count > 50 %}
+    <p>... and {{ no_db_entry_count - 50 }} more players without images</p>
+    {% endif %}
+    {% else %}
+    <p>✅ All players have image entries in database!</p>
+    {% endif %}
+    
+    <h2>Older Files (18:37) - {{ exists_old|length }}</h2>
+    {% if exists_old %}
+    <table class="old">
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Filename</th>
+            <th>Size</th>
+            <th>Modified</th>
+            <th>Valid PNG</th>
+            <th>Action</th>
+        </tr>
+        {% for player in exists_old %}
+        <tr>
+            <td>{{ player.id }}</td>
+            <td>{{ player.name }}</td>
+            <td>{{ player.filename }}</td>
+            <td>{{ player.size|int if player.size else 'N/A' }} bytes</td>
+            <td>{{ player.modified }}</td>
+            <td>{% if player.valid_png %}✅{% else %}❌{% endif %}</td>
+            <td><a href="/reprocess_image/{{ player.id }}" style="color: #0ff;">Reprocess</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+    
+    <h2>All Players</h2>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Filename</th>
+            <th>Status</th>
+            <th>Size</th>
+            <th>Modified</th>
+            <th>Error</th>
+        </tr>
+        {% for player in all_players %}
+        <tr {% if not player.exists %}class="missing"{% elif '18:37' in player.get('modified', '') %}class="old"{% endif %}>
+            <td>{{ player.id }}</td>
+            <td>{{ player.name }}</td>
+            <td>{{ player.filename if player.filename else 'N/A' }}</td>
+            <td>{% if player.exists %}<span class="exists">✅ Exists</span>{% else %}<span class="missing">❌ Missing</span>{% endif %}</td>
+            <td>{{ player.size|int if player.size else 'N/A' }}</td>
+            <td>{{ player.modified if player.modified else 'N/A' }}</td>
+            <td style="font-size: 0.8em; color: #f88;">
+                {{ player.error if player.error else '' }}
+                {{ player.read_error if player.read_error else '' }}
+                {{ player.serve_test_error if player.serve_test_error else '' }}
+                {% if player.exists_via_os and not player.can_be_served %}⚠️ Exists but can't be served{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

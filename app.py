@@ -1219,7 +1219,19 @@ def pes6_player_details(player_id):
 
     # Get profile image if available (sqlite3.Row uses bracket notation, not .get())
     try:
-        profile_image = player_data['profile_image'] if 'profile_image' in player_data.keys() else None
+        if 'profile_image' in player_data.keys():
+            profile_image = player_data['profile_image']
+            # Clean up: ensure it's not None, empty string, or just whitespace
+            if not profile_image or (isinstance(profile_image, str) and not profile_image.strip()):
+                profile_image = None
+            else:
+                # Verify file exists locally (for debugging)
+                profile_image = profile_image.strip()
+                image_path = os.path.join(app.root_path, 'static', 'player_images', profile_image)
+                if not os.path.exists(image_path):
+                    app.logger.warning(f"Profile image file not found for player {player_id}: {image_path}")
+        else:
+            profile_image = None
     except (KeyError, TypeError):
         profile_image = None
 
@@ -1233,7 +1245,361 @@ def pes6_player_details(player_id):
                            player_achievements=player_achievements,
                            positional_skills=positional_skills,
                            special_skills=special_skills,
-                           profile_image=profile_image)
+                           profile_image=profile_image,
+                           cache_timestamp=int(time.time()))  # Add timestamp for cache busting (updates on each page load)
+
+@app.route('/player_image/<int:player_id>')
+def serve_player_image_by_id(player_id):
+    """Serve player image directly by player ID (bypasses static file serving)"""
+    try:
+        cur = db_helper.get_cursor()
+        cur.execute("SELECT profile_image FROM players WHERE id = ?", (player_id,))
+        result = cur.fetchone()
+        cur.close()
+        
+        # Get filename from database, or fall back to standard naming
+        if result and result[0] and result[0].strip():
+            filename = result[0].strip()
+        else:
+            # Fall back to standard naming if database entry is missing
+            filename = f'player_{player_id}.png'
+            app.logger.info(f"Player {player_id}: No database entry, using fallback filename: {filename}")
+        
+        player_images_dir = os.path.join(app.root_path, 'static', 'player_images')
+        filepath = os.path.join(player_images_dir, filename)
+        
+        # Debug logging
+        app.logger.info(f"Player {player_id}: Looking for image")
+        app.logger.info(f"  Database filename: {repr(filename)}")
+        app.logger.info(f"  app.root_path: {app.root_path}")
+        app.logger.info(f"  player_images_dir: {player_images_dir}")
+        app.logger.info(f"  Full filepath: {filepath}")
+        app.logger.info(f"  Absolute filepath: {os.path.abspath(filepath)}")
+        app.logger.info(f"  Directory exists: {os.path.exists(player_images_dir)}")
+        app.logger.info(f"  File exists: {os.path.exists(filepath)}")
+        
+        # Try alternative path resolution if first attempt fails
+        if not os.path.exists(filepath):
+            # Try with current working directory
+            alt_path = os.path.join(os.getcwd(), 'static', 'player_images', filename)
+            app.logger.info(f"  Trying alternative path: {alt_path}")
+            app.logger.info(f"  Alternative exists: {os.path.exists(alt_path)}")
+            if os.path.exists(alt_path):
+                filepath = alt_path
+            else:
+                # Try relative to script location
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                alt_path2 = os.path.join(script_dir, 'static', 'player_images', filename)
+                app.logger.info(f"  Trying script-relative path: {alt_path2}")
+                app.logger.info(f"  Script-relative exists: {os.path.exists(alt_path2)}")
+                if os.path.exists(alt_path2):
+                    filepath = alt_path2
+        
+        if not os.path.exists(filepath):
+            app.logger.error(f"Player {player_id}: File not found at any path. Tried: {filepath}")
+            # List directory contents for debugging
+            if os.path.exists(player_images_dir):
+                try:
+                    files_in_dir = os.listdir(player_images_dir)
+                    matching_files = [f for f in files_in_dir if f.startswith(f'player_{player_id}')]
+                    app.logger.info(f"  Files in directory: {len(files_in_dir)} total")
+                    app.logger.info(f"  Files matching player_{player_id}: {matching_files}")
+                except Exception as e:
+                    app.logger.error(f"  Cannot list directory: {e}")
+            
+            response = make_response("Image file not found", 404)
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
+        
+        # Read the file into memory and validate it's a PNG
+        try:
+            # Check file permissions first
+            if not os.access(filepath, os.R_OK):
+                app.logger.error(f"Player {player_id}: File {filepath} is not readable")
+                response = make_response("File not readable", 403)
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                return response
+            
+            with open(filepath, 'rb') as f:
+                image_data = f.read()
+            
+            if len(image_data) == 0:
+                app.logger.error(f"Player {player_id}: File {filepath} is empty")
+                response = make_response("File is empty", 400)
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                return response
+            
+            app.logger.info(f"Player {player_id}: Successfully read {len(image_data)} bytes from {filepath}")
+            
+            # Verify it's a valid PNG
+            if not image_data.startswith(b'\x89PNG\r\n\x1a\n'):
+                app.logger.error(f"Player {player_id}: File {filename} is not a valid PNG. First bytes: {image_data[:8] if len(image_data) >= 8 else image_data}")
+                # Try to serve it anyway - might be a valid image format
+                # Just set content type based on file extension
+                content_type = 'image/png'  # Default to PNG since filename ends in .png
+                response = make_response(image_data)
+                response.headers['Content-Type'] = content_type
+                response.headers['Content-Length'] = str(len(image_data))
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+                response.headers['Pragma'] = 'no-cache'
+                response.headers['Expires'] = '0'
+                app.logger.warning(f"Player {player_id}: Serving file even though PNG header invalid")
+                return response
+            
+            # Create response with image data
+            response = make_response(image_data)
+            response.headers['Content-Type'] = 'image/png'
+            response.headers['Content-Length'] = str(len(image_data))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            response.headers['ETag'] = f'"{hash(image_data) % 1000000}"'  # Simple ETag
+            response.headers['Last-Modified'] = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%a, %d %b %Y %H:%M:%S GMT')
+            app.logger.info(f"Player {player_id}: Successfully serving image")
+            return response
+            
+        except IOError as e:
+            app.logger.error(f"Player {player_id}: Cannot read file {filepath}: {e}")
+            import traceback
+            app.logger.error(traceback.format_exc())
+            response = make_response("Cannot read image file", 500)
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
+            
+    except Exception as e:
+        app.logger.error(f"Error serving player image {player_id}: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        response = make_response(f"Error: {str(e)}", 500)
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return response
+
+@app.route('/diagnose_player_images')
+@login_required
+def diagnose_player_images():
+    """Diagnostic endpoint to check which player images exist"""
+    try:
+        cur = db_helper.get_cursor()
+        # Get ALL players, not just those with images
+        cur.execute("""
+            SELECT id, player_name, profile_image 
+            FROM players 
+            ORDER BY id
+        """)
+        players = cur.fetchall()
+        cur.close()
+        
+        # Use the same path resolution as the image serving route
+        player_images_dir = os.path.join(app.root_path, 'static', 'player_images')
+        
+        # Debug: Log the path being used
+        app.logger.info(f"Diagnostic: Checking images in {player_images_dir}")
+        app.logger.info(f"Diagnostic: app.root_path = {app.root_path}")
+        app.logger.info(f"Diagnostic: Directory exists = {os.path.exists(player_images_dir)}")
+        
+        results = []
+        
+        for player_id, name, filename in players:
+            # Check if player has image entry in database
+            has_db_entry = filename is not None and filename != '' and filename.strip() != ''
+            
+            file_info = {
+                'id': player_id,
+                'name': name,
+                'filename': filename if has_db_entry else None,
+                'has_db_entry': has_db_entry
+            }
+            
+            if has_db_entry:
+                filename_clean = filename.strip()
+                filepath = os.path.join(player_images_dir, filename_clean)
+                
+                # Try multiple path resolution methods
+                exists_via_os = os.path.exists(filepath)
+                
+                # Also try checking if file is readable (might exist but not accessible)
+                exists_and_readable = False
+                if exists_via_os:
+                    try:
+                        with open(filepath, 'rb') as f:
+                            f.read(1)  # Try to read at least 1 byte
+                        exists_and_readable = True
+                    except (IOError, OSError, PermissionError) as e:
+                        file_info['read_error'] = str(e)
+                
+                # Also test if the image serving route can access it (same logic as serve_player_image_by_id)
+                can_be_served = False
+                if exists_via_os:
+                    try:
+                        # Use the exact same check as the serving route
+                        with open(filepath, 'rb') as f:
+                            image_data = f.read()
+                        if len(image_data) > 0 and image_data.startswith(b'\x89PNG\r\n\x1a\n'):
+                            can_be_served = True
+                            file_info['serve_test_success'] = True
+                        elif len(image_data) > 0:
+                            file_info['serve_test_error'] = f'Invalid PNG header: {image_data[:8]}'
+                        else:
+                            file_info['serve_test_error'] = 'File is empty (0 bytes)'
+                    except PermissionError as e:
+                        file_info['serve_test_error'] = f'Permission denied: {e}'
+                    except IOError as e:
+                        file_info['serve_test_error'] = f'IO error: {e}'
+                    except Exception as e:
+                        file_info['serve_test_error'] = f'Error reading: {e}'
+                
+                # File exists if it can be served OR if it exists via os.path (might be permission issue)
+                # We'll be more lenient - if os.path.exists says it's there, we'll mark it as existing
+                # The serving route will handle the actual reading
+                file_info['exists'] = exists_via_os
+                file_info['path'] = filepath
+                file_info['path_resolved'] = os.path.abspath(filepath)
+                file_info['exists_via_os'] = exists_via_os
+                file_info['can_be_served'] = can_be_served
+                
+                if exists_and_readable:
+                    try:
+                        file_size = os.path.getsize(filepath)
+                        file_mtime = os.path.getmtime(filepath)
+                        file_date = datetime.fromtimestamp(file_mtime)
+                        
+                        # Try to validate it's a PNG
+                        with open(filepath, 'rb') as f:
+                            header = f.read(8)
+                            is_valid_png = header == b'\x89PNG\r\n\x1a\n'
+                        
+                        file_info['size'] = file_size
+                        file_info['modified'] = file_date.strftime('%Y-%m-%d %H:%M:%S')
+                        file_info['valid_png'] = is_valid_png
+                    except Exception as e:
+                        file_info['error'] = str(e)
+                elif exists_via_os:
+                    file_info['error'] = 'File exists but not readable'
+                else:
+                    file_info['error'] = 'File not found'
+            else:
+                file_info['exists'] = False
+                file_info['error'] = 'No image in database'
+            
+            results.append(file_info)
+        
+        # Group by status
+        missing_files = [r for r in results if r.get('has_db_entry') and not r.get('exists')]
+        no_db_entry = [r for r in results if not r.get('has_db_entry')]
+        exists_old = [r for r in results if r.get('exists') and '18:37' in r.get('modified', '')]
+        exists_new = [r for r in results if r.get('exists') and '18:37' not in r.get('modified', '') and r.get('has_db_entry')]
+        
+        return render_template('diagnose_images.html', 
+                             all_players=results,
+                             missing_files=missing_files,
+                             no_db_entry=no_db_entry,
+                             exists_old=exists_old,
+                             exists_new=exists_new,
+                             total=len(results),
+                             missing_files_count=len(missing_files),
+                             no_db_entry_count=len(no_db_entry))
+    except Exception as e:
+        import traceback
+        return f"Error: {str(e)}<br><pre>{traceback.format_exc()}</pre>", 500
+
+@app.route('/sync_image_database')
+@login_required
+def sync_image_database():
+    """Sync database entries with actual image files"""
+    try:
+        player_images_dir = os.path.join(app.root_path, 'static', 'player_images')
+        if not os.path.exists(player_images_dir):
+            return "Player images directory not found", 404
+        
+        files = os.listdir(player_images_dir)
+        player_files = [f for f in files if f.startswith('player_') and f.endswith('.png')]
+        
+        cur = db_helper.get_cursor()
+        updated_count = 0
+        missing_files = []
+        
+        for filename in player_files:
+            try:
+                player_id = int(filename.replace('player_', '').replace('.png', ''))
+                
+                # Check if player exists and what their current profile_image is
+                cur.execute("SELECT profile_image FROM players WHERE id = ?", (player_id,))
+                result = cur.fetchone()
+                
+                if result:
+                    current_value = result[0] if result[0] else None
+                    if not current_value or current_value.strip() != filename:
+                        # Update database
+                        cur.execute("UPDATE players SET profile_image = ? WHERE id = ?", (filename, player_id))
+                        updated_count += 1
+                        app.logger.info(f"Updated player {player_id}: {current_value} -> {filename}")
+                else:
+                    missing_files.append((player_id, filename))
+            except ValueError:
+                continue
+        
+        db_helper.commit()
+        cur.close()
+        
+        return jsonify({
+            'success': True,
+            'updated': updated_count,
+            'missing_players': len(missing_files),
+            'message': f'Updated {updated_count} database entries. {len(missing_files)} files have no matching player.'
+        })
+    except Exception as e:
+        import traceback
+        return f"Error: {str(e)}<br><pre>{traceback.format_exc()}</pre>", 500
+
+@app.route('/reprocess_image/<int:player_id>')
+@login_required
+def reprocess_image(player_id):
+    """Reprocess an image by reading and re-saving it"""
+    try:
+        from PIL import Image
+        
+        cur = db_helper.get_cursor()
+        cur.execute("SELECT profile_image FROM players WHERE id = ?", (player_id,))
+        result = cur.fetchone()
+        cur.close()
+        
+        if not result or not result[0]:
+            return "No image in database", 404
+        
+        filename = result[0].strip()
+        player_images_dir = os.path.join(app.root_path, 'static', 'player_images')
+        filepath = os.path.join(player_images_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return "File not found", 404
+        
+        # Read image, reprocess, and save
+        try:
+            with Image.open(filepath) as img:
+                # Convert to RGB if necessary
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                # Save to a temporary file first
+                temp_filepath = filepath + '.tmp'
+                img.save(temp_filepath, 'PNG', optimize=True)
+                
+                # Replace original
+                os.replace(temp_filepath, filepath)
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Image reprocessed successfully for player {player_id}',
+                    'filename': filename
+                })
+        except Exception as e:
+            return f"Error processing image: {str(e)}", 500
+            
+    except Exception as e:
+        import traceback
+        return f"Error: {str(e)}<br><pre>{traceback.format_exc()}</pre>", 500
 
 @app.route('/upload_player_image/<int:player_id>', methods=['POST'])
 @login_required
@@ -1276,15 +1642,24 @@ def upload_player_image(player_id):
     filename = f'player_{player_id}.png'
     filepath = os.path.join(player_images_dir, filename)
     
-    # Delete old image if exists
+    # Always delete old image if exists (even if same filename, to ensure replacement)
     old_image = cur.execute("SELECT profile_image FROM players WHERE id = ?", (player_id,)).fetchone()
     if old_image and old_image[0]:
-        old_filepath = os.path.join(player_images_dir, old_image[0])
-        if os.path.exists(old_filepath) and old_image[0] != filename:
+        old_filepath = os.path.join(player_images_dir, old_image[0].strip())
+        if os.path.exists(old_filepath):
             try:
                 os.remove(old_filepath)
-            except:
-                pass  # Ignore errors deleting old file
+                app.logger.info(f"Deleted old image for player {player_id}: {old_image[0]}")
+            except Exception as e:
+                app.logger.warning(f"Could not delete old image {old_filepath}: {e}")
+    
+    # Also delete the new filepath if it exists (in case it's the same filename)
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            app.logger.info(f"Deleted existing file before replacement: {filepath}")
+        except Exception as e:
+            app.logger.warning(f"Could not delete existing file {filepath}: {e}")
     
     try:
         # Save the file temporarily first
@@ -1305,11 +1680,12 @@ def upload_player_image(player_id):
                     img = img.convert('RGBA')
                 background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
                 img = background
-            # Save as PNG
+            # Save as PNG, overwrite if exists
             img.save(filepath, 'PNG', quality=95)
             # Remove temp file
             if os.path.exists(temp_filepath):
                 os.remove(temp_filepath)
+            app.logger.info(f"Successfully saved new image for player {player_id}: {filepath}")
         except ImportError:
             # If PIL is not available, just move the temp file
             if os.path.exists(temp_filepath):
