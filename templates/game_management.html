@@ -50,9 +50,26 @@
                         </div>
                     </div>
                 </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="form-group">
+                            <label for="mvpSelect">🏆 MVP (Man of the Match):</label>
+                            <select class="form-control" id="mvpSelect">
+                                <option value="">-- Select MVP --</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
             </div>
             
             <!-- Player Stats -->
+            <div class="row">
+                <div class="col-md-12" style="text-align: center; margin-bottom: 15px;">
+                    <button type="button" class="btn btn-info" onclick="autosortBothTeams()">
+                        🔄 Autosort Both Teams (1 GK, 5 DEF, 4 MID, 4 FWD each)
+                    </button>
+                </div>
+            </div>
             <div class="row">
                 <div class="col-md-6">
                     <h5>{{ game.home_team_name }} Players</h5>
@@ -292,6 +309,14 @@ input:checked + .slider:before {
     border: none;
 }
 
+.btn-info {
+    background: linear-gradient(145deg, #17a2b8, #138496);
+    border: none;
+    color: white;
+    font-size: 0.85em;
+    padding: 6px 12px;
+}
+
 .result-display {
     text-align: center;
     margin: 30px 0;
@@ -359,6 +384,9 @@ let gameId = {{ game.id }};
 let homeTeamId = {{ game.home_team_id }};
 let awayTeamId = {{ game.away_team_id }};
 
+// Store all players for MVP selection
+let allPlayers = [];
+
 // Load team lineups when page loads
 document.addEventListener('DOMContentLoaded', function() {
     loadTeamPlayers(homeTeamId, 'homePlayerStats', 'home');
@@ -370,6 +398,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
         document.getElementById('matchDate').value = localDateTime;
     }
+    
+    // Load existing MVP if game is played
+    {% if mvp_player_id %}
+    setTimeout(() => {
+        document.getElementById('mvpSelect').value = {{ mvp_player_id }};
+    }, 1000);
+    {% endif %}
 });
 
 // Removed lineup function since we no longer use lineup selection
@@ -395,6 +430,15 @@ function loadTeamPlayers(teamId, containerId, teamType) {
                 const goals = existingStat ? existingStat.goals : 0;
                 const assists = existingStat ? existingStat.assists : 0;
                 
+                // Add to allPlayers array for MVP dropdown
+                if (!allPlayers.find(p => p.id === player.id)) {
+                    allPlayers.push({
+                        id: player.id,
+                        name: player.player_name,
+                        team: teamType === 'home' ? '{{ game.home_team_name }}' : '{{ game.away_team_name }}'
+                    });
+                }
+                
                 const playerRow = document.createElement('tr');
                 playerRow.innerHTML = `
                     <td>
@@ -403,7 +447,7 @@ function loadTeamPlayers(teamId, containerId, teamType) {
                     </td>
                     <td class="text-center">
                         <label class="switch">
-                            <input type="checkbox" data-player-id="${player.id}" data-team-type="${teamType}" ${played ? 'checked' : ''}>
+                            <input type="checkbox" data-player-id="${player.id}" data-team-type="${teamType}" ${played ? 'checked' : ''} onchange="updateMVPOptions()">
                             <span class="slider round"></span>
                         </label>
                     </td>
@@ -419,10 +463,98 @@ function loadTeamPlayers(teamId, containerId, teamType) {
                 
                 container.appendChild(playerRow);
             });
+            
+            // Update MVP dropdown after loading players
+            updateMVPOptions();
         })
         .catch(error => {
             console.error('Error loading team players:', error);
         });
+}
+
+function updateMVPOptions() {
+    const mvpSelect = document.getElementById('mvpSelect');
+    const currentValue = mvpSelect.value;
+    
+    // Get all checked players (players who played)
+    const playedPlayers = [];
+    document.querySelectorAll('input[type="checkbox"]:checked').forEach(checkbox => {
+        const playerId = parseInt(checkbox.dataset.playerId);
+        const player = allPlayers.find(p => p.id === playerId);
+        if (player) {
+            playedPlayers.push(player);
+        }
+    });
+    
+    // Clear and populate MVP dropdown
+    mvpSelect.innerHTML = '<option value="">-- Select MVP --</option>';
+    playedPlayers.forEach(player => {
+        const option = document.createElement('option');
+        option.value = player.id;
+        option.textContent = `${player.name} (${player.team})`;
+        mvpSelect.appendChild(option);
+    });
+    
+    // Restore previous selection if still valid
+    if (currentValue && playedPlayers.find(p => p.id == currentValue)) {
+        mvpSelect.value = currentValue;
+    }
+}
+
+function autosortTeam(teamId, teamType, button) {
+    return fetch(`/colados_league/autosort_team/${teamId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Uncheck all checkboxes for this team
+            const containerId = teamType === 'home' ? 'homePlayerStats' : 'awayPlayerStats';
+            document.querySelectorAll(`#${containerId} input[type="checkbox"]`).forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            
+            // Check the selected players
+            data.player_ids.forEach(playerId => {
+                const checkbox = document.querySelector(`#${containerId} input[type="checkbox"][data-player-id="${playerId}"]`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+            
+            return data;
+        });
+}
+
+function autosortBothTeams() {
+    const button = event.target;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '⏳ Sorting both teams...';
+    
+    // Sort both teams in parallel
+    Promise.all([
+        autosortTeam(homeTeamId, 'home', button),
+        autosortTeam(awayTeamId, 'away', button)
+    ])
+    .then(() => {
+        // Update MVP options after both teams are sorted
+        updateMVPOptions();
+        
+        // Show success message
+        button.textContent = '✅ Both teams sorted!';
+        setTimeout(() => {
+            button.disabled = false;
+            button.textContent = originalText;
+        }, 2000);
+    })
+    .catch(error => {
+        console.error('Error autosorting teams:', error);
+        alert('An error occurred while autosorting: ' + error.message);
+        button.disabled = false;
+        button.textContent = originalText;
+    });
 }
 
 // Removed togglePlayerSelection function since we no longer use lineup selection
@@ -540,6 +672,9 @@ document.getElementById('gameSetupForm').addEventListener('submit', function(e) 
         return;
     }
     
+    // Get MVP selection
+    const mvpPlayerId = document.getElementById('mvpSelect').value ? parseInt(document.getElementById('mvpSelect').value) : null;
+    
     // Submit the match result
     fetch(`/colados_league/submit_match_result/${gameId}`, {
         method: 'POST',
@@ -552,7 +687,8 @@ document.getElementById('gameSetupForm').addEventListener('submit', function(e) 
             match_date: matchDate,
             home_lineup: homeLineup,
             away_lineup: awayLineup,
-            player_stats: playerStats
+            player_stats: playerStats,
+            mvp_player_id: mvpPlayerId
         })
     })
     .then(response => {

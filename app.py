@@ -4,6 +4,9 @@ import sqlite3
 import random
 from datetime import datetime, timedelta
 import time
+
+# Free agency timer in minutes
+fa_timer = 20
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, send_from_directory, session, Response, make_response
 from io import StringIO
 import csv
@@ -22,7 +25,7 @@ MARKET_BAZAAR_ENABLED = False  # Set to False to disable automatic market activi
 
 def get_next_market_activity_time():
     """Get the next market activity time (3 hours from now)"""
-    return (datetime.now() + timedelta(minutes=180000)).isoformat()
+    return (datetime.now() + timedelta(minutes=15)).isoformat()
 
 def update_market_activity_timer():
     """Update the market activity timer in the database"""
@@ -1924,12 +1927,43 @@ def download_updated_csv():
         # Use only the original header (no financial columns added)
         original_header_only = original_header
 
+        # Create a mapping from original CSV by player ID for WEAK FOOT columns and INJURY TOLERANCE
+        # This allows us to fetch the actual values from the original CSV file
+        weak_foot_mapping = {}
+        injury_tolerance_mapping = {}
+        if 'ID' in df_original.columns:
+            for idx, row in df_original.iterrows():
+                player_id = row.get('ID')
+                if pd.notna(player_id):
+                    player_id = int(player_id)
+                    if 'WEAK FOOT ACCURACY' in df_original.columns:
+                        weak_foot_mapping[(player_id, 'WEAK FOOT ACCURACY')] = row.get('WEAK FOOT ACCURACY', 0)
+                    if 'WEAK FOOT FREQUENCY' in df_original.columns:
+                        weak_foot_mapping[(player_id, 'WEAK FOOT FREQUENCY')] = row.get('WEAK FOOT FREQUENCY', 0)
+                    if 'INJURY TOLERANCE' in df_original.columns:
+                        injury_tolerance_mapping[player_id] = row.get('INJURY TOLERANCE', '')
+
         # Populate the DataFrame with data in the original header order
         for col in original_header_only:
             if col in df_players.columns:
                 if col == 'CLUB TEAM':
                     # Special handling for club team - use the database value
+                    # Team name mapping will be applied later, after text cleaning
                     df_output[col] = df_players[col]
+                elif col == 'INJURY TOLERANCE':
+                    # Override database value with CSV value (like weak foot columns)
+                    injury_tolerance_values = []
+                    for player_id in df_players['ID']:
+                        if pd.notna(player_id):
+                            player_id = int(player_id)
+                            value = injury_tolerance_mapping.get(player_id, '')
+                            # If value is NaN or empty, default to empty string
+                            if pd.isna(value) or value == '':
+                                value = ''
+                            injury_tolerance_values.append(str(value))
+                        else:
+                            injury_tolerance_values.append('')
+                    df_output[col] = injury_tolerance_values
                 else:
                     df_output[col] = df_players[col]
             else:
@@ -1937,11 +1971,20 @@ def download_updated_csv():
                 # (like WEAK FOOT ACCURACY and WEAK FOOT FREQUENCY that don't exist in database)
                 if col in df_original.columns:
                     # Only use original data for columns that are actually missing from database
-                    # For regen players (ID > 5184), fill with default values instead of original data
                     if col in ['WEAK FOOT ACCURACY', 'WEAK FOOT FREQUENCY']:
-                        # These columns don't exist in database, generate random values (3-8)
-                        import random
-                        df_output[col] = random.randint(3, 8)  # Random value between 3-8
+                        # These columns don't exist in database, fetch from original CSV by player ID
+                        weak_foot_values = []
+                        for player_id in df_players['ID']:
+                            if pd.notna(player_id):
+                                player_id = int(player_id)
+                                value = weak_foot_mapping.get((player_id, col), 0)
+                                # If value is NaN or empty, default to 0
+                                if pd.isna(value) or value == '':
+                                    value = 0
+                                weak_foot_values.append(int(value))
+                            else:
+                                weak_foot_values.append(0)
+                        df_output[col] = weak_foot_values
                     else:
                         # For other missing columns, use original data
                         df_output[col] = df_original[col]
@@ -2097,10 +2140,46 @@ def download_updated_csv():
 
             return text
 
-        # Apply to all text columns
+        # Apply to all text columns (except CLUB TEAM which needs special handling)
         for col in df_output.columns:
+            if col == 'CLUB TEAM':
+                # Skip CLUB TEAM - we'll handle it separately to preserve PES6 team names
+                continue
             if df_output[col].dtype == 'object':  # Text columns
                 df_output[col] = df_output[col].apply(clean_text)
+
+        # Apply team name mapping for PES6 requirements AFTER text cleaning
+        # This ensures the special characters are preserved for these specific teams
+        if 'CLUB TEAM' in df_output.columns:
+            # Define mappings with multiple possible variations
+            team_name_mappings = {
+                'C. Atletico Madrid': 'C. Atlético Madrid',
+                'C.Atletico Madrid': 'C. Atlético Madrid',
+                'Atletico Madrid': 'C. Atlético Madrid',
+                'Fenerbahce': 'Fenerbahçe',
+                'AS Saint-Etienne': 'AS Saint-Étienne',
+                'Saint-Etienne': 'AS Saint-Étienne',
+                'R.C. Deportivo la Coruna': 'R.C. Deportivo la Coruña',
+                'R.C.Deportivo la Coruna': 'R.C. Deportivo la Coruña',
+                'Deportivo la Coruna': 'R.C. Deportivo la Coruña',
+                'Bayern Munchen': 'Bayern München',
+                'FC Bayern Munchen': 'Bayern München'
+            }
+            # Apply the mapping to CLUB TEAM column using a lambda function for more reliable replacement
+            def map_team_name(team_name):
+                if pd.isna(team_name) or team_name == '':
+                    return team_name
+                team_str = str(team_name).strip()
+                # Try exact match first
+                if team_str in team_name_mappings:
+                    return team_name_mappings[team_str]
+                # Try case-insensitive match
+                for key, value in team_name_mappings.items():
+                    if team_str.lower() == key.lower():
+                        return value
+                return team_str
+            
+            df_output['CLUB TEAM'] = df_output['CLUB TEAM'].apply(map_team_name)
 
         # Export with the original header
         output_filename = 'pe6_player_data_updated.csv'
@@ -4492,111 +4571,12 @@ def get_offer_details(offer_id):
 @app.route('/free_agency')
 @login_required
 def free_agency():
-    # Check for expired offers first - comprehensive check
-    processed_count = 0
+    # Check for expired offers - use optimized helper function instead of duplicating logic
+    # Only check on page load, not on every request to avoid performance issues
     try:
-        cur = db_helper.get_cursor()
-
-        # Get expired offers using proper datetime comparison
-        from datetime import datetime
-        current_time = datetime.now()
-
-        # Debug: Check what offers exist
-        cur.execute("SELECT COUNT(*) as total FROM free_agent_offers WHERE status = 'active'")
-        total_active = cur.fetchone()['total']
-
-        # Get expired offers using simple comparison
-        current_time_iso = current_time.isoformat()
-        cur.execute("""
-            SELECT fao.id, fao.player_id, fao.user_id, fao.offered_salary, fao.offered_contract_years,
-                   fao.expires_at, p.player_name, p.age, u.username
-            FROM free_agent_offers fao
-            JOIN players p ON fao.player_id = p.id
-            JOIN users u ON fao.user_id = u.id
-            WHERE fao.status = 'active' AND fao.expires_at <= ?
-        """, (current_time_iso,))
-        expired_offers = cur.fetchall()
-
-        for offer in expired_offers:
-            try:
-                # Mark offer as completed
-                cur.execute("UPDATE free_agent_offers SET status = 'completed' WHERE id = ?", (offer['id'],))
-
-                # Get user's active team
-                cur.execute("SELECT id, team_name FROM league_teams WHERE user_id = ? ORDER BY id LIMIT 1", (offer['user_id'],))
-                user_team = cur.fetchone()
-
-                if user_team:
-                    active_team_id = user_team['id']
-                    team_name = user_team['team_name']
-
-                    # Find the corresponding PES6 team ID
-                    cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
-                    pes6_team_result = cur.fetchone()
-
-                    if pes6_team_result:
-                        pes6_team_id = pes6_team_result['id']
-
-                        # Calculate signing bonus and yearly wage rise
-                        import random
-
-                        # Calculate signing bonus (25-50% of base salary, higher for younger players)
-                        player_age = offer['age']
-                        if player_age <= 22:
-                            signing_bonus_percentage = random.uniform(0.40, 0.50)  # 40-50% for very young players
-                        elif player_age <= 25:
-                            signing_bonus_percentage = random.uniform(0.35, 0.45)  # 35-45% for young players
-                        elif player_age <= 28:
-                            signing_bonus_percentage = random.uniform(0.30, 0.40)  # 30-40% for mid-age players
-                        else:
-                            signing_bonus_percentage = random.uniform(0.25, 0.35)  # 25-35% for older players
-
-                        signing_bonus = int(offer['offered_salary'] * signing_bonus_percentage)
-
-                        # Calculate yearly wage rise (same logic as contract renewal)
-                        if player_age <= 22:
-                            yearly_wage_rise = random.uniform(0.15, 0.25)  # 15-25% for very young players
-                        elif player_age <= 25:
-                            yearly_wage_rise = random.uniform(0.10, 0.20)  # 10-20% for young players
-                        elif player_age <= 28:
-                            yearly_wage_rise = random.uniform(0.05, 0.15)  # 5-15% for mid-age players
-                        else:
-                            yearly_wage_rise = random.uniform(0.01, 0.10)  # 1-10% for older players
-
-                        # Update player's salary, contract, yearly wage rise, and club_id
-                        cur.execute("""
-                            UPDATE players
-                            SET salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?, club_id = ?
-                            WHERE id = ?
-                        """, (offer['offered_salary'], offer['offered_contract_years'], yearly_wage_rise, pes6_team_id, offer['player_id']))
-
-                        # Deduct signing bonus from team budget
-                        cur.execute("UPDATE teams SET budget = budget - ? WHERE id = ?", (signing_bonus, pes6_team_id))
-
-                        # Record signing bonus transaction in finances
-                        add_user_movement(offer['user_id'], 'Signing Bonus',
-                                        f"Signing bonus for {offer['player_name']} (Free Agency)", -signing_bonus)
-
-                        # Add player to team_players table
-                        cur.execute("INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)",
-                                   (active_team_id, offer['player_id']))
-
-                        # Post transfer news with signing bonus info
-                        title = f"Free Agent Transfer: {offer['player_name']}"
-                        content = f"{offer['player_name']} has signed with {offer['username']}'s team for €{offer['offered_salary']:,} per year for {offer['offered_contract_years']} years. Signing bonus: €{signing_bonus:,} ({(signing_bonus_percentage*100):.1f}% of salary). Yearly wage rise: {(yearly_wage_rise*100):.1f}%."
-                        post_transfer_news(title, content, offer['user_id'])
-
-                        processed_count += 1
-
-            except Exception as e:
-                app.logger.error(f"Error processing expired offer {offer['id']}: {e}")
-
+        processed_count = check_expired_offers()
         if processed_count > 0:
-            db_helper.commit()
             flash(f'Processed {processed_count} expired free agent offers.', 'info')
-
-        cur.close()
-
     except Exception as e:
         app.logger.error(f"Error in expired offers check: {e}")
 
@@ -4690,9 +4670,9 @@ def make_free_agent_offer():
         cur.close()
         return redirect(url_for('free_agency'))
 
-    # Create new offer (2 minutes for testing)
+    # Create new offer
     from datetime import datetime, timedelta
-    expires_at = datetime.now() + timedelta(minutes=500)
+    expires_at = datetime.now() + timedelta(minutes=fa_timer)
 
     try:
         # Create the offer (store team_id so CPU teams can outbid each other correctly)
@@ -4744,7 +4724,7 @@ def raise_free_agent_offer(offer_id):
     # Raise offer by 250,000€ and reset timer
     new_salary = offer['offered_salary'] + 250000
     from datetime import datetime, timedelta
-    new_expires_at = datetime.now() + timedelta(minutes=500)  # 5 minutes like initial offers
+    new_expires_at = datetime.now() + timedelta(minutes=fa_timer)
 
     try:
         # Update the offer
@@ -4795,48 +4775,27 @@ def check_expired_offers():
 
             # Handle CPU teams (user_id = 1) differently from regular users
             if offer['user_id'] == 1:  # CPU team
-                # For CPU teams, we need to find which specific CPU team made the offer
-                # This requires storing the team_id in the offer or finding it another way
-                # For now, we'll need to get the team_id from the CPU offer details
-                # Since we don't store team_id in free_agent_offers, we'll need to find the CPU team that needs this player
-                
-                from cpu_ai import CPUAI
-                cpu_ai = CPUAI()
+                # Optimized: Use simple query to find a CPU team with available roster space
+                # Avoid expensive CPU AI analysis that was causing performance issues
                 
                 # Get player details
-                cur.execute("SELECT registered_position, overall FROM players WHERE id = ?", (offer['player_id'],))
+                cur.execute("SELECT registered_position FROM players WHERE id = ?", (offer['player_id'],))
                 player_info = cur.fetchone()
                 
                 if player_info:
-                    # Find CPU teams that need this position
+                    # Optimized: Find a CPU team - simplified to avoid expensive analysis
+                    # Just pick a random CPU team (roster space check removed for performance)
+                    # CPU teams will naturally balance their rosters through other mechanisms
                     cur.execute("""
                         SELECT t.id, t.club_name
                         FROM teams t
                         WHERE t.id != 141
                         AND t.club_name IN (SELECT lt.team_name FROM league_teams lt WHERE lt.user_id = 1)
                         ORDER BY RANDOM()
-                        LIMIT 10
+                        LIMIT 1
                     """)
                     
-                    cpu_teams = cur.fetchall()
-                    winning_team = None
-                    
-                    # Find a CPU team that actually needs this player
-                    for team in cpu_teams:
-                        analysis = cpu_ai.analyze_team_composition(team['id'])
-                        if analysis and analysis['total_players'] < 32:
-                            needed_positions = cpu_ai.get_team_position_needs(team['id'])
-                            if player_info['registered_position'] in needed_positions:
-                                winning_team = team
-                                break
-                    
-                    # If no team specifically needs this position, assign to first available team
-                    if not winning_team and cpu_teams:
-                        for team in cpu_teams:
-                            analysis = cpu_ai.analyze_team_composition(team['id'])
-                            if analysis and analysis['total_players'] < 32:
-                                winning_team = team
-                                break
+                    winning_team = cur.fetchone()
                     
                     if winning_team:
                         pes6_team_id = winning_team['id']
@@ -5253,31 +5212,8 @@ def market_bazaar():
     """Market bazaar page showing transfer list and CPU offers"""
     cur = db_helper.get_cursor()
 
-    try:
-        # Light cleanup only - move heavy processing to separate route
-        # Remove offers for completed/expired listings
-        cur.execute("""
-            UPDATE market_bazaar_offers
-            SET status = 'expired'
-            WHERE status = 'active'
-            AND listing_id IN (
-                SELECT id FROM market_bazaar_listings
-                WHERE status != 'active' OR expires_at < datetime('now')
-            )
-        """)
-
-        # Mark expired listings as expired
-        cur.execute("""
-            UPDATE market_bazaar_listings
-            SET status = 'expired'
-            WHERE status = 'active'
-            AND expires_at < datetime('now')
-        """)
-
-        db_helper.commit()
-    except Exception as e:
-        app.logger.error(f"Error in light cleanup: {e}")
-        db_helper.get_connection().rollback()
+    # Removed expensive cleanup queries from page load - moved to background task
+    # This was causing performance issues. Cleanup now happens via scheduled tasks only.
 
     try:
         # Table 1: All transfer listed players (both user and CPU) - "Transfer List"
@@ -5505,7 +5441,7 @@ def mendes_sell():
             else:
                 pos_int = int(registered_position)
             
-            if pos_int in [0, 2, 3, 4]:
+            if pos_int in [0, 2, 3]:
                 base_salary = int(base_salary * 1.75)
         except (ValueError, TypeError):
             pass
@@ -5542,6 +5478,10 @@ def mendes_sell():
             net_amount = sale_price - commission  # Both negative, so total cost increases
         
         # Find CPU team with least players in this position
+        # For negative sale_price (compensation), buyer receives money so budget check is lenient
+        # For positive sale_price, buyer needs sufficient budget
+        budget_requirement = abs(sale_price) if sale_price > 0 else 0
+        
         cur.execute("""
             SELECT t.id, t.club_name, t.budget,
                    COUNT(CASE WHEN p.registered_position = ? THEN 1 END) as position_count,
@@ -5554,7 +5494,7 @@ def mendes_sell():
             HAVING total_players < 32
             ORDER BY position_count ASC, RANDOM()
             LIMIT 1
-        """, (player['registered_position'], sale_price))
+        """, (player['registered_position'], budget_requirement))
 
         buyer_team = cur.fetchone()
         
@@ -5638,9 +5578,9 @@ def mendes_sell():
         
         # Post to blog using correct function
         post_transfer_news(blog_title, blog_content, user_id=current_user.id)
-        
+
         db_helper.commit()
-        
+
         return jsonify({
             'success': True,
             'buyer_team': buyer_team_name,
@@ -9174,25 +9114,32 @@ def colados_league():
             """, (division['id'],))
             standings = cur.fetchall()
 
-            # Get recent games for this division
+            # Get recent games for this division (all games, not limited, for filtering)
             cur.execute("""
-                SELECT id, home_team_name, away_team_name, home_score, away_score, round_number
+                SELECT id, home_team_name, away_team_name, home_score, away_score, round_number, is_played
                 FROM league_games
                 WHERE division_id = ? AND is_played = 1
-                ORDER BY game_date DESC
-                LIMIT 100
+                ORDER BY round_number DESC, game_date DESC
             """, (division['id'],))
             recent_games = cur.fetchall()
 
-            # Get pending games for this division
+            # Get pending games for this division (all games, not limited, for filtering)
             cur.execute("""
-                SELECT id, home_team_name, away_team_name, round_number
+                SELECT id, home_team_name, away_team_name, round_number, is_played
                 FROM league_games
                 WHERE division_id = ? AND is_played = 0
                 ORDER BY round_number ASC, id ASC
-                LIMIT 10
             """, (division['id'],))
             pending_games = cur.fetchall()
+            
+            # Get all unique rounds for this division
+            cur.execute("""
+                SELECT DISTINCT round_number
+                FROM league_games
+                WHERE division_id = ?
+                ORDER BY round_number ASC
+            """, (division['id'],))
+            division_rounds = [row['round_number'] for row in cur.fetchall()]
 
             # Get division-specific top goalscorers
             cur.execute("""
@@ -9230,7 +9177,8 @@ def colados_league():
                 'recent_games': recent_games,
                 'pending_games': pending_games,
                 'top_goalscorers': division_goalscorers,
-                'top_assists': division_assists
+                'top_assists': division_assists,
+                'rounds': division_rounds
             })
 
         # Get all teams for the team selection dropdown (like in tools.html)
@@ -9248,13 +9196,51 @@ def colados_league():
             """, (division['id'],))
             division_teams[division['id']] = cur.fetchall()
 
+        # Get or create "Colados League" first (required for divisions)
+        cur.execute("SELECT id FROM leagues WHERE name = 'Colados League'")
+        colados_league = cur.fetchone()
+        if not colados_league:
+            cur.execute("""
+                INSERT INTO leagues (name, description)
+                VALUES ('Colados League', 'Main Colados League')
+            """)
+            db_helper.commit()
+            colados_league_id = cur.lastrowid
+        else:
+            colados_league_id = colados_league['id']
+        
+        # Get or create "Additional Games" division (special division for non-league games)
+        cur.execute("SELECT id FROM divisions WHERE name = 'Additional Games'")
+        additional_division = cur.fetchone()
+        if not additional_division:
+            cur.execute("""
+                INSERT INTO divisions (league_id, name, description)
+                VALUES (?, 'Additional Games', 'Games that do not affect division standings')
+            """, (colados_league_id,))
+            db_helper.commit()
+            additional_division_id = cur.lastrowid
+        else:
+            additional_division_id = additional_division['id']
+        
+        # Get additional games (games in the "Additional Games" division)
+        cur.execute("""
+            SELECT id, round_number, home_team_name, away_team_name, 
+                   home_score, away_score, game_date, is_played
+            FROM league_games
+            WHERE division_id = ?
+            ORDER BY round_number DESC, game_date DESC
+            LIMIT 50
+        """, (additional_division_id,))
+        additional_games = cur.fetchall()
+
         return render_template('colados_league.html',
                              total_teams=total_teams,
                              total_games_played=total_games_played,
                              current_season=current_season,
                              divisions=divisions,
                              teams=teams,
-                             division_teams=division_teams)
+                             division_teams=division_teams,
+                             additional_games=additional_games)
 
     except Exception as e:
         app.logger.error(f"Error in colados_league: {e}")
@@ -9389,22 +9375,30 @@ def add_team_to_division():
 
         team_name = team_result['club_name']
 
-        # Check if team is already in this division
+        # Check if team is already in this division (regardless of is_active status)
         cur.execute("""
-            SELECT id FROM division_teams
-            WHERE division_id = ? AND team_id = ? AND is_active = 1
+            SELECT id, is_active FROM division_teams
+            WHERE division_id = ? AND team_id = ?
         """, (division_id, team_id))
         existing = cur.fetchone()
 
         if existing:
-            flash('Team is already in this division', 'error')
-            return redirect(url_for('colados_league'))
-
-        # Add team to division
-        cur.execute("""
-            INSERT INTO division_teams (division_id, team_id, team_name)
-            VALUES (?, ?, ?)
-        """, (division_id, team_id, team_name))
+            if existing['is_active'] == 1:
+                flash('Team is already in this division', 'error')
+                return redirect(url_for('colados_league'))
+            else:
+                # Team was previously in this division but is inactive - reactivate it
+                cur.execute("""
+                    UPDATE division_teams
+                    SET is_active = 1, team_name = ?
+                    WHERE id = ?
+                """, (team_name, existing['id']))
+        else:
+            # Add team to division (new record)
+            cur.execute("""
+                INSERT INTO division_teams (division_id, team_id, team_name)
+                VALUES (?, ?, ?)
+            """, (division_id, team_id, team_name))
 
         # Initialize standings for this team
         cur.execute("""
@@ -9498,6 +9492,171 @@ def create_game():
     finally:
         cur.close()
 
+@app.route('/colados_league/import_calendar', methods=['POST'])
+@login_required
+def import_calendar():
+    """Import games from Calendar1.csv or Calendar2.csv into a division"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        calendar_file = request.form.get('calendar_file', 'Calendar1.csv')
+        division_id = request.form.get('division_id')
+        
+        if not division_id:
+            flash('Please select a division', 'danger')
+            return redirect(url_for('colados_league'))
+        
+        # Validate file exists
+        if not os.path.exists(calendar_file):
+            flash(f'Calendar file {calendar_file} not found', 'danger')
+            return redirect(url_for('colados_league'))
+        
+        # Read CSV file
+        df = pd.read_csv(calendar_file)
+        
+        # Validate columns
+        required_columns = ['Round', 'Team1', 'Team2']
+        if not all(col in df.columns for col in required_columns):
+            flash(f'CSV file must have columns: {", ".join(required_columns)}', 'danger')
+            return redirect(url_for('colados_league'))
+        
+        # Get division info
+        cur.execute("SELECT id, name FROM divisions WHERE id = ?", (division_id,))
+        division = cur.fetchone()
+        if not division:
+            flash('Division not found', 'danger')
+            return redirect(url_for('colados_league'))
+        
+        # Get all teams for matching
+        cur.execute("SELECT id, club_name FROM teams")
+        all_teams = {row['club_name']: row['id'] for row in cur.fetchall()}
+        
+        imported_count = 0
+        skipped_count = 0
+        errors = []
+        imported_games = []  # Track successfully imported games for second half creation
+        max_round = 0
+        
+        # Process each row (first half)
+        for idx, row in df.iterrows():
+            try:
+                round_number = int(row['Round'])
+                team1_name = str(row['Team1']).strip()
+                team2_name = str(row['Team2']).strip()
+                
+                # Track max round for second half calculation
+                if round_number > max_round:
+                    max_round = round_number
+                
+                # Find team IDs
+                home_team_id = all_teams.get(team1_name)
+                away_team_id = all_teams.get(team2_name)
+                
+                if not home_team_id:
+                    errors.append(f"Row {idx + 2}: Team '{team1_name}' not found")
+                    skipped_count += 1
+                    continue
+                
+                if not away_team_id:
+                    errors.append(f"Row {idx + 2}: Team '{team2_name}' not found")
+                    skipped_count += 1
+                    continue
+                
+                # Check if game already exists
+                cur.execute("""
+                    SELECT id FROM league_games
+                    WHERE division_id = ? AND round_number = ? AND home_team_id = ? AND away_team_id = ?
+                """, (division_id, round_number, home_team_id, away_team_id))
+                existing = cur.fetchone()
+                
+                if existing:
+                    skipped_count += 1
+                    continue
+                
+                # Create the game
+                cur.execute("""
+                    INSERT INTO league_games (division_id, round_number, home_team_id, away_team_id,
+                                            home_team_name, away_team_name, game_date, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 0)
+                """, (division_id, round_number, home_team_id, away_team_id, team1_name, team2_name))
+                
+                imported_count += 1
+                # Store game info for second half creation
+                imported_games.append({
+                    'round': round_number,
+                    'home_team_id': home_team_id,
+                    'away_team_id': away_team_id,
+                    'home_team_name': team1_name,
+                    'away_team_name': team2_name
+                })
+                
+            except Exception as e:
+                errors.append(f"Row {idx + 2}: {str(e)}")
+                skipped_count += 1
+                continue
+        
+        # Create second half (reverse fixtures)
+        second_half_count = 0
+        for game in imported_games:
+            try:
+                # Second half round = max_round + original round
+                second_half_round = max_round + game['round']
+                
+                # Reverse home/away: original away becomes home, original home becomes away
+                reversed_home_team_id = game['away_team_id']
+                reversed_away_team_id = game['home_team_id']
+                reversed_home_team_name = game['away_team_name']
+                reversed_away_team_name = game['home_team_name']
+                
+                # Check if second half game already exists
+                cur.execute("""
+                    SELECT id FROM league_games
+                    WHERE division_id = ? AND round_number = ? AND home_team_id = ? AND away_team_id = ?
+                """, (division_id, second_half_round, reversed_home_team_id, reversed_away_team_id))
+                existing = cur.fetchone()
+                
+                if existing:
+                    continue
+                
+                # Create the second half game (reversed)
+                cur.execute("""
+                    INSERT INTO league_games (division_id, round_number, home_team_id, away_team_id,
+                                            home_team_name, away_team_name, game_date, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 0)
+                """, (division_id, second_half_round, reversed_home_team_id, reversed_away_team_id,
+                      reversed_home_team_name, reversed_away_team_name))
+                
+                second_half_count += 1
+                
+            except Exception as e:
+                errors.append(f"Second half game (Round {second_half_round}): {str(e)}")
+                continue
+        
+        db_helper.commit()
+        
+        # Build success message
+        total_imported = imported_count + second_half_count
+        msg = f'✅ Imported {imported_count} first half games and {second_half_count} second half games ({total_imported} total) from {calendar_file} into {division["name"]}'
+        if skipped_count > 0:
+            msg += f' ({skipped_count} skipped - already exist or errors)'
+        flash(msg, 'success')
+        
+        if errors and len(errors) <= 10:
+            for error in errors:
+                flash(error, 'warning')
+        elif errors:
+            flash(f'{len(errors)} errors occurred during import', 'warning')
+        
+        return redirect(url_for('colados_league'))
+        
+    except Exception as e:
+        app.logger.error(f"Error importing calendar: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error importing calendar: {str(e)}', 'danger')
+        return redirect(url_for('colados_league'))
+    finally:
+        cur.close()
+
 @app.route('/colados_league/game/<int:game_id>')
 @login_required
 def game_management(game_id):
@@ -9523,6 +9682,7 @@ def game_management(game_id):
         # Get player stats if game is played
         home_player_stats = []
         away_player_stats = []
+        mvp_player_id = None
 
         if game['is_played']:
             cur.execute("""
@@ -9540,12 +9700,19 @@ def game_management(game_id):
                 ORDER BY pgs.goals DESC, pgs.assists DESC
             """, (game_id, game['away_team_id']))
             away_player_stats = [dict(row) for row in cur.fetchall()]
+            
+            # Get MVP player ID if it exists
+            try:
+                mvp_player_id = game.get('mvp_player_id')
+            except Exception:
+                mvp_player_id = None
 
         return render_template('game_management.html',
                              game=game,
                              division=division,
                              home_player_stats=home_player_stats,
-                             away_player_stats=away_player_stats)
+                             away_player_stats=away_player_stats,
+                             mvp_player_id=mvp_player_id)
 
     except Exception as e:
         app.logger.error(f"Error in game_management: {e}")
@@ -9590,6 +9757,177 @@ def remove_all_colados_teams():
         app.logger.error(f"Error removing teams from Colados League: {e}")
         db_helper.get_connection().rollback()
         flash(f'❌ Error removing teams: {str(e)}', 'error')
+        return redirect(url_for('colados_league'))
+    finally:
+        cur.close()
+
+@app.route('/colados_league/reset_league', methods=['POST'])
+@login_required
+def reset_colados_league():
+    """Reset the entire Colados League - erase all tables, scoreboards, and reset player stats"""
+    cur = db_helper.get_cursor()
+
+    try:
+        # Get counts for flash message
+        cur.execute("SELECT COUNT(*) FROM division_teams WHERE is_active = 1")
+        teams_count = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM league_games")
+        games_count = cur.fetchone()[0]
+        
+        # Check if MVP column exists before counting players with stats
+        try:
+            cur.execute("SELECT COUNT(*) FROM players WHERE games_played > 0 OR goals > 0 OR assists > 0 OR MVP > 0")
+            players_with_stats = cur.fetchone()[0]
+        except Exception:
+            # MVP column might not exist, count without it
+            cur.execute("SELECT COUNT(*) FROM players WHERE games_played > 0 OR goals > 0 OR assists > 0")
+            players_with_stats = cur.fetchone()[0]
+
+        # Clear all league-related data
+        # IMPORTANT: Delete in correct order to respect foreign key constraints
+        # Delete child tables first (player_game_stats references league_games)
+        
+        # Clear player game stats first (child table)
+        cur.execute("DELETE FROM player_game_stats")
+        
+        # Clear league games (parent table)
+        cur.execute("DELETE FROM league_games")
+        
+        # Clear division standings
+        cur.execute("DELETE FROM division_standings")
+        
+        # Remove all teams from all divisions
+        cur.execute("UPDATE division_teams SET is_active = 0")
+        
+        # Reset all player stats to 0 (handle MVP column gracefully)
+        try:
+            cur.execute("""
+                UPDATE players 
+                SET games_played = 0, 
+                    assists = 0, 
+                    goals = 0, 
+                    MVP = 0
+            """)
+        except Exception as e:
+            # If MVP column doesn't exist, update without it
+            if 'no such column' in str(e).lower() or 'mvp' in str(e).lower():
+                cur.execute("""
+                    UPDATE players 
+                    SET games_played = 0, 
+                        assists = 0, 
+                        goals = 0
+                """)
+            else:
+                raise
+
+        db_helper.commit()
+
+        flash(f'✅ League reset complete! Removed {teams_count} teams, {games_count} games, and reset stats for {players_with_stats} players.', 'success')
+        return redirect(url_for('colados_league'))
+
+    except Exception as e:
+        app.logger.error(f"Error resetting Colados League: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'❌ Error resetting league: {str(e)}', 'error')
+        return redirect(url_for('colados_league'))
+    finally:
+        cur.close()
+
+@app.route('/colados_league/create_additional_game', methods=['POST'])
+@login_required
+def create_additional_game():
+    """Create an additional game between any teams (doesn't affect division standings)"""
+    cur = db_helper.get_cursor()
+
+    try:
+        round_number = request.form.get('round_number')
+        home_team_id = request.form.get('home_team_id')
+        away_team_id = request.form.get('away_team_id')
+
+        if not all([round_number, home_team_id, away_team_id]):
+            flash('Missing required fields', 'danger')
+            return redirect(url_for('colados_league'))
+
+        if home_team_id == away_team_id:
+            flash('Home and away teams must be different', 'danger')
+            return redirect(url_for('colados_league'))
+
+        # Get team names
+        cur.execute("SELECT id, club_name FROM teams WHERE id IN (?, ?)", (home_team_id, away_team_id))
+        teams = cur.fetchall()
+        if len(teams) != 2:
+            flash('One or both teams not found', 'danger')
+            return redirect(url_for('colados_league'))
+
+        # Find home and away team names
+        home_team_name = None
+        away_team_name = None
+        for team_id, team_name in teams:
+            if str(team_id) == str(home_team_id):
+                home_team_name = team_name
+            elif str(team_id) == str(away_team_id):
+                away_team_name = team_name
+
+        if not home_team_name or not away_team_name:
+            flash('Could not find team names', 'danger')
+            return redirect(url_for('colados_league'))
+
+        # Get or create "Colados League" first (required for divisions)
+        cur.execute("SELECT id FROM leagues WHERE name = 'Colados League'")
+        colados_league = cur.fetchone()
+        if not colados_league:
+            cur.execute("""
+                INSERT INTO leagues (name, description)
+                VALUES ('Colados League', 'Main Colados League')
+            """)
+            db_helper.commit()
+            colados_league_id = cur.lastrowid
+        else:
+            colados_league_id = colados_league['id']
+        
+        # Get or create "Additional Games" division
+        cur.execute("SELECT id FROM divisions WHERE name = 'Additional Games'")
+        additional_division = cur.fetchone()
+        if not additional_division:
+            cur.execute("""
+                INSERT INTO divisions (league_id, name, description)
+                VALUES (?, 'Additional Games', 'Games that do not affect division standings')
+            """, (colados_league_id,))
+            db_helper.commit()
+            additional_division_id = cur.lastrowid
+        else:
+            additional_division_id = additional_division['id']
+        
+        # Check if game already exists
+        cur.execute("""
+            SELECT id FROM league_games
+            WHERE division_id = ? AND round_number = ? AND home_team_id = ? AND away_team_id = ?
+        """, (additional_division_id, round_number, home_team_id, away_team_id))
+        existing = cur.fetchone()
+
+        if existing:
+            flash('This additional game already exists', 'danger')
+            return redirect(url_for('colados_league'))
+
+        # Create the additional game in the "Additional Games" division
+        cur.execute("""
+            INSERT INTO league_games (division_id, round_number, home_team_id, away_team_id,
+                                    home_team_name, away_team_name, game_date)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        """, (additional_division_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name))
+
+        game_id = cur.lastrowid
+
+        db_helper.commit()
+
+        flash(f'Additional game created: {home_team_name} vs {away_team_name}', 'success')
+        return redirect(url_for('game_management', game_id=game_id))
+
+    except Exception as e:
+        app.logger.error(f"Error creating additional game: {e}")
+        db_helper.get_connection().rollback()
+        flash('Error creating additional game: ' + str(e), 'danger')
         return redirect(url_for('colados_league'))
     finally:
         cur.close()
@@ -9643,6 +9981,144 @@ def get_team_players(team_id):
     finally:
         cur.close()
 
+@app.route('/colados_league/autosort_team/<int:team_id>')
+@login_required
+def autosort_team(team_id):
+    """Auto-select 14 players for a team: 1 GK, 5 DEF, 4 MID, 4 FWD"""
+    cur = db_helper.get_cursor()
+
+    try:
+        # Get all players for the team, sorted by overall (descending)
+        cur.execute("""
+            SELECT p.id, p.player_name, p.registered_position, p.overall
+            FROM players p
+            WHERE p.club_id = ?
+            ORDER BY p.overall DESC, p.player_name
+        """, (team_id,))
+        all_players = cur.fetchall()
+
+        if not all_players:
+            return jsonify({'error': 'No players found for this team'}), 404
+
+        # Convert to list of dicts
+        players = []
+        for player in all_players:
+            players.append({
+                'id': player[0],
+                'player_name': player[1],
+                'registered_position': player[2],
+                'overall': player[3]
+            })
+
+        # Define position groups
+        goalkeepers = [p for p in players if p['registered_position'] == 0]
+        defenders = [p for p in players if p['registered_position'] in [2, 3, 4]]
+        midfielders = [p for p in players if p['registered_position'] in [5, 6, 7, 8, 9]]
+        forwards = [p for p in players if p['registered_position'] in [10, 11, 12]]
+        
+        # All other positions as fallback
+        other_positions = [p for p in players if p['registered_position'] not in [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]
+
+        selected_players = []
+        selected_ids = set()
+
+        # Select 1 goalkeeper (or best player if no GK available)
+        if goalkeepers:
+            selected_players.append(goalkeepers[0])
+            selected_ids.add(goalkeepers[0]['id'])
+        elif players:
+            # If no GK, pick best overall player
+            best_player = players[0]
+            selected_players.append(best_player)
+            selected_ids.add(best_player['id'])
+
+        # Select 5 defenders (fill from others if needed)
+        defenders_needed = 5
+        for defender in defenders:
+            if len(selected_players) >= 14:
+                break
+            if defender['id'] not in selected_ids:
+                selected_players.append(defender)
+                selected_ids.add(defender['id'])
+                defenders_needed -= 1
+                if defenders_needed <= 0:
+                    break
+
+        # If not enough defenders, fill from remaining players
+        if defenders_needed > 0:
+            remaining_players = [p for p in players if p['id'] not in selected_ids]
+            for player in remaining_players:
+                if len(selected_players) >= 14:
+                    break
+                selected_players.append(player)
+                selected_ids.add(player['id'])
+                defenders_needed -= 1
+                if defenders_needed <= 0:
+                    break
+
+        # Select 4 midfielders (fill from others if needed)
+        midfielders_needed = 4
+        for midfielder in midfielders:
+            if len(selected_players) >= 14:
+                break
+            if midfielder['id'] not in selected_ids:
+                selected_players.append(midfielder)
+                selected_ids.add(midfielder['id'])
+                midfielders_needed -= 1
+                if midfielders_needed <= 0:
+                    break
+
+        # If not enough midfielders, fill from remaining players
+        if midfielders_needed > 0:
+            remaining_players = [p for p in players if p['id'] not in selected_ids]
+            for player in remaining_players:
+                if len(selected_players) >= 14:
+                    break
+                selected_players.append(player)
+                selected_ids.add(player['id'])
+                midfielders_needed -= 1
+                if midfielders_needed <= 0:
+                    break
+
+        # Select 4 forwards (fill from others if needed)
+        forwards_needed = 4
+        for forward in forwards:
+            if len(selected_players) >= 14:
+                break
+            if forward['id'] not in selected_ids:
+                selected_players.append(forward)
+                selected_ids.add(forward['id'])
+                forwards_needed -= 1
+                if forwards_needed <= 0:
+                    break
+
+        # If not enough forwards, fill from remaining players
+        if forwards_needed > 0:
+            remaining_players = [p for p in players if p['id'] not in selected_ids]
+            for player in remaining_players:
+                if len(selected_players) >= 14:
+                    break
+                selected_players.append(player)
+                selected_ids.add(player['id'])
+                forwards_needed -= 1
+                if forwards_needed <= 0:
+                    break
+
+        # Return selected player IDs
+        player_ids = [p['id'] for p in selected_players]
+
+        return jsonify({
+            'success': True,
+            'player_ids': player_ids,
+            'count': len(player_ids)
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error autosorting team: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+
 @app.route('/colados_league/submit_match_result/<int:game_id>', methods=['POST'])
 @login_required
 def submit_match_result(game_id):
@@ -9657,6 +10133,7 @@ def submit_match_result(game_id):
         home_lineup = data.get('home_lineup', [])
         away_lineup = data.get('away_lineup', [])
         player_stats = data.get('player_stats', [])
+        mvp_player_id = data.get('mvp_player_id')
 
         if home_score is None or away_score is None:
             return jsonify({'error': 'Missing scores'}), 400
@@ -9670,6 +10147,17 @@ def submit_match_result(game_id):
 
         # If game was already played, rollback previous stats so we can update
         if game['is_played']:
+            # Revert previous MVP if it exists
+            try:
+                if game.get('mvp_player_id'):
+                    cur.execute("""
+                        UPDATE players
+                        SET MVP = CASE WHEN MVP > 0 THEN MVP - 1 ELSE 0 END
+                        WHERE id = ?
+                    """, (game['mvp_player_id'],))
+            except Exception:
+                pass  # MVP column or mvp_player_id might not exist
+            
             # Revert player career stats from previous submission
             cur.execute("""
                 SELECT player_id, goals, assists
@@ -9689,12 +10177,20 @@ def submit_match_result(game_id):
             # Remove previous per-game stats
             cur.execute("DELETE FROM player_game_stats WHERE game_id = ?", (game_id,))
 
-        # Update game with result
-        cur.execute("""
-            UPDATE league_games
-            SET home_score = ?, away_score = ?, game_date = ?, is_played = 1
-            WHERE id = ?
-        """, (home_score, away_score, match_date, game_id))
+        # Update game with result (handle MVP column if it exists)
+        try:
+            cur.execute("""
+                UPDATE league_games
+                SET home_score = ?, away_score = ?, game_date = ?, is_played = 1, mvp_player_id = ?
+                WHERE id = ?
+            """, (home_score, away_score, match_date, mvp_player_id, game_id))
+        except Exception:
+            # mvp_player_id column might not exist, update without it
+            cur.execute("""
+                UPDATE league_games
+                SET home_score = ?, away_score = ?, game_date = ?, is_played = 1
+                WHERE id = ?
+            """, (home_score, away_score, match_date, game_id))
 
         # Get player names for stats
         player_names = {}
@@ -9726,15 +10222,36 @@ def submit_match_result(game_id):
         # Update player career stats (only for players who played)
         for stat in player_stats:
             if stat.get('played', True):
-                cur.execute("""
-                    UPDATE players
-                    SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1
-                    WHERE id = ?
-                """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+                # Check if this player is MVP
+                is_mvp = (mvp_player_id and stat['player_id'] == mvp_player_id)
+                
+                try:
+                    if is_mvp:
+                        cur.execute("""
+                            UPDATE players
+                            SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1, MVP = COALESCE(MVP, 0) + 1
+                            WHERE id = ?
+                        """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+                    else:
+                        cur.execute("""
+                            UPDATE players
+                            SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1
+                            WHERE id = ?
+                        """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+                except Exception:
+                    # MVP column might not exist, update without it
+                    cur.execute("""
+                        UPDATE players
+                        SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1
+                        WHERE id = ?
+                    """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
 
-        # Update division standings
-        update_division_standings(game['division_id'], game['home_team_id'], game['away_team_id'],
-                                home_score, away_score)
+        # Update division standings (only if game is not in "Additional Games" division)
+        cur.execute("SELECT name FROM divisions WHERE id = ?", (game['division_id'],))
+        division = cur.fetchone()
+        if division and division['name'] != 'Additional Games':
+            update_division_standings(game['division_id'], game['home_team_id'], game['away_team_id'],
+                                    home_score, away_score)
 
         db_helper.commit()
 
@@ -9873,7 +10390,13 @@ def beginning_of_season():
         # Create the blog post
         post_transfer_news("🏆 Strength by Strength - Season Preview", strength_content, user_id=1)
 
-        flash("✅ Strength by Strength blog post generated successfully!", "success")
+        # Post 2: Young Talents - Top 10 players per position (21 years old or less)
+        young_talents_content = generate_young_talents_post(cur)
+
+        # Create the second blog post
+        post_transfer_news("🌟 Young Talents - Season Preview (21 & Under)", young_talents_content, user_id=1)
+
+        flash("✅ Beginning of season blog posts generated successfully!", "success")
 
     except Exception as e:
         app.logger.error(f"Error generating beginning of season posts: {e}")
@@ -9888,40 +10411,32 @@ def generate_strength_by_strength_post(cur):
     content = "🏆 <strong>STRENGTH BY STRENGTH - SEASON PREVIEW</strong><br><br>"
     content += "As we kick off the new season, let's analyze the top talent across all positions:<br><br>"
 
-    # Position mapping from numbers to names
-    position_names = {
-        0: "Goal-Keeper",
-        2: "Sweeper",
-        3: "Center-Back",
-        4: "Side-Back",
-        5: "Defensive Midfielder",
-        6: "Wing-Back",
-        7: "Central Midfielder",
-        8: "Side Midfielder",
-        9: "Attacking Midfielder",
-        10: "Winger",
-        11: "Shadow Striker",
-        12: "Striker"
-    }
+    # Position groups: some positions are aggregated together
+    position_groups = [
+        (0, "Goal-Keeper", [0]),
+        (2, "Centre-Back / Sweeper", [2, 3]),  # Aggregated: Sweepers & Centre-Backs
+        (4, "Side-Back / Wing-Back", [4, 6]),  # Aggregated: Side-Backs & Wing-Backs
+        (5, "Defensive Midfielder", [5]),
+        (7, "Central Midfielder", [7]),
+        (8, "Side Midfielder", [8]),
+        (9, "Attacking Midfielder", [9]),
+        (10, "Winger", [10]),
+        (11, "Shadow Striker", [11]),
+        (12, "Striker", [12])
+    ]
 
-    # Get all registered positions in the specified order (excluding "No club" players)
-    ordered_positions = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-    positions = [{'registered_position': pos} for pos in ordered_positions]
-
-    for position_row in positions:
-        position_num = int(position_row['registered_position'])
-        position_name = position_names.get(position_num, f"Position {position_num}")
-
-        # Get top 10 players for this position (excluding "No club" players)
-        cur.execute("""
+    for position_id, position_name, position_list in position_groups:
+        # Get top 10 players for this position group (excluding "No club" players)
+        placeholders = ','.join('?' * len(position_list))
+        cur.execute(f"""
             SELECT p.player_name, p.overall, t.club_name
             FROM players p
             JOIN teams t ON p.club_id = t.id
-            WHERE p.registered_position = ?
+            WHERE p.registered_position IN ({placeholders})
             AND t.club_name != 'No Club'
             ORDER BY p.overall DESC
             LIMIT 10
-        """, (position_num,))
+        """, position_list)
 
         players = cur.fetchall()
 
@@ -9929,6 +10444,50 @@ def generate_strength_by_strength_post(cur):
             content += f"<strong>{position_name}:</strong><br>"
             for i, player in enumerate(players, 1):
                 content += f"• {player['player_name']} ({player['overall']}) - {player['club_name']}<br>"
+            content += "<br>"
+
+    content += "---<br><em>Generated at the beginning of the season</em>"
+    return content
+
+def generate_young_talents_post(cur):
+    """Generate the Young Talents blog post (players 21 years old or less)"""
+    content = "🌟 <strong>YOUNG TALENTS - SEASON PREVIEW (21 & UNDER)</strong><br><br>"
+    content += "As we kick off the new season, let's analyze the top young talent across all positions (21 years old or less):<br><br>"
+
+    # Position groups: some positions are aggregated together
+    position_groups = [
+        (0, "Goal-Keeper", [0]),
+        (2, "Centre-Back / Sweeper", [2, 3]),  # Aggregated: Sweepers & Centre-Backs
+        (4, "Side-Back / Wing-Back", [4, 6]),  # Aggregated: Side-Backs & Wing-Backs
+        (5, "Defensive Midfielder", [5]),
+        (7, "Central Midfielder", [7]),
+        (8, "Side Midfielder", [8]),
+        (9, "Attacking Midfielder", [9]),
+        (10, "Winger", [10]),
+        (11, "Shadow Striker", [11]),
+        (12, "Striker", [12])
+    ]
+
+    for position_id, position_name, position_list in position_groups:
+        # Get top 10 players for this position group (21 years old or less, excluding "No club" players)
+        placeholders = ','.join('?' * len(position_list))
+        cur.execute(f"""
+            SELECT p.player_name, p.overall, p.age, t.club_name
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            WHERE p.registered_position IN ({placeholders})
+            AND p.age <= 21
+            AND t.club_name != 'No Club'
+            ORDER BY p.overall DESC
+            LIMIT 10
+        """, position_list)
+
+        players = cur.fetchall()
+
+        if players:
+            content += f"<strong>{position_name}:</strong><br>"
+            for i, player in enumerate(players, 1):
+                content += f"• {player['player_name']} ({player['overall']}, Age {player['age']}) - {player['club_name']}<br>"
             content += "<br>"
 
     content += "---<br><em>Generated at the beginning of the season</em>"

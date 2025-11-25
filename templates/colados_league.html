@@ -42,8 +42,53 @@
                 <div class="info-card">
                     <h4>🎯 Quick Actions</h4>
                     <button class="btn btn-info" onclick="showLeaderboards()">View Leaderboards</button>
+                    <button class="btn btn-danger" onclick="confirmResetLeague()">🔄 Reset League</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Import Calendar Section -->
+    <div class="section">
+        <h2>📅 Import Calendar</h2>
+        <div class="row">
+            <div class="col-md-12">
+                <div class="info-card">
+                    <p>Import games from Calendar1.csv or Calendar2.csv into a division. Games will be created as pending games.</p>
+                    <form id="importCalendarForm" method="POST" action="{{ url_for('import_calendar') }}">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="calendarFileSelect">Calendar File:</label>
+                                    <select class="form-control" id="calendarFileSelect" name="calendar_file" required>
+                                        <option value="Calendar1.csv">Calendar1.csv (Division 1)</option>
+                                        <option value="Calendar2.csv">Calendar2.csv (Division 2)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="importDivisionSelect">Target Division:</label>
+                                    <select class="form-control" id="importDivisionSelect" name="division_id" required>
+                                        <option value="">-- Select Division --</option>
+                                        {% for division in divisions %}
+                                        <option value="{{ division.id }}">{{ division.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>&nbsp;</label>
+                                    <button type="submit" class="btn btn-success btn-block">📥 Import Calendar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
         </div>
     </div>
 
@@ -137,32 +182,57 @@
                         </table>
                     </div>
                     
-                    <!-- Recent Games -->
-                    <div class="recent-games">
-                        <h4>⚽ Recent Games</h4>
-                        {% for game in division.recent_games %}
-                        <div class="game-result">
-                            <span class="home-team">{{ game.home_team_name }}</span>
-                            <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
-                            <span class="away-team">{{ game.away_team_name }}</span>
-                            <span class="round">Round {{ game.round_number }}</span>
-                            <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-warning">Edit</a>
+                    <!-- Round Filter -->
+                    <div class="round-filter" style="margin-bottom: 15px;">
+                        <h4>🔍 Filter by Round</h4>
+                        <div class="round-buttons">
+                            <button class="btn btn-sm btn-round-filter active" data-division="{{ division.id }}" data-round="all" onclick="filterGamesByRound({{ division.id }}, 'all')">
+                                All Rounds
+                            </button>
+                            {% for round_num in division.rounds %}
+                            <button class="btn btn-sm btn-round-filter" data-division="{{ division.id }}" data-round="{{ round_num }}" onclick="filterGamesByRound({{ division.id }}, {{ round_num }})">
+                                Round {{ round_num }}
+                            </button>
+                            {% endfor %}
                         </div>
-                        {% endfor %}
+                    </div>
+                    
+                    <!-- Recent Games -->
+                    <div class="recent-games" data-division="{{ division.id }}">
+                        <h4>⚽ Recent Games</h4>
+                        <div class="games-container">
+                            {% for game in division.recent_games %}
+                            <div class="game-result" data-round="{{ game.round_number }}" data-division="{{ division.id }}">
+                                <span class="home-team">{{ game.home_team_name }}</span>
+                                <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
+                                <span class="away-team">{{ game.away_team_name }}</span>
+                                <span class="round">Round {{ game.round_number }}</span>
+                                <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-warning">Edit</a>
+                            </div>
+                            {% endfor %}
+                            {% if not division.recent_games %}
+                            <div class="text-center text-muted" style="padding: 20px;">No games played yet</div>
+                            {% endif %}
+                        </div>
                     </div>
                     
                     <!-- Pending Games -->
-                    <div class="pending-games">
+                    <div class="pending-games" data-division="{{ division.id }}">
                         <h4>⏳ Pending Games</h4>
-                        {% for game in division.pending_games %}
-                        <div class="game-result pending">
-                            <span class="home-team">{{ game.home_team_name }}</span>
-                            <span class="vs">vs</span>
-                            <span class="away-team">{{ game.away_team_name }}</span>
-                            <span class="round">Round {{ game.round_number }}</span>
-                            <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-primary">Manage</a>
+                        <div class="games-container">
+                            {% for game in division.pending_games %}
+                            <div class="game-result pending" data-round="{{ game.round_number }}" data-division="{{ division.id }}">
+                                <span class="home-team">{{ game.home_team_name }}</span>
+                                <span class="vs">vs</span>
+                                <span class="away-team">{{ game.away_team_name }}</span>
+                                <span class="round">Round {{ game.round_number }}</span>
+                                <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-primary">Manage</a>
+                            </div>
+                            {% endfor %}
+                            {% if not division.pending_games %}
+                            <div class="text-center text-muted" style="padding: 20px;">No pending games</div>
+                            {% endif %}
                         </div>
-                        {% endfor %}
                     </div>
                     
                     <!-- Division Actions -->
@@ -173,6 +243,102 @@
                 </div>
             </div>
             {% endfor %}
+        </div>
+    </div>
+
+    <!-- Additional Games Section -->
+    <div class="section">
+        <h2>⚽ Additional Games</h2>
+        <div class="row">
+            <div class="col-md-12">
+                <div class="info-card">
+                    <p>Create games between any teams from any division. These games won't affect division standings.</p>
+                    <form id="additionalGameForm" method="POST" action="{{ url_for('create_additional_game') }}">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="additionalRoundNumber">Round Number:</label>
+                                    <input type="number" class="form-control" id="additionalRoundNumber" name="round_number" min="1" value="1" required>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="additionalHomeTeam">Home Team:</label>
+                                    <select class="form-control" id="additionalHomeTeam" name="home_team_id" required>
+                                        <option value="">-- Select Home Team --</option>
+                                        {% for division in divisions %}
+                                            {% for team in division_teams[division.id] %}
+                                            <option value="{{ team[0] }}">{{ team[1] }} ({{ division.name }})</option>
+                                            {% endfor %}
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="additionalAwayTeam">Away Team:</label>
+                                    <select class="form-control" id="additionalAwayTeam" name="away_team_id" required>
+                                        <option value="">-- Select Away Team --</option>
+                                        {% for division in divisions %}
+                                            {% for team in division_teams[division.id] %}
+                                            <option value="{{ team[0] }}">{{ team[1] }} ({{ division.name }})</option>
+                                            {% endfor %}
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-1">
+                                <div class="form-group">
+                                    <label>&nbsp;</label>
+                                    <button type="submit" class="btn btn-primary btn-block">Create</button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                    
+                    <!-- List of Additional Games -->
+                    <div class="additional-games-list" style="margin-top: 20px;">
+                        <h4>📋 Additional Games List</h4>
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Round</th>
+                                    <th>Home Team</th>
+                                    <th>Score</th>
+                                    <th>Away Team</th>
+                                    <th>Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for game in additional_games %}
+                                <tr>
+                                    <td>{{ game.round_number }}</td>
+                                    <td>{{ game.home_team_name }}</td>
+                                    <td>
+                                        {% if game.is_played %}
+                                            {{ game.home_score }} - {{ game.away_score }}
+                                        {% else %}
+                                            <span class="text-muted">Pending</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ game.away_team_name }}</td>
+                                    <td>{{ game.game_date or 'N/A' }}</td>
+                                    <td>
+                                        <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-primary">Manage</a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% if not additional_games %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">No additional games created yet</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -474,6 +640,38 @@
     color: #bdc3c7 !important;
     font-size: 0.9em;
 }
+
+.round-filter {
+    margin-bottom: 15px;
+}
+
+.round-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.btn-round-filter {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 15px;
+    transition: all 0.3s;
+}
+
+.btn-round-filter:hover {
+    background: rgba(243, 156, 18, 0.3);
+    border-color: #f39c12;
+    color: white;
+}
+
+.btn-round-filter.active {
+    background: linear-gradient(145deg, #f39c12, #e67e22);
+    border-color: #f39c12;
+    color: white;
+    font-weight: bold;
+}
 </style>
 
 <script>
@@ -486,6 +684,17 @@ function showCreateGameModal() {
 function showLeaderboards() {
     // Scroll to leaderboards section
     document.querySelector('.leaderboards').scrollIntoView({ behavior: 'smooth' });
+}
+
+function confirmResetLeague() {
+    if (confirm('⚠️ WARNING: This will permanently erase ALL league data!\n\nThis includes:\n- All teams in divisions\n- All games and results\n- All standings and scoreboards\n- All player stats (games_played, goals, assists, MVP)\n\nThis action CANNOT be undone!\n\nAre you absolutely sure you want to reset the entire league?')) {
+        // Create a form and submit it
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("reset_colados_league") }}';
+        document.body.appendChild(form);
+        form.submit();
+    }
 }
 
 
@@ -515,5 +724,61 @@ $(document).ready(function() {
     
     // Form will submit normally with action="{{ url_for('create_game') }}"
 });
+
+function filterGamesByRound(divisionId, roundNumber) {
+    // Update button states
+    const buttons = document.querySelectorAll(`.btn-round-filter[data-division="${divisionId}"]`);
+    buttons.forEach(btn => {
+        if (btn.getAttribute('data-round') == roundNumber) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
+    // Filter recent games
+    const recentGamesContainer = document.querySelector(`.recent-games[data-division="${divisionId}"] .games-container`);
+    if (recentGamesContainer) {
+        const recentGames = recentGamesContainer.querySelectorAll('.game-result');
+        let visibleCount = 0;
+        recentGames.forEach(game => {
+            const gameRound = game.getAttribute('data-round');
+            if (roundNumber === 'all' || gameRound == roundNumber) {
+                game.style.display = 'flex';
+                visibleCount++;
+            } else {
+                game.style.display = 'none';
+            }
+        });
+        
+        // Show/hide "no games" message
+        const noGamesMsg = recentGamesContainer.querySelector('.text-center.text-muted');
+        if (noGamesMsg) {
+            noGamesMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+    }
+    
+    // Filter pending games
+    const pendingGamesContainer = document.querySelector(`.pending-games[data-division="${divisionId}"] .games-container`);
+    if (pendingGamesContainer) {
+        const pendingGames = pendingGamesContainer.querySelectorAll('.game-result');
+        let visibleCount = 0;
+        pendingGames.forEach(game => {
+            const gameRound = game.getAttribute('data-round');
+            if (roundNumber === 'all' || gameRound == roundNumber) {
+                game.style.display = 'flex';
+                visibleCount++;
+            } else {
+                game.style.display = 'none';
+            }
+        });
+        
+        // Show/hide "no games" message
+        const noGamesMsg = pendingGamesContainer.querySelector('.text-center.text-muted');
+        if (noGamesMsg) {
+            noGamesMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+    }
+}
 </script>
 {% endblock %}
