@@ -3,6 +3,13 @@
 {% block title %}Tools{% endblock %}
 
 {% block content %}
+    {# Position name mapping #}
+    {% set position_names = {
+        '0': 'GK', '2': 'SW', '3': 'CB', '4': 'SB', '5': 'DMF',
+        '6': 'WB', '7': 'CMF', '8': 'SMF', '9': 'AMF', '10': 'WG',
+        '11': 'SS', '12': 'CF', '13': 'UNK'
+    } %}
+    
     <h2>League Tools</h2>
     <p>Here you can access various tools to manage and interact with your league data.</p>
 
@@ -12,17 +19,26 @@
         <h3>Change Player's Team</h3>
         <form method="post" action="{{ url_for('change_player_team') }}">
             <label for="player_id">Player:</label>
-            <select name="player_id" id="player_id" required>
-                <option value="" disabled selected>Select player</option>
+            <select name="player_id" id="player_id" required style="color: #000000;">
+                <option value="" disabled selected style="color: #000000;">Select player</option>
                 {% for player in players %}
-                    <option value="{{ player[0] }}">{{ player[1] }}</option>
+                    {% set club_name = player[3] if player[3] else 'No Club' %}
+                    {% if player|length >= 5 and player[4] is not none %}
+                        {% set pos_num = player[4]|string %}
+                        {% set pos_name = position_names.get(pos_num, pos_num) %}
+                    {% else %}
+                        {% set pos_name = 'N/A' %}
+                    {% endif %}
+                    <option value="{{ player[0] }}" style="color: #000000;">
+                        {{ player[1] }} - {{ club_name }} ({{ pos_name }})
+                    </option>
                 {% endfor %}
             </select>
             <label for="team_id" style="margin-left: 20px;">New Team:</label>
-            <select name="team_id" id="team_id" required>
-                <option value="" disabled selected>Select team</option>
+            <select name="team_id" id="team_id" required style="color: #000000;">
+                <option value="" disabled selected style="color: #000000;">Select team</option>
                 {% for team in teams %}
-                    <option value="{{ team[0] }}">{{ team[1] }}</option>
+                    <option value="{{ team[0] }}" style="color: #000000;">{{ team[1] }}</option>
                 {% endfor %}
             </select>
             <button type="submit" class="button" style="margin-left: 20px;">Change Team</button>
@@ -566,6 +582,17 @@
         }
         .button:hover {
             background-color: #45a049;
+        }
+        /* Fix dropdown color issue - ensure all select options have black text */
+        select, select option {
+            color: #000000 !important;
+            background-color: #ffffff;
+        }
+        select option:checked {
+            color: #000000 !important;
+        }
+        select:focus option:checked {
+            color: #000000 !important;
         }
     </style>
 {% endblock %}

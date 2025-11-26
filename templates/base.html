@@ -23,6 +23,10 @@
                 <li><a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a></li>
                 <li><a href="{{ url_for('cpu_leagues') }}">CPU Leagues</a></li>
                 <li><a href="{{ url_for('tools') }}">Tools</a></li>
+                <li class="player-search-container">
+                    <input type="text" id="player-search" placeholder="🔍 Search Players..." autocomplete="off" style="padding: 8px 15px; border-radius: 20px; border: 1px solid #555; background: #2a2a2a; color: #ffd700; width: 250px; font-size: 14px;">
+                    <div id="player-search-results" style="display: none; position: absolute; background: #2a2a2a; border: 1px solid #555; border-radius: 5px; max-height: 300px; overflow-y: auto; z-index: 1000; margin-top: 5px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);"></div>
+                </li>
                 {% if current_user.is_authenticated %}
                     <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
                     <li><a href="{{ url_for('team_management') }}">My Teams</a></li> {# Updated text #}
@@ -73,6 +77,97 @@
     <script>window.currentUserId = {{ current_user.id }};</script>
     {% endif %}
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Player search functionality
+        $(document).ready(function() {
+            let searchTimeout;
+            const $searchInput = $('#player-search');
+            const $results = $('#player-search-results');
+            
+            $searchInput.on('input', function() {
+                const query = $(this).val().trim();
+                
+                clearTimeout(searchTimeout);
+                
+                if (query.length < 2) {
+                    $results.hide().empty();
+                    return;
+                }
+                
+                searchTimeout = setTimeout(function() {
+                    $.ajax({
+                        url: '/search_players',
+                        method: 'GET',
+                        data: { q: query },
+                        success: function(data) {
+                            $results.empty();
+                            
+                            if (data.length === 0) {
+                                $results.append('<div class="search-result-item" style="padding: 10px; color: #aaa;">No players found</div>');
+                            } else {
+                                data.forEach(function(player) {
+                                    const $item = $('<div class="search-result-item"></div>');
+                                    
+                                    // Create image element
+                                    const $img = $('<img>').attr({
+                                        'src': player.image_url,
+                                        'alt': player.name
+                                    }).on('error', function() {
+                                        $(this).replaceWith('<div style="width:40px; height:40px; line-height:40px; text-align:center; background:#2a2a2a; border-radius:5px; border:1px solid #555; font-size:20px; flex-shrink:0;">👤</div>');
+                                    });
+                                    
+                                    // Create text container
+                                    const $textDiv = $('<div>').css('flex', '1').css('margin-left', '10px');
+                                    $textDiv.append($('<div>').addClass('player-name').text(player.name));
+                                    $textDiv.append($('<div>').addClass('player-info').text(player.club + ' - ' + player.position));
+                                    
+                                    // Append image and text to item
+                                    $item.append($img);
+                                    $item.append($textDiv);
+                                    
+                                    // Store player ID for Enter key navigation
+                                    $item.data('player-id', player.id);
+                                    
+                                    $item.on('click', function() {
+                                        window.location.href = '/pes6_player/' + player.id;
+                                    });
+                                    $results.append($item);
+                                });
+                            }
+                            
+                            $results.show();
+                        },
+                        error: function() {
+                            $results.hide().empty();
+                        }
+                    });
+                }, 300);
+            });
+            
+            // Hide results when clicking outside
+            $(document).on('click', function(e) {
+                if (!$(e.target).closest('.player-search-container').length) {
+                    $results.hide();
+                }
+            });
+            
+            // Handle Enter key to go to first result
+            $searchInput.on('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    const $firstResult = $results.find('.search-result-item').first();
+                    if ($firstResult.length) {
+                        const playerId = $firstResult.data('player-id');
+                        if (playerId) {
+                            window.location.href = '/pes6_player/' + playerId;
+                        }
+                    }
+                } else if (e.key === 'Escape') {
+                    $results.hide();
+                    $searchInput.blur();
+                }
+            });
+        });
+    </script>
 </body>
 </html>
 

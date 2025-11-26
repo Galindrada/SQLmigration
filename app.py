@@ -1717,11 +1717,11 @@ def upload_player_image(player_id):
 @app.route('/tools')
 def tools():
     cur = db_helper.get_cursor()
-    # Get players with age and team info for retire player tool
+    # Get players with age, team, position, and overall for all tools
     cur.execute("""
-        SELECT p.id, p.player_name, p.age, t.club_name
+        SELECT p.id, p.player_name, p.age, t.club_name, p.registered_position, p.overall
         FROM players p
-        JOIN teams t ON p.club_id = t.id
+        LEFT JOIN teams t ON p.club_id = t.id
         ORDER BY p.player_name ASC
     """)
     players = cur.fetchall()
@@ -3923,14 +3923,66 @@ def change_player_team():
             cur.execute("UPDATE players SET club_id = ? WHERE id = ?", (new_team_id, player_id))
             db_helper.commit()
             message = 'Player team updated!'
-    # Fetch all players and teams for the dropdowns
-    cur.execute("SELECT id, player_name FROM players ORDER BY player_name ASC")
+    # Fetch all players and teams for the dropdowns with detailed info
+    cur.execute("""
+        SELECT p.id, p.player_name, p.age, t.club_name, p.registered_position, p.overall
+        FROM players p
+        LEFT JOIN teams t ON p.club_id = t.id
+        ORDER BY p.player_name ASC
+    """)
     players = cur.fetchall()
     cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
     teams = cur.fetchall()
     cur.close()
     # Render tools.html with extra context for the form
     return render_template('tools.html', players=players, teams=teams, message=message)
+
+# --- Player Search Endpoint ---
+@app.route('/search_players')
+def search_players():
+    """Search endpoint for player autocomplete"""
+    query = request.args.get('q', '').strip()
+    if not query or len(query) < 2:
+        return jsonify([])
+    
+    cur = db_helper.get_cursor()
+    try:
+        cur.execute("""
+            SELECT p.id, p.player_name, t.club_name, p.registered_position, p.profile_image
+            FROM players p
+            LEFT JOIN teams t ON p.club_id = t.id
+            WHERE p.player_name LIKE ?
+            ORDER BY p.player_name ASC
+            LIMIT 10
+        """, (f'%{query}%',))
+        players = cur.fetchall()
+        
+        results = []
+        position_names = {
+            '0': 'GK', '2': 'SW', '3': 'CB', '4': 'SB', '5': 'DMF',
+            '6': 'WB', '7': 'CMF', '8': 'SMF', '9': 'AMF', '10': 'WG',
+            '11': 'SS', '12': 'CF', '13': 'UNK'
+        }
+        
+        for player in players:
+            pos_num = str(player[3]) if player[3] is not None else '13'
+            pos_name = position_names.get(pos_num, pos_num)
+            # Generate image URL
+            image_url = url_for('serve_player_image_by_id', player_id=player[0])
+            results.append({
+                'id': player[0],
+                'name': player[1],
+                'club': player[2] if player[2] else 'No Club',
+                'position': pos_name,
+                'image_url': image_url
+            })
+        
+        return jsonify(results)
+    except Exception as e:
+        app.logger.error(f"Error in search_players: {e}")
+        return jsonify([])
+    finally:
+        cur.close()
 
 @app.route('/allocate_trophy', methods=['GET', 'POST'])
 @login_required
