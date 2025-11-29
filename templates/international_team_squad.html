@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}{{ team.team_name }} - Squad{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>🌍 {{ team.team_name }} - Called-Up Squad</h1>
+    <p><a href="{{ url_for('international') }}">← Back to International</a></p>
+    
+    <!-- Squad Overview -->
+    <div class="section">
+        <h2>📋 Squad Overview</h2>
+        <p><strong>Total Called Up:</strong> {{ squad|length }}/23</p>
+        <p><strong>Fake Players:</strong> {{ squad|selectattr('is_fake_player', 'equalto', 1)|list|length }}</p>
+    </div>
+    
+    <!-- Called-Up Squad by Position -->
+    <div class="section">
+        <h2>👥 Called-Up Squad</h2>
+        {% set position_groups = ['GK', 'CB/SW', 'SB/WB', 'DMF/CMF/AMF', 'SMF/WF', 'SS/CF'] %}
+        {% for pos_group in position_groups %}
+        <div style="margin-bottom: 30px;">
+            <h3>{{ pos_group }}</h3>
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Player</th>
+                        <th>Position</th>
+                        <th>Overall</th>
+                        <th>Age</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for player in squad %}
+                    {% if player.position_group == pos_group %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('pes6_player_details', player_id=player.id) }}">{{ player.player_name }}</a>
+                        </td>
+                        <td>
+                            {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                            {% if pos == 0 %}GK
+                            {% elif pos == 2 %}SW
+                            {% elif pos == 3 %}CB
+                            {% elif pos == 4 %}SB
+                            {% elif pos == 5 %}DMF
+                            {% elif pos == 6 %}WB
+                            {% elif pos == 7 %}CMF
+                            {% elif pos == 8 %}SMF
+                            {% elif pos == 9 %}AMF
+                            {% elif pos == 10 %}WF
+                            {% elif pos == 11 %}SS
+                            {% elif pos == 12 %}CF
+                            {% else %}-
+                            {% endif %}
+                        </td>
+                        <td><strong>{{ player.overall }}</strong></td>
+                        <td>{{ player.age }}</td>
+                        <td>
+                            {% if player.is_fake_player %}
+                            <span class="badge badge-warning">Fake Player</span>
+                            {% else %}
+                            <span class="badge badge-success">Real Player</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                    {% if not squad|selectattr('position_group', 'equalto', pos_group)|list %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">No players called up for this position</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- All Available Players (for reference) -->
+    <div class="section">
+        <h2>📊 All Available Players</h2>
+        <p class="text-muted">Total players available: {{ all_players|length }}</p>
+        <div class="table-responsive">
+            <table class="table table-striped table-sm">
+                <thead>
+                    <tr>
+                        <th>Player</th>
+                        <th>Position</th>
+                        <th>Overall</th>
+                        <th>Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for player in all_players %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('pes6_player_details', player_id=player.id) }}">{{ player.player_name }}</a>
+                        </td>
+                        <td>
+                            {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                            {% if pos == 0 %}GK
+                            {% elif pos == 2 %}SW
+                            {% elif pos == 3 %}CB
+                            {% elif pos == 4 %}SB
+                            {% elif pos == 5 %}DMF
+                            {% elif pos == 6 %}WB
+                            {% elif pos == 7 %}CMF
+                            {% elif pos == 8 %}SMF
+                            {% elif pos == 9 %}AMF
+                            {% elif pos == 10 %}WF
+                            {% elif pos == 11 %}SS
+                            {% elif pos == 12 %}CF
+                            {% else %}-
+                            {% endif %}
+                        </td>
+                        <td><strong>{{ player.overall }}</strong></td>
+                        <td>{{ player.age }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not all_players %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">No players available</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+.section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    border-radius: 10px;
+    color: white;
+}
+
+.section h2 {
+    color: #f39c12;
+    margin-bottom: 20px;
+}
+
+.section h3 {
+    color: #e67e22;
+    margin-bottom: 15px;
+    margin-top: 20px;
+}
+
+.table {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.table thead th {
+    color: #f39c12;
+    border-bottom: 2px solid #f39c12;
+}
+
+.table tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.table a {
+    color: #ffd700;
+    text-decoration: none;
+}
+
+.table a:hover {
+    color: #ffed4e;
+    text-decoration: underline;
+}
+</style>
+{% endblock %}
+

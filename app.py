@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 import pandas as pd
 import db_helper
 import game_mechanics  # Import the new game mechanics module
+from cpu_leagues import simulate_cpu_game  # CPU league game simulation
 
 from config import Config
 import db_helper  # New helper module for SQLite access
@@ -350,7 +351,30 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', user=current_user)
+    cur = db_helper.get_cursor()
+    # Get user's draft picks for display
+    create_draft_picks_table()
+    
+    # Check if any draft picks exist at all - if not, auto-initialize
+    cur.execute("SELECT COUNT(*) as count FROM draft_picks")
+    total_picks = cur.fetchone()['count']
+    if total_picks == 0:
+        # Auto-initialize draft picks for all users
+        try:
+            initialize_draft_picks_for_all_users()
+        except Exception as e:
+            app.logger.error(f"Error auto-initializing draft picks: {e}")
+    
+    cur.execute("""
+        SELECT dp.id, dp.season, dp.pick_number, dp.original_user_id, u.username as original_owner_name
+        FROM draft_picks dp
+        JOIN users u ON dp.original_user_id = u.id
+        WHERE dp.user_id = ? AND dp.is_expired = 0
+        ORDER BY dp.season, dp.pick_number
+    """, (current_user.id,))
+    draft_picks = cur.fetchall()
+    cur.close()
+    return render_template('dashboard.html', user=current_user, draft_picks=draft_picks)
 
 @app.route('/dashboard/user_deals', methods=['GET', 'POST'])
 @login_required
@@ -385,6 +409,28 @@ def dashboard_user_deals():
         ORDER BY lt.team_name, p.player_name ASC
     """, (current_user.id,))
     my_players = cur.fetchall()
+    
+    # Get current user's draft picks (non-expired)
+    create_draft_picks_table()
+    
+    # Check if any draft picks exist at all - if not, auto-initialize
+    cur.execute("SELECT COUNT(*) as count FROM draft_picks")
+    total_picks = cur.fetchone()['count']
+    if total_picks == 0:
+        # Auto-initialize draft picks for all users
+        try:
+            initialize_draft_picks_for_all_users()
+        except Exception as e:
+            app.logger.error(f"Error auto-initializing draft picks: {e}")
+    
+    cur.execute("""
+        SELECT dp.id, dp.season, dp.pick_number, dp.original_user_id, u.username as original_owner_name
+        FROM draft_picks dp
+        JOIN users u ON dp.original_user_id = u.id
+        WHERE dp.user_id = ? AND dp.is_expired = 0
+        ORDER BY dp.season, dp.pick_number
+    """, (current_user.id,))
+    my_draft_picks = cur.fetchall()
 
     recipient_players = []
     selected_receiver_id = request.form.get('receiver_id') if request.method == 'POST' else request.args.get('receiver_id')
@@ -408,6 +454,16 @@ def dashboard_user_deals():
                 ORDER BY lt.team_name, p.player_name ASC
             """, (selected_receiver_id_int,))
             recipient_players = cur.fetchall()
+            
+            # Get recipient's draft picks (non-expired)
+            cur.execute("""
+                SELECT dp.id, dp.season, dp.pick_number, dp.original_user_id, u.username as original_owner_name
+                FROM draft_picks dp
+                JOIN users u ON dp.original_user_id = u.id
+                WHERE dp.user_id = ? AND dp.is_expired = 0
+                ORDER BY dp.season, dp.pick_number
+            """, (selected_receiver_id_int,))
+            recipient_draft_picks = cur.fetchall()
         except ValueError:
             recipient_players = []
 
@@ -419,16 +475,20 @@ def dashboard_user_deals():
         their_team_id = request.form.get('their_team_id')
         offered_players = request.form.getlist('offered_players')
         offered_money = int(request.form.get('offered_money', 0) or 0)
+        offered_draft_picks = request.form.getlist('offered_draft_picks')
         requested_players = request.form.getlist('requested_players')
         requested_money = int(request.form.get('requested_money', 0) or 0)
+        requested_draft_picks = request.form.getlist('requested_draft_picks')
 
         # Validate that at least one side has something to offer
-        if not offered_players and offered_money == 0 and not requested_players and requested_money == 0:
+        if not offered_players and offered_money == 0 and not offered_draft_picks and not requested_players and requested_money == 0 and not requested_draft_picks:
             flash('You must offer something or request something!', 'danger')
             return render_template('dashboard_user_deals.html',
                                 users=users,
                                 my_players=my_players,
+                                my_draft_picks=my_draft_picks if 'my_draft_picks' in locals() else [],
                                 recipient_players=recipient_players,
+                                recipient_draft_picks=recipient_draft_picks if 'recipient_draft_picks' in locals() else [],
                                 selected_receiver_id=selected_receiver_id,
                                 my_teams=my_teams,
                                 recipient_teams=recipient_teams if 'recipient_teams' in locals() else [],
@@ -439,14 +499,27 @@ def dashboard_user_deals():
         # For user-to-user offers, we need to provide a player_id (use the first offered player or a default)
         default_player_id = offered_players[0] if offered_players else requested_players[0] if requested_players else None
 
+        # Use first player if available, otherwise use first draft pick, otherwise use a placeholder
+        if default_player_id:
+            pass  # Use the default_player_id
+        elif offered_draft_picks:
+            # If only draft picks, we need a placeholder player_id
+            cur.execute("SELECT id FROM players LIMIT 1")
+            placeholder = cur.fetchone()
+            default_player_id = placeholder['id'] if placeholder else None
+        elif requested_draft_picks:
+            cur.execute("SELECT id FROM players LIMIT 1")
+            placeholder = cur.fetchone()
+            default_player_id = placeholder['id'] if placeholder else None
+        
         if default_player_id:
             cur.execute("""
-                INSERT INTO offers (sender_id, receiver_id, player_id, offer_amount, offered_players, offered_money, requested_players, requested_money, sender_team_id, receiver_team_id, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (current_user.id, receiver_id, default_player_id, offered_money, json.dumps(offered_players), offered_money, json.dumps(requested_players), requested_money, my_team_id, their_team_id, 'pending'))
+                INSERT INTO offers (sender_id, receiver_id, player_id, offer_amount, offered_players, offered_money, offered_draft_picks, requested_players, requested_money, requested_draft_picks, sender_team_id, receiver_team_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (current_user.id, receiver_id, default_player_id, offered_money, json.dumps(offered_players), offered_money, json.dumps(offered_draft_picks), json.dumps(requested_players), requested_money, json.dumps(requested_draft_picks), my_team_id, their_team_id, 'pending'))
         else:
-            # If no players involved, we can't create an offer with the current schema
-            flash('You must include at least one player in the offer!', 'danger')
+            # If no players or draft picks involved, we can't create an offer
+            flash('You must include at least one player or draft pick in the offer!', 'danger')
             return render_template('dashboard_user_deals.html',
                                 users=users,
                                 my_players=my_players,
@@ -466,7 +539,8 @@ def dashboard_user_deals():
     cur.execute("""
         SELECT o.id, o.sender_id, o.receiver_id, o.status, o.created_at,
                u1.username as sender_name, u2.username as receiver_name,
-               o.offered_players, o.offered_money, o.requested_players, o.requested_money
+               o.offered_players, o.offered_money, o.offered_draft_picks,
+               o.requested_players, o.requested_money, o.requested_draft_picks
         FROM offers o
         JOIN users u1 ON o.sender_id = u1.id
         JOIN users u2 ON o.receiver_id = u2.id
@@ -479,7 +553,9 @@ def dashboard_user_deals():
     return render_template('dashboard_user_deals.html',
                          users=users,
                          my_players=my_players,
+                         my_draft_picks=my_draft_picks if 'my_draft_picks' in locals() else [],
                          recipient_players=recipient_players,
+                         recipient_draft_picks=recipient_draft_picks if 'recipient_draft_picks' in locals() else [],
                          selected_receiver_id=selected_receiver_id,
                          my_teams=my_teams,
                          recipient_teams=recipient_teams if 'recipient_teams' in locals() else [],
@@ -976,7 +1052,8 @@ def pes6_team_details(team_id):
     cur.execute("""
         SELECT id, player_name, registered_position, age, height, strong_foot, attack,
                attack_rating, defense_rating, physical_rating, power_rating, technique_rating, goalkeeping_rating,
-               game_position, salary, contract_years_remaining, market_value, championships_won, cups_won
+               game_position, salary, contract_years_remaining, market_value, championships_won, cups_won,
+               games_played, goals, assists
         FROM players
         WHERE club_id = ?
         ORDER BY
@@ -1006,6 +1083,18 @@ def pes6_team_details(team_id):
         ORDER BY season DESC, competition ASC
     """, (team_id,))
     historical_data = cur.fetchall()
+    
+    # Fetch preferred lineup (top 11)
+    cur.execute("""
+        SELECT tpl.slot_number, tpl.position_group, 
+               p.id, p.player_name, p.registered_position, p.overall, p.profile_image
+        FROM team_preferred_lineup tpl
+        JOIN players p ON tpl.player_id = p.id
+        WHERE tpl.team_id = ?
+        ORDER BY tpl.slot_number
+    """, (team_id,))
+    preferred_lineup = cur.fetchall()
+    
     cur.close()
 
     # Add cache-busting headers to ensure fresh data
@@ -1018,7 +1107,8 @@ def pes6_team_details(team_id):
                          available_cap=available_cap,
                          is_user_team=is_user_team,
                          total_market_value=total_market_value,
-                         historical_data=historical_data))
+                         historical_data=historical_data,
+                         preferred_lineup=preferred_lineup))
 
     # Add headers to prevent caching
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -1079,7 +1169,10 @@ def pes6_player_details(player_id):
         'Games': player_data['games_played'] if 'games_played' in player_data.keys() else 0,
         'Goals': player_data['goals'] if 'goals' in player_data.keys() else 0,
         'Assists': player_data['assists'] if 'assists' in player_data.keys() else 0,
-        'MVP': player_data['MVP'] if 'MVP' in player_data.keys() else 0
+        'MVP': player_data['MVP'] if 'MVP' in player_data.keys() else 0,
+        'International Caps': player_data['international_caps_total'] if 'international_caps_total' in player_data.keys() else 0,
+        'Int Goals': player_data['international_goals'] if 'international_goals' in player_data.keys() else 0,
+        'Int Assists': player_data['international_assists'] if 'international_assists' in player_data.keys() else 0
     }
 
     # Add loan information if player is on loan
@@ -2252,6 +2345,7 @@ def inbox():
     # After fetching offers, convert each offer to a dict before mutating
     offers = [dict(offer) for offer in offers]
     # Parse JSON fields and fetch player names for template
+    create_draft_picks_table()
     for offer in offers:
         if 'offered_players' in offer and 'requested_players' in offer:
             # Defensive: treat None or empty as []
@@ -2259,6 +2353,40 @@ def inbox():
             requested_players_raw = offer['requested_players'] or '[]'
             offer['offered_players'] = json.loads(offered_players_raw)
             offer['requested_players'] = json.loads(requested_players_raw)
+        
+        # Parse draft picks
+        offered_draft_picks_raw = offer.get('offered_draft_picks') or '[]'
+        requested_draft_picks_raw = offer.get('requested_draft_picks') or '[]'
+        offer['offered_draft_picks'] = json.loads(offered_draft_picks_raw)
+        offer['requested_draft_picks'] = json.loads(requested_draft_picks_raw)
+        
+        # Fetch draft pick details
+        offer['offered_pick_details'] = []
+        offer['requested_pick_details'] = []
+        
+        if offer['offered_draft_picks']:
+            placeholders = ','.join(['?' for _ in offer['offered_draft_picks']])
+            cur.execute(f"""
+                SELECT dp.season, dp.pick_number, u.username as original_owner_name
+                FROM draft_picks dp
+                JOIN users u ON dp.original_user_id = u.id
+                WHERE dp.id IN ({placeholders})
+            """, offer['offered_draft_picks'])
+            for row in cur.fetchall():
+                pick_suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(row['pick_number'], 'th')
+                offer['offered_pick_details'].append(f"{row['season']} {row['pick_number']}{pick_suffix} Pick ({row['original_owner_name']})")
+        
+        if offer['requested_draft_picks']:
+            placeholders = ','.join(['?' for _ in offer['requested_draft_picks']])
+            cur.execute(f"""
+                SELECT dp.season, dp.pick_number, u.username as original_owner_name
+                FROM draft_picks dp
+                JOIN users u ON dp.original_user_id = u.id
+                WHERE dp.id IN ({placeholders})
+            """, offer['requested_draft_picks'])
+            for row in cur.fetchall():
+                pick_suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(row['pick_number'], 'th')
+                offer['requested_pick_details'].append(f"{row['season']} {row['pick_number']}{pick_suffix} Pick ({row['original_owner_name']})")
             # Fetch player names for both sides
             if offer['offered_players'] and len(offer['offered_players']) > 0:
                 placeholders = ','.join(['?' for _ in offer['offered_players']])
@@ -2534,64 +2662,64 @@ def accept_offer(offer_id):
             salary_amount = offer['offered_money']
             print(f"💰 Salary amount: €{salary_amount:,}")  # Debug line
 
-        # Get top 3 highest paid players for the blog post
-        cur.execute("""
-            SELECT p.player_name, p.salary, lt.team_name
-            FROM players p
-            JOIN team_players tp ON p.id = tp.player_id
-            JOIN league_teams lt ON tp.team_id = lt.id
-            WHERE lt.user_id = ?
-            ORDER BY p.salary DESC
-            LIMIT 3
-        """, (current_user.id,))
-        top_players = cur.fetchall()
-        print(f"📊 Found {len(top_players)} top players")  # Debug line
+            # Get top 3 highest paid players for the blog post
+            cur.execute("""
+                SELECT p.player_name, p.salary, lt.team_name
+                FROM players p
+                JOIN team_players tp ON p.id = tp.player_id
+                JOIN league_teams lt ON tp.team_id = lt.id
+                WHERE lt.user_id = ?
+                ORDER BY p.salary DESC
+                LIMIT 3
+            """, (current_user.id,))
+            top_players = cur.fetchall()
+            print(f"📊 Found {len(top_players)} top players")  # Debug line
 
-        # Get total number of players
-        cur.execute("""
-            SELECT COUNT(*) as player_count
-            FROM players p
-            JOIN team_players tp ON p.id = tp.player_id
-            JOIN league_teams lt ON tp.team_id = lt.id
-            WHERE lt.user_id = ?
-        """, (current_user.id,))
-        player_count = cur.fetchone()['player_count']
-        print(f"👥 Total players: {player_count}")  # Debug line
+            # Get total number of players
+            cur.execute("""
+                SELECT COUNT(*) as player_count
+                FROM players p
+                JOIN team_players tp ON p.id = tp.player_id
+                JOIN league_teams lt ON tp.team_id = lt.id
+                WHERE lt.user_id = ?
+            """, (current_user.id,))
+            player_count = cur.fetchone()['player_count']
+            print(f"👥 Total players: {player_count}")  # Debug line
 
-        # Update user's unified budget (negative amount = user pays)
-        add_user_movement(current_user.id, 'Salary Bill Payment',
-                         f'Paid salary bill for all your players: €{salary_amount:,}',
-                         -salary_amount)
+            # Update user's unified budget (negative amount = user pays)
+            add_user_movement(current_user.id, 'Salary Bill Payment',
+                             f'Paid salary bill for all your players: €{salary_amount:,}',
+                             -salary_amount)
 
-        # Mark offer as accepted
-        cur.execute("UPDATE offers SET status = 'accepted' WHERE id = ?", (offer_id,))
+            # Mark offer as accepted
+            cur.execute("UPDATE offers SET status = 'accepted' WHERE id = ?", (offer_id,))
 
-        # Create enhanced blog post about the club's finances being in order
-        blog_title = f"💰 {current_user.username}'s Club Finances Settled"
-        print(f"📝 Creating blog post: {blog_title}")  # Debug line
+            # Create enhanced blog post about the club's finances being in order
+            blog_title = f"💰 {current_user.username}'s Club Finances Settled"
+            print(f"📝 Creating blog post: {blog_title}")  # Debug line
 
-        top_players_html = ""
-        if top_players:
-            top_players_html = "<p><strong>Top 3 Player Wages:</strong></p><ul>"
-            for player in top_players:
-                top_players_html += f"<li>{player['player_name']} ({player['team_name']}): €{player['salary']:,}</li>"
-            top_players_html += "</ul>"
+            top_players_html = ""
+            if top_players:
+                top_players_html = "<p><strong>Top 3 Player Wages:</strong></p><ul>"
+                for player in top_players:
+                    top_players_html += f"<li>{player['player_name']} ({player['team_name']}): €{player['salary']:,}</li>"
+                top_players_html += "</ul>"
 
-        blog_content = f"""
-        <p><strong>🏦 Processing Bank Payments</strong></p>
-        <p><strong>{current_user.username}</strong> has successfully processed their club's salary bill of <strong>€{salary_amount:,}</strong>.</p>
-        <p>The payment covers <strong>{player_count} players</strong> across all managed teams.</p>
-        {top_players_html}
-        <p><strong>✅ Financial Status:</strong> All player wages have been settled and the club's finances are now in order.</p>
-        <p>This ensures continued team stability and player satisfaction in the league.</p>
-        """
-        post_transfer_news(blog_title, blog_content, user_id=1)
+            blog_content = f"""
+            <p><strong>🏦 Processing Bank Payments</strong></p>
+            <p><strong>{current_user.username}</strong> has successfully processed their club's salary bill of <strong>€{salary_amount:,}</strong>.</p>
+            <p>The payment covers <strong>{player_count} players</strong> across all managed teams.</p>
+            {top_players_html}
+            <p><strong>✅ Financial Status:</strong> All player wages have been settled and the club's finances are now in order.</p>
+            <p>This ensures continued team stability and player satisfaction in the league.</p>
+            """
+            post_transfer_news(blog_title, blog_content, user_id=1)
 
-        db_helper.commit()
-        cur.close()
+            db_helper.commit()
+            cur.close()
 
-        flash(f'Salary bill paid! €{salary_amount:,} deducted from your budget. Blog post created.', 'success')
-        return redirect(url_for('inbox'))
+            flash(f'Salary bill paid! €{salary_amount:,} deducted from your budget. Blog post created.', 'success')
+            return redirect(url_for('inbox'))
 
     # Check if this is a salary bill transfer (CPU sender with money only) - Alternative detection
     if offer['sender_id'] == 1 and offer['offered_money'] > 0 and offer['requested_money'] == 0:
@@ -2665,15 +2793,18 @@ def accept_offer(offer_id):
             flash(f'Salary bill paid! €{salary_amount:,} deducted from your budget. Blog post created.', 'success')
             return redirect(url_for('inbox'))
 
+    # Convert offer Row to dict for easier access
+    offer = dict(offer)
+    
     # Get team information from the offer
-    sender_team_id = offer['sender_team_id']
-    receiver_team_id = offer['receiver_team_id']
+    sender_team_id = offer.get('sender_team_id')
+    receiver_team_id = offer.get('receiver_team_id')
 
     # Verify that the sender and receiver teams exist and belong to the correct users
-    cur.execute("SELECT * FROM league_teams WHERE id = ? AND user_id = ?", (sender_team_id, offer['sender_id']))
+    cur.execute("SELECT * FROM league_teams WHERE id = ? AND user_id = ?", (sender_team_id, offer.get('sender_id')))
     sender_team = cur.fetchone()
 
-    cur.execute("SELECT * FROM league_teams WHERE id = ? AND user_id = ?", (receiver_team_id, offer['receiver_id']))
+    cur.execute("SELECT * FROM league_teams WHERE id = ? AND user_id = ?", (receiver_team_id, offer.get('receiver_id')))
     receiver_team = cur.fetchone()
 
     if not sender_team or not receiver_team:
@@ -2682,8 +2813,13 @@ def accept_offer(offer_id):
         return redirect(url_for('inbox'))
 
     # Transfer players: offered_players to recipient, requested_players to sender
-    offered_players = json.loads(offer['offered_players'])
-    requested_players = json.loads(offer['requested_players'])
+    offered_players = json.loads(offer['offered_players']) if offer.get('offered_players') else []
+    requested_players = json.loads(offer['requested_players']) if offer.get('requested_players') else []
+    
+    # Transfer draft picks: offered_draft_picks to recipient, requested_draft_picks to sender
+    create_draft_picks_table()
+    offered_draft_picks = json.loads(offer['offered_draft_picks']) if offer.get('offered_draft_picks') else []
+    requested_draft_picks = json.loads(offer['requested_draft_picks']) if offer.get('requested_draft_picks') else []
 
     # Transfer offered_players from sender to receiver
     for pid in offered_players:
@@ -2716,10 +2852,95 @@ def accept_offer(offer_id):
             app.logger.info(f"Updated player {pid} club_id to {sender_club['id']} for sender team {sender_team_id}")
         else:
             app.logger.warning(f"Could not find PES6 team for league team {sender_team_id}")
+    
+    # Transfer offered_draft_picks from sender to receiver
+    for pick_id in offered_draft_picks:
+        # Verify the pick belongs to sender and get its details
+        cur.execute("SELECT user_id, season, pick_number, original_user_id FROM draft_picks WHERE id = ? AND user_id = ?", (pick_id, offer.get('sender_id')))
+        pick_data = cur.fetchone()
+        if pick_data:
+            # Check if receiver already has THIS EXACT pick (same original_user_id, season, pick_number)
+            # This prevents duplicate transfers of the same pick
+            cur.execute("""
+                SELECT id FROM draft_picks 
+                WHERE user_id = ? AND season = ? AND pick_number = ? AND original_user_id = ? AND is_expired = 0
+            """, (offer.get('receiver_id'), pick_data['season'], pick_data['pick_number'], pick_data['original_user_id']))
+            existing_pick = cur.fetchone()
+            
+            if existing_pick:
+                # Receiver already has this exact pick - delete the transferred pick (they already have it)
+                cur.execute("DELETE FROM draft_picks WHERE id = ?", (pick_id,))
+                app.logger.info(f"Deleted draft pick {pick_id} - receiver already has this exact pick ({pick_data['season']} {pick_data['pick_number']} from original owner {pick_data['original_user_id']})")
+            else:
+                # Transfer the pick to receiver (original_user_id stays the same to track who originally owned it)
+                # Users can have multiple picks for the same season/pick_number if they have different original_user_id
+                try:
+                    cur.execute("UPDATE draft_picks SET user_id = ? WHERE id = ?", (offer.get('receiver_id'), pick_id))
+                    app.logger.info(f"Transferred draft pick {pick_id} (originally owned by user {pick_data['original_user_id']}) from user {offer.get('sender_id')} to user {offer.get('receiver_id')}")
+                except Exception as e:
+                    # If constraint fails, it means the old constraint still exists
+                    # Try to migrate the table, then retry the transfer
+                    if 'UNIQUE constraint failed' in str(e) and 'user_id' in str(e):
+                        app.logger.warning(f"Old constraint detected. Attempting migration...")
+                        cur.close()
+                        create_draft_picks_table()  # This will migrate the table
+                        cur = db_helper.get_cursor()
+                        # Retry the transfer
+                        try:
+                            cur.execute("UPDATE draft_picks SET user_id = ? WHERE id = ?", (offer.get('receiver_id'), pick_id))
+                            app.logger.info(f"Transferred draft pick {pick_id} after migration")
+                        except Exception as e2:
+                            app.logger.error(f"Could not transfer pick {pick_id} even after migration: {e2}")
+                            raise
+                    else:
+                        raise
+    
+    # Transfer requested_draft_picks from receiver to sender
+    for pick_id in requested_draft_picks:
+        # Verify the pick belongs to receiver and get its details
+        cur.execute("SELECT user_id, season, pick_number, original_user_id FROM draft_picks WHERE id = ? AND user_id = ?", (pick_id, offer.get('receiver_id')))
+        pick_data = cur.fetchone()
+        if pick_data:
+            # Check if sender already has THIS EXACT pick (same original_user_id, season, pick_number)
+            # This prevents duplicate transfers of the same pick
+            cur.execute("""
+                SELECT id FROM draft_picks 
+                WHERE user_id = ? AND season = ? AND pick_number = ? AND original_user_id = ? AND is_expired = 0
+            """, (offer.get('sender_id'), pick_data['season'], pick_data['pick_number'], pick_data['original_user_id']))
+            existing_pick = cur.fetchone()
+            
+            if existing_pick:
+                # Sender already has this exact pick - delete the transferred pick (they already have it)
+                cur.execute("DELETE FROM draft_picks WHERE id = ?", (pick_id,))
+                app.logger.info(f"Deleted draft pick {pick_id} - sender already has this exact pick ({pick_data['season']} {pick_data['pick_number']} from original owner {pick_data['original_user_id']})")
+            else:
+                # Transfer the pick to sender (original_user_id stays the same to track who originally owned it)
+                # Users can have multiple picks for the same season/pick_number if they have different original_user_id
+                try:
+                    cur.execute("UPDATE draft_picks SET user_id = ? WHERE id = ?", (offer.get('sender_id'), pick_id))
+                    app.logger.info(f"Transferred draft pick {pick_id} (originally owned by user {pick_data['original_user_id']}) from user {offer.get('receiver_id')} to user {offer.get('sender_id')}")
+                except Exception as e:
+                    # If constraint fails, it means the old constraint still exists
+                    # Try to migrate the table, then retry the transfer
+                    if 'UNIQUE constraint failed' in str(e) and 'user_id' in str(e):
+                        app.logger.warning(f"Old constraint detected. Attempting migration...")
+                        cur.close()
+                        create_draft_picks_table()  # This will migrate the table
+                        cur = db_helper.get_cursor()
+                        # Retry the transfer
+                        try:
+                            cur.execute("UPDATE draft_picks SET user_id = ? WHERE id = ?", (offer.get('sender_id'), pick_id))
+                            app.logger.info(f"Transferred draft pick {pick_id} after migration")
+                        except Exception as e2:
+                            app.logger.error(f"Could not transfer pick {pick_id} even after migration: {e2}")
+                            raise
+                    else:
+                        raise
+    
     # Get usernames for news post
-    cur.execute("SELECT username FROM users WHERE id = ?", (offer['sender_id'],))
+    cur.execute("SELECT username FROM users WHERE id = ?", (offer.get('sender_id'),))
     sender_user = cur.fetchone()
-    cur.execute("SELECT username FROM users WHERE id = ?", (offer['receiver_id'],))
+    cur.execute("SELECT username FROM users WHERE id = ?", (offer.get('receiver_id'),))
     receiver_user = cur.fetchone()
 
     # Get player names for news post
@@ -2735,30 +2956,58 @@ def accept_offer(offer_id):
         placeholders = ','.join(['?' for _ in requested_players])
         cur.execute(f"SELECT player_name FROM players WHERE id IN ({placeholders})", requested_players)
         requested_player_names = [row['player_name'] for row in cur.fetchall()]
+    
+    # Get draft pick details for news post
+    offered_pick_details = []
+    requested_pick_details = []
+    
+    if offered_draft_picks:
+        placeholders = ','.join(['?' for _ in offered_draft_picks])
+        cur.execute(f"""
+            SELECT dp.season, dp.pick_number, u.username as original_owner_name
+            FROM draft_picks dp
+            JOIN users u ON dp.original_user_id = u.id
+            WHERE dp.id IN ({placeholders})
+        """, offered_draft_picks)
+        for row in cur.fetchall():
+            pick_suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(row['pick_number'], 'th')
+            offered_pick_details.append(f"{row['season']} {row['pick_number']}{pick_suffix} Pick ({row['original_owner_name']})")
+    
+    if requested_draft_picks:
+        placeholders = ','.join(['?' for _ in requested_draft_picks])
+        cur.execute(f"""
+            SELECT dp.season, dp.pick_number, u.username as original_owner_name
+            FROM draft_picks dp
+            JOIN users u ON dp.original_user_id = u.id
+            WHERE dp.id IN ({placeholders})
+        """, requested_draft_picks)
+        for row in cur.fetchall():
+            pick_suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(row['pick_number'], 'th')
+            requested_pick_details.append(f"{row['season']} {row['pick_number']}{pick_suffix} Pick ({row['original_owner_name']})")
 
     # Update budgets using unified budget system
 
     # Update sender's unified budget
-    if offer['offered_money'] > 0:
-        add_user_movement(offer['sender_id'], 'User Deal',
+    if offer.get('offered_money', 0) > 0:
+        add_user_movement(offer.get('sender_id'), 'User Deal',
                          f'Transfer to {receiver_user["username"]}: {", ".join(offered_player_names) if offered_player_names else "Cash"}',
-                         -offer['offered_money'])
+                         -offer.get('offered_money', 0))
 
-    if offer['requested_money'] > 0:
-        add_user_movement(offer['sender_id'], 'User Deal',
+    if offer.get('requested_money', 0) > 0:
+        add_user_movement(offer.get('sender_id'), 'User Deal',
                          f'Transfer from {receiver_user["username"]}: {", ".join(requested_player_names) if requested_player_names else "Cash"}',
-                         offer['requested_money'])
+                         offer.get('requested_money', 0))
 
     # Update recipient's unified budget
-    if offer['offered_money'] > 0:
-        add_user_movement(offer['receiver_id'], 'User Deal',
+    if offer.get('offered_money', 0) > 0:
+        add_user_movement(offer.get('receiver_id'), 'User Deal',
                          f'Transfer from {sender_user["username"]}: {", ".join(offered_player_names) if offered_player_names else "Cash"}',
-                         offer['offered_money'])
+                         offer.get('offered_money', 0))
 
-    if offer['requested_money'] > 0:
-        add_user_movement(offer['receiver_id'], 'User Deal',
+    if offer.get('requested_money', 0) > 0:
+        add_user_movement(offer.get('receiver_id'), 'User Deal',
                          f'Transfer to {sender_user["username"]}: {", ".join(requested_player_names) if requested_player_names else "Cash"}',
-                         -offer['requested_money'])
+                         -offer.get('requested_money', 0))
 
     # Mark offer as accepted
     cur.execute("UPDATE offers SET status = 'accepted' WHERE id = ?", (offer_id,))
@@ -2783,12 +3032,16 @@ def accept_offer(offer_id):
 
         if offered_player_names:
             news_content += f"<li><strong>{sender_name}</strong> sent: {', '.join(offered_player_names)}</li>"
-        if offer['offered_money'] and offer['offered_money'] > 0:
-            news_content += f"<li><strong>{sender_name}</strong> paid: €{offer['offered_money']:,}</li>"
+        if offer.get('offered_money', 0) > 0:
+            news_content += f"<li><strong>{sender_name}</strong> paid: €{offer.get('offered_money', 0):,}</li>"
+        if offered_pick_details:
+            news_content += f"<li><strong>{sender_name}</strong> sent draft picks: {', '.join(offered_pick_details)}</li>"
         if requested_player_names:
             news_content += f"<li><strong>{receiver_name}</strong> sent: {', '.join(requested_player_names)}</li>"
-        if offer['requested_money'] and offer['requested_money'] > 0:
-            news_content += f"<li><strong>{receiver_name}</strong> paid: €{offer['requested_money']:,}</li>"
+        if offer.get('requested_money', 0) > 0:
+            news_content += f"<li><strong>{receiver_name}</strong> paid: €{offer.get('requested_money', 0):,}</li>"
+        if requested_pick_details:
+            news_content += f"<li><strong>{receiver_name}</strong> sent draft picks: {', '.join(requested_pick_details)}</li>"
 
         news_content += "</ul>"
 
@@ -7409,6 +7662,187 @@ def increment_season():
     finally:
         cur.close()
 
+def create_draft_picks_table():
+    """Create the draft_picks table if it doesn't exist and migrate if needed"""
+    cur = db_helper.get_cursor()
+    try:
+        # Check if table exists
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='draft_picks'")
+        table_exists = cur.fetchone() is not None
+        
+        if not table_exists:
+            # Create new table with correct schema
+            cur.execute("""
+                CREATE TABLE draft_picks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    season TEXT NOT NULL,
+                    pick_number INTEGER NOT NULL CHECK (pick_number IN (1, 2, 3)),
+                    original_user_id INTEGER NOT NULL,
+                    is_expired INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (original_user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    UNIQUE(original_user_id, season, pick_number)
+                )
+            """)
+            db_helper.commit()
+        else:
+            # Table exists - check if migration is needed
+            # Add original_user_id column if it doesn't exist
+            try:
+                cur.execute("ALTER TABLE draft_picks ADD COLUMN original_user_id INTEGER")
+                # Set original_user_id to user_id for existing records
+                cur.execute("UPDATE draft_picks SET original_user_id = user_id WHERE original_user_id IS NULL")
+                db_helper.commit()
+            except Exception as e:
+                if 'duplicate column name' not in str(e).lower():
+                    print(f"Note adding column: {e}")
+            
+            # Check if old constraint exists by trying to insert a duplicate
+            # We'll check the indexes instead
+            cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE '%draft_picks%'")
+            indexes = [row[0] for row in cur.fetchall()]
+            
+            # Check if we need to migrate (recreate table to remove old constraint)
+            # We'll check by looking at the table schema
+            cur.execute("PRAGMA table_info(draft_picks)")
+            columns = cur.fetchall()
+            has_original_user_id = any(col[1] == 'original_user_id' for col in columns)
+            
+            # Try to detect if old constraint exists by checking for unique index on (user_id, season, pick_number)
+            # If we can't detect it cleanly, we'll attempt migration if there are constraint errors
+            
+            # Create the correct unique index
+            try:
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_original_user_season_pick ON draft_picks(original_user_id, season, pick_number)")
+                db_helper.commit()
+            except Exception as e:
+                if 'already exists' not in str(e).lower():
+                    print(f"Note creating index: {e}")
+            
+            # Try to drop any old unique constraint by recreating the table
+            # This is safe because we'll preserve all data
+            try:
+                # Check if there's data
+                cur.execute("SELECT COUNT(*) FROM draft_picks")
+                count = cur.fetchone()[0]
+                
+                if count > 0:
+                    # Migrate: Create new table with correct schema
+                    cur.execute("""
+                        CREATE TABLE draft_picks_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id INTEGER NOT NULL,
+                            season TEXT NOT NULL,
+                            pick_number INTEGER NOT NULL CHECK (pick_number IN (1, 2, 3)),
+                            original_user_id INTEGER NOT NULL,
+                            is_expired INTEGER DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                            FOREIGN KEY (original_user_id) REFERENCES users(id) ON DELETE CASCADE,
+                            UNIQUE(original_user_id, season, pick_number)
+                        )
+                    """)
+                    
+                    # Copy all data
+                    cur.execute("""
+                        INSERT INTO draft_picks_new (id, user_id, season, pick_number, original_user_id, is_expired, created_at)
+                        SELECT id, user_id, season, pick_number, 
+                               COALESCE(original_user_id, user_id) as original_user_id,
+                               is_expired, created_at
+                        FROM draft_picks
+                    """)
+                    
+                    # Drop old table
+                    cur.execute("DROP TABLE draft_picks")
+                    
+                    # Rename new table
+                    cur.execute("ALTER TABLE draft_picks_new RENAME TO draft_picks")
+                    
+                    # Recreate indexes
+                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_original_user_season_pick ON draft_picks(original_user_id, season, pick_number)")
+                    
+                    db_helper.commit()
+                    app.logger.info("✅ Migrated draft_picks table to remove old UNIQUE constraint on (user_id, season, pick_number)")
+            except Exception as e:
+                # Migration failed - rollback
+                db_helper.get_connection().rollback()
+                app.logger.warning(f"Could not migrate draft_picks table: {e}. Old constraint may still exist.")
+        
+        db_helper.commit()
+    except Exception as e:
+        print(f"Error creating/migrating draft_picks table: {e}")
+        db_helper.get_connection().rollback()
+    finally:
+        cur.close()
+
+def get_season_after_years(base_season, years):
+    """Get a season that is X years after the base season"""
+    parts = base_season.split('/')
+    if len(parts) == 2:
+        year1, year2 = int(parts[0]), int(parts[1])
+        new_year1 = (year1 + years) % 100
+        new_year2 = (year2 + years) % 100
+        return f"{new_year1:02d}/{new_year2:02d}"
+    return base_season
+
+def initialize_draft_picks_for_all_users():
+    """Initialize draft picks for all users (3 seasons ahead)"""
+    cur = db_helper.get_cursor()
+    try:
+        create_draft_picks_table()
+        
+        current_season = get_current_season()
+        
+        # Get all users (excluding CPU user with id=1)
+        cur.execute("SELECT id FROM users WHERE id != 1")
+        users = cur.fetchall()
+        
+        # Create picks for current season and 2 seasons ahead (3 total)
+        seasons = [
+            current_season,
+            get_season_after_years(current_season, 1),
+            get_season_after_years(current_season, 2)
+        ]
+        
+        created_count = 0
+        for user in users:
+            user_id = user['id']
+            for season in seasons:
+                for pick_num in [1, 2, 3]:
+                    # Check if pick already exists (by original_user_id to ensure each user only has one of each pick per season)
+                    cur.execute("""
+                        SELECT id FROM draft_picks 
+                        WHERE original_user_id = ? AND season = ? AND pick_number = ?
+                    """, (user_id, season, pick_num))
+                    existing = cur.fetchone()
+                    
+                    if not existing:
+                        # All picks should be active (is_expired = 0) when created
+                        # original_user_id is set to user_id for picks that are originally owned by this user
+                        cur.execute("""
+                            INSERT INTO draft_picks (user_id, season, pick_number, original_user_id, is_expired)
+                            VALUES (?, ?, ?, ?, 0)
+                        """, (user_id, season, pick_num, user_id))
+                        created_count += 1
+        
+        db_helper.commit()
+        app.logger.info(f"✅ Initialized {created_count} draft picks for {len(users)} users across {len(seasons)} seasons")
+        print(f"✅ Initialized {created_count} draft picks for {len(users)} users across {len(seasons)} seasons")
+        return created_count
+    except Exception as e:
+        error_msg = f"Error initializing draft picks: {e}"
+        app.logger.error(error_msg)
+        import traceback
+        app.logger.error(traceback.format_exc())
+        print(error_msg)
+        traceback.print_exc()
+        db_helper.get_connection().rollback()
+        return 0
+    finally:
+        cur.close()
+
 def create_user_season_blog_posts():
     """Create user-specific end-of-season blog posts with development and retirement summaries."""
     cur = db_helper.get_cursor()
@@ -7907,9 +8341,9 @@ def end_of_season_process():
 
         # Step 7.5: Reset player statistics for new season
         print("🔄 Step 7.5: Resetting player statistics for new season...")
-        cur.execute("UPDATE players SET games_played = 0, goals = 0, assists = 0, MVP = 0 WHERE club_id IS NOT NULL AND club_id != 141")
+        cur.execute("UPDATE players SET games_played = 0, goals = 0, assists = 0, MVP = 0, current_season_caps = 0 WHERE club_id IS NOT NULL AND club_id != 141")
         stats_reset_count = cur.rowcount
-        print(f"  ✅ Reset statistics for {stats_reset_count} players (games_played, goals, assists = 0)")
+        print(f"  ✅ Reset statistics for {stats_reset_count} players (games_played, goals, assists, current_season_caps = 0)")
 
         # Step 7.6: Return loaned players to their original clubs
         print("🔄 Step 7.6: Returning loaned players to their original clubs...")
@@ -8289,10 +8723,93 @@ def end_of_season_process():
 
         # Step 11: Increment to next season
         print("🔄 Step 11: Incrementing to next season...")
+        # Get current season before incrementing
+        old_season = get_current_season()
         new_season = increment_season()
-        print(f"  ✅ Season incremented from {current_season} to {new_season}")
+        print(f"  ✅ Season incremented from {old_season} to {new_season}")
+        
+        # Step 12: Process draft picks - expire old season picks and ensure users have picks for current + 2 seasons ahead
+        print("🔄 Step 12: Processing draft picks...")
+        create_draft_picks_table()
+        
+        # Expire picks for the old current season (the one that just ended, before increment)
+        # old_season is the season that just ended (e.g., 02/03)
+        print(f"  🔍 Expiring picks for season: {old_season}")
+        cur.execute("""
+            UPDATE draft_picks 
+            SET is_expired = 1 
+            WHERE season = ? AND is_expired = 0
+        """, (old_season,))
+        expired_count = cur.rowcount
+        print(f"  ✅ Expired {expired_count} draft picks for season {old_season}")
+        
+        # Verify expiration
+        cur.execute("SELECT COUNT(*) FROM draft_picks WHERE season = ? AND is_expired = 0", (old_season,))
+        still_active = cur.fetchone()[0]
+        if still_active > 0:
+            print(f"  ⚠️  Warning: {still_active} picks for season {old_season} are still active after expiration")
+        
+        # new_season is now the current season (e.g., 03/04 after increment)
+        # Users should have picks for: new_season (current), new_season+1, new_season+2 (3 seasons total)
+        seasons_needed = [
+            new_season,  # Current season (e.g., 03/04)
+            get_season_after_years(new_season, 1),  # Next season (e.g., 04/05)
+            get_season_after_years(new_season, 2)   # Season after next (e.g., 05/06)
+        ]
+        
+        print(f"  🔍 Ensuring picks exist for seasons: {', '.join(seasons_needed)}")
+        cur.execute("SELECT id FROM users WHERE id != 1")
+        users = cur.fetchall()
+        print(f"  🔍 Found {len(users)} users to process")
+        
+        created_picks_count = 0
+        for user in users:
+            user_id = user['id']
+            for season in seasons_needed:
+                for pick_num in [1, 2, 3]:
+                    # Check if pick already exists (by original_user_id to ensure each user only has one of each pick per season)
+                    # Also check if it's expired - if so, we should create a new one
+                    cur.execute("""
+                        SELECT id, is_expired FROM draft_picks 
+                        WHERE original_user_id = ? AND season = ? AND pick_number = ?
+                    """, (user_id, season, pick_num))
+                    existing = cur.fetchone()
+                    
+                    if not existing:
+                        # Pick doesn't exist - create it
+                        try:
+                            cur.execute("""
+                                INSERT INTO draft_picks (user_id, season, pick_number, original_user_id, is_expired)
+                                VALUES (?, ?, ?, ?, 0)
+                            """, (user_id, season, pick_num, user_id))
+                            created_picks_count += 1
+                        except Exception as e:
+                            print(f"  ⚠️  Error creating pick for user {user_id}, season {season}, pick {pick_num}: {e}")
+                    elif existing and existing['is_expired'] == 1:
+                        # Pick exists but is expired - reactivate it (this shouldn't happen for new seasons, but just in case)
+                        try:
+                            cur.execute("""
+                                UPDATE draft_picks 
+                                SET user_id = ?, is_expired = 0 
+                                WHERE id = ?
+                            """, (user_id, existing['id']))
+                            created_picks_count += 1
+                        except Exception as e:
+                            print(f"  ⚠️  Error reactivating pick {existing['id']}: {e}")
+        
+        print(f"  ✅ Created/updated {created_picks_count} draft picks for seasons {', '.join(seasons_needed)}")
+        
+        # Commit the draft picks changes
+        db_helper.commit()
+        print(f"  ✅ Committed draft picks changes to database")
+        
+        # Verify creation
+        for season in seasons_needed:
+            cur.execute("SELECT COUNT(*) FROM draft_picks WHERE season = ? AND is_expired = 0", (season,))
+            active_count = cur.fetchone()[0]
+            print(f"  🔍 Season {season}: {active_count} active picks")
 
-        flash(f'End of season processing completed! {payments_processed} users had salary bills processed, {cpu_teams_processed} CPU teams updated, {age_updated} players aged, {contract_updated} contracts reduced, {salary_doubled} salaries doubled, {wage_rise_applied} wage rises applied, {players_developed} players had their skills developed, {retired_count} players retired, {new_players_generated} new young players joined to replace them, {history_records_created} player historical records created, and overall ratings recalculated.', 'success')
+        flash(f'End of season processing completed! {payments_processed} users had salary bills processed, {cpu_teams_processed} CPU teams updated, {age_updated} players aged, {contract_updated} contracts reduced, {salary_doubled} salaries doubled, {wage_rise_applied} wage rises applied, {players_developed} players had their skills developed, {retired_count} players retired, {new_players_generated} new young players joined to replace them, {history_records_created} player historical records created, {expired_count} draft picks expired, {created_picks_count} new draft picks created, and overall ratings recalculated.', 'success')
 
     except Exception as e:
         db_helper.get_connection().rollback()
@@ -8301,6 +8818,18 @@ def end_of_season_process():
     finally:
         cur.close()
 
+    return redirect(url_for('tools'))
+
+@app.route('/tools/initialize_draft_picks', methods=['POST'])
+@login_required
+def initialize_draft_picks():
+    """Initialize draft picks for all users (3 seasons ahead)"""
+    try:
+        count = initialize_draft_picks_for_all_users()
+        flash(f'Draft picks initialized! Created {count} draft picks for all users across 3 seasons.', 'success')
+    except Exception as e:
+        flash(f'Error initializing draft picks: {e}', 'danger')
+        app.logger.error(f"Error initializing draft picks: {e}")
     return redirect(url_for('tools'))
 
 @app.route('/tools/divide_salaries_by_2', methods=['POST'])
@@ -8794,158 +9323,6 @@ def place_expired_player(offer_id):
 
 
 # CPU League Routes
-@app.route('/cpu_leagues')
-@login_required
-def cpu_leagues():
-    """CPU Leagues page"""
-    return render_template('cpu_leagues_page.html')
-
-@app.route('/cpu_leagues/initialize', methods=['POST'])
-@login_required
-def initialize_cpu_league():
-    """Initialize CPU league with specified number of divisions"""
-    try:
-        from cpu_leagues import league_manager
-
-        data = request.get_json()
-        division_count = data.get('division_count', 4)
-
-        success = league_manager.initialize_league(division_count)
-
-        if success:
-            return jsonify({
-                'success': True,
-                'data': league_manager.get_league_status(),
-                'standings': league_manager.get_standings()
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to initialize league. Not enough CPU teams with sufficient players.'
-            })
-
-    except Exception as e:
-        app.logger.error(f"Error initializing CPU league: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        })
-
-@app.route('/cpu_leagues/simulate_round', methods=['POST'])
-@login_required
-def simulate_cpu_league_round():
-    """Simulate one round of CPU league matches"""
-    try:
-        from cpu_leagues import league_manager
-
-        # Simulate the round
-        round_results = league_manager.simulate_round()
-
-        if 'error' in round_results:
-            return jsonify({
-                'success': False,
-                'error': round_results['error']
-            })
-
-        # Update player statistics in database
-        league_manager.update_player_statistics()
-
-        # Generate revenue if league is completed
-        revenue_data = None
-        if league_manager.league_status.value == 'completed':
-            revenue_data = league_manager.generate_revenue()
-
-        # Get playoff tree if in playoffs or completed
-        playoff_tree = None
-        if league_manager.league_status.value in ['playoffs', 'completed']:
-            playoff_tree = league_manager._get_playoff_tree()
-
-        return jsonify({
-            'success': True,
-            'data': league_manager.get_league_status(),
-            'standings': league_manager.get_standings(),
-            'round_results': round_results,
-            'playoff_tree': playoff_tree,
-            'revenue': revenue_data
-        })
-
-    except Exception as e:
-        app.logger.error(f"Error simulating CPU league round: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        })
-
-@app.route('/cpu_leagues/status')
-@login_required
-def get_cpu_league_status():
-    """Get current CPU league status"""
-    try:
-        from cpu_leagues import league_manager
-
-        # Get playoff tree if in playoffs or completed
-        playoff_tree = None
-        if league_manager.league_status.value in ['playoffs', 'completed']:
-            playoff_tree = league_manager._get_playoff_tree()
-
-        return jsonify({
-            'success': True,
-            'data': league_manager.get_league_status(),
-            'standings': league_manager.get_standings(),
-            'playoff_tree': playoff_tree
-        })
-
-    except Exception as e:
-        app.logger.error(f"Error getting CPU league status: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        })
-
-@app.route('/cpu_leagues/reset', methods=['POST'])
-@login_required
-def reset_cpu_league():
-    """Reset CPU league to initial state"""
-    try:
-        from cpu_leagues import league_manager
-
-        league_manager.reset_league()
-
-        return jsonify({
-            'success': True,
-            'message': 'League reset successfully'
-        })
-
-    except Exception as e:
-        app.logger.error(f"Error resetting CPU league: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        })
-
-@app.route('/cpu_leagues/leaderboards')
-@login_required
-def get_cpu_league_leaderboards():
-    """Get CPU league leaderboards (top scorers and assists)"""
-    try:
-        from cpu_leagues import league_manager
-
-        top_scorers = league_manager.get_top_scorers(10)
-        top_assists = league_manager.get_top_assists(10)
-
-        return jsonify({
-            'success': True,
-            'top_scorers': top_scorers,
-            'top_assists': top_assists
-        })
-
-    except Exception as e:
-        app.logger.error(f"Error getting CPU league leaderboards: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        })
-
 @app.route('/hall_of_fame')
 @login_required
 def hall_of_fame():
@@ -9137,23 +9514,46 @@ def colados_league():
     cur = db_helper.get_cursor()
 
     try:
-        # Get league overview data
-        cur.execute("SELECT COUNT(*) as total_teams FROM division_teams WHERE is_active = 1")
-        total_teams = cur.fetchone()['total_teams']
+        # Get selected division ID from query parameter
+        selected_division_id = request.args.get('division_id', type=int)
+        
+        # Get league overview data (only for Colados League divisions)
+        cur.execute("""
+            SELECT COUNT(*) as total_teams 
+            FROM division_teams dt
+            JOIN divisions d ON dt.division_id = d.id
+            JOIN leagues l ON d.league_id = l.id
+            WHERE dt.is_active = 1 AND l.name = 'Colados League'
+        """)
+        total_teams_result = cur.fetchone()
+        total_teams = dict(total_teams_result)['total_teams'] if total_teams_result else 0
 
-        cur.execute("SELECT COUNT(*) as total_games FROM league_games WHERE is_played = 1")
-        total_games_played = cur.fetchone()['total_games']
+        cur.execute("""
+            SELECT COUNT(*) as total_games 
+            FROM league_games lg
+            JOIN divisions d ON lg.division_id = d.id
+            JOIN leagues l ON d.league_id = l.id
+            WHERE lg.is_played = 1 AND l.name = 'Colados League'
+        """)
+        total_games_result = cur.fetchone()
+        total_games_played = dict(total_games_result)['total_games'] if total_games_result else 0
 
         current_season = get_current_season()
 
-        # Get divisions with their standings
+        # Get divisions with their standings (only from Colados League)
         cur.execute("""
             SELECT d.id, d.name, d.description
             FROM divisions d
+            JOIN leagues l ON d.league_id = l.id
+            WHERE l.name = 'Colados League'
             ORDER BY d.id
         """)
-        divisions_data = cur.fetchall()
+        divisions_data = [dict(row) for row in cur.fetchall()]
 
+        # Filter divisions if selected_division_id is provided
+        if selected_division_id:
+            divisions_data = [d for d in divisions_data if d['id'] == selected_division_id]
+        
         divisions = []
         for division in divisions_data:
             # Get standings for this division
@@ -9164,7 +9564,7 @@ def colados_league():
                 WHERE ds.division_id = ?
                 ORDER BY ds.points DESC, ds.goal_difference DESC, ds.goals_for DESC
             """, (division['id'],))
-            standings = cur.fetchall()
+            standings = [dict(row) for row in cur.fetchall()]
 
             # Get recent games for this division (all games, not limited, for filtering)
             cur.execute("""
@@ -9173,7 +9573,7 @@ def colados_league():
                 WHERE division_id = ? AND is_played = 1
                 ORDER BY round_number DESC, game_date DESC
             """, (division['id'],))
-            recent_games = cur.fetchall()
+            recent_games = [dict(row) for row in cur.fetchall()]
 
             # Get pending games for this division (all games, not limited, for filtering)
             cur.execute("""
@@ -9182,7 +9582,7 @@ def colados_league():
                 WHERE division_id = ? AND is_played = 0
                 ORDER BY round_number ASC, id ASC
             """, (division['id'],))
-            pending_games = cur.fetchall()
+            pending_games = [dict(row) for row in cur.fetchall()]
             
             # Get all unique rounds for this division
             cur.execute("""
@@ -9191,7 +9591,7 @@ def colados_league():
                 WHERE division_id = ?
                 ORDER BY round_number ASC
             """, (division['id'],))
-            division_rounds = [row['round_number'] for row in cur.fetchall()]
+            division_rounds = [dict(row)['round_number'] for row in cur.fetchall()]
 
             # Get division-specific top goalscorers
             cur.execute("""
@@ -9205,7 +9605,7 @@ def colados_league():
                 ORDER BY total_goals DESC
                 LIMIT 10
             """, (division['id'],))
-            division_goalscorers = cur.fetchall()
+            division_goalscorers = [dict(row) for row in cur.fetchall()]
 
             # Get division-specific top assists
             cur.execute("""
@@ -9219,7 +9619,7 @@ def colados_league():
                 ORDER BY total_assists DESC
                 LIMIT 10
             """, (division['id'],))
-            division_assists = cur.fetchall()
+            division_assists = [dict(row) for row in cur.fetchall()]
 
             divisions.append({
                 'id': division['id'],
@@ -9283,13 +9683,15 @@ def colados_league():
             ORDER BY round_number DESC, game_date DESC
             LIMIT 50
         """, (additional_division_id,))
-        additional_games = cur.fetchall()
+        additional_games = [dict(row) for row in cur.fetchall()]
 
         return render_template('colados_league.html',
                              total_teams=total_teams,
                              total_games_played=total_games_played,
                              current_season=current_season,
                              divisions=divisions,
+                             all_divisions=divisions_data,  # All divisions for filter
+                             selected_division_id=selected_division_id,
                              teams=teams,
                              division_teams=division_teams,
                              additional_games=additional_games)
@@ -11019,6 +11421,3532 @@ def create_newcomers():
             return redirect(url_for('create_newcomers'))
     
     return redirect(url_for('tools'))
+
+# ============================================================================
+# CPU LEAGUES ROUTES
+# ============================================================================
+
+@app.route('/cpu_leagues')
+@login_required
+def cpu_leagues():
+    """Main CPU Leagues page - similar to Colados League but with automatic simulation"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get selected league ID from query parameter
+        selected_league_id = request.args.get('league_id', type=int)
+        
+        # Get all CPU leagues (leagues that are not "Colados League")
+        cur.execute("""
+            SELECT id, name, description
+            FROM leagues
+            WHERE name != 'Colados League'
+            ORDER BY id DESC
+        """)
+        all_cpu_leagues = [dict(row) for row in cur.fetchall()]
+        cpu_leagues_list = all_cpu_leagues.copy()
+        
+        # If no CPU leagues exist, show empty state
+        if not cpu_leagues_list:
+            return render_template('cpu_leagues.html',
+                                 cpu_leagues=[],
+                                 all_leagues=[],
+                                 selected_league_id=None,
+                                 teams=[],
+                                 total_teams=0,
+                                 total_games_played=0,
+                                 current_season=get_current_season())
+        
+        # Filter leagues if selected_league_id is provided
+        if selected_league_id:
+            cpu_leagues_list = [l for l in cpu_leagues_list if l['id'] == selected_league_id]
+        
+        # Get all teams for selection
+        cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
+        teams = [dict(row) for row in cur.fetchall()]
+        
+        # Get total stats across all CPU leagues
+        cur.execute("""
+            SELECT COUNT(DISTINCT dt.team_id) as total_teams
+            FROM division_teams dt
+            JOIN divisions d ON dt.division_id = d.id
+            JOIN leagues l ON d.league_id = l.id
+            WHERE dt.is_active = 1 AND l.name != 'Colados League'
+        """)
+        total_teams_result = cur.fetchone()
+        total_teams = dict(total_teams_result)['total_teams'] if total_teams_result else 0
+        
+        cur.execute("""
+            SELECT COUNT(*) as total_games
+            FROM league_games lg
+            JOIN divisions d ON lg.division_id = d.id
+            JOIN leagues l ON d.league_id = l.id
+            WHERE lg.is_played = 1 AND l.name != 'Colados League'
+        """)
+        total_games_result = cur.fetchone()
+        total_games_played = dict(total_games_result)['total_games'] if total_games_result else 0
+        
+        # Get divisions for each CPU league
+        leagues_with_divisions = []
+        for league in cpu_leagues_list:
+            cur.execute("""
+                SELECT d.id, d.name, d.description, d.competition_type
+                FROM divisions d
+                WHERE d.league_id = ?
+                ORDER BY d.id
+            """, (league['id'],))
+            divisions_data = [dict(row) for row in cur.fetchall()]
+            
+            divisions = []
+            for division in divisions_data:
+                # Get standings
+                cur.execute("""
+                    SELECT ds.team_name, ds.games_played, ds.wins, ds.draws, ds.losses,
+                           ds.goals_for, ds.goals_against, ds.goal_difference, ds.points
+                    FROM division_standings ds
+                    WHERE ds.division_id = ?
+                    ORDER BY ds.points DESC, ds.goal_difference DESC, ds.goals_for DESC
+                """, (division['id'],))
+                standings = [dict(row) for row in cur.fetchall()]
+                
+                # Get recent games
+                cur.execute("""
+                    SELECT id, home_team_name, away_team_name, home_score, away_score, round_number, is_played
+                    FROM league_games
+                    WHERE division_id = ? AND is_played = 1
+                    ORDER BY round_number DESC, game_date DESC
+                    LIMIT 10
+                """, (division['id'],))
+                recent_games = [dict(row) for row in cur.fetchall()]
+                
+                # Get pending games
+                cur.execute("""
+                    SELECT id, home_team_name, away_team_name, round_number, is_played
+                    FROM league_games
+                    WHERE division_id = ? AND is_played = 0
+                    ORDER BY round_number ASC, id ASC
+                """, (division['id'],))
+                pending_games = [dict(row) for row in cur.fetchall()]
+                
+                # Get unique rounds
+                cur.execute("""
+                    SELECT DISTINCT round_number
+                    FROM league_games
+                    WHERE division_id = ?
+                    ORDER BY round_number ASC
+                """, (division['id'],))
+                division_rounds = [dict(row)['round_number'] for row in cur.fetchall()]
+                
+                # Get top goalscorers
+                cur.execute("""
+                    SELECT p.player_name, t.club_name as team_name, SUM(pgs.goals) as total_goals
+                    FROM player_game_stats pgs
+                    JOIN players p ON pgs.player_id = p.id
+                    JOIN teams t ON pgs.team_id = t.id
+                    JOIN league_games lg ON pgs.game_id = lg.id
+                    WHERE lg.division_id = ? AND pgs.goals > 0
+                    GROUP BY pgs.player_id, p.player_name, t.club_name
+                    ORDER BY total_goals DESC
+                    LIMIT 10
+                """, (division['id'],))
+                division_goalscorers = [dict(row) for row in cur.fetchall()]
+                
+                # Get top assists
+                cur.execute("""
+                    SELECT p.player_name, t.club_name as team_name, SUM(pgs.assists) as total_assists
+                    FROM player_game_stats pgs
+                    JOIN players p ON pgs.player_id = p.id
+                    JOIN teams t ON pgs.team_id = t.id
+                    JOIN league_games lg ON pgs.game_id = lg.id
+                    WHERE lg.division_id = ? AND pgs.assists > 0
+                    GROUP BY pgs.player_id, p.player_name, t.club_name
+                    ORDER BY total_assists DESC
+                    LIMIT 10
+                """, (division['id'],))
+                division_assists = [dict(row) for row in cur.fetchall()]
+                
+                # Get competition type
+                competition_type = division.get('competition_type', 'round_robin') or 'round_robin'
+                
+                # Check if knockout round can be advanced
+                can_advance_knockout = False
+                if competition_type == 'knockout':
+                    # Get current round
+                    cur.execute("""
+                        SELECT MAX(round_number) as max_round
+                        FROM league_games
+                        WHERE division_id = ?
+                    """, (division['id'],))
+                    result = cur.fetchone()
+                    if result:
+                        result_dict = dict(result)
+                        max_round_val = result_dict.get('max_round')
+                        current_round = max_round_val if max_round_val is not None else 0
+                    else:
+                        current_round = 0
+                    
+                    if current_round and current_round > 0:
+                        # Check if all games in current round are played
+                        cur.execute("""
+                            SELECT COUNT(*) as total, SUM(CASE WHEN is_played = 1 THEN 1 ELSE 0 END) as played
+                            FROM league_games
+                            WHERE division_id = ? AND round_number = ?
+                        """, (division['id'], current_round))
+                        round_stats = cur.fetchone()
+                        round_stats_dict = dict(round_stats) if round_stats else {}
+                        
+                        # Check if there are teams still in competition for next round
+                        cur.execute("""
+                            SELECT COUNT(*) as teams_in_next_round
+                            FROM cpu_knockout_teams
+                            WHERE division_id = ? AND round_number = ?
+                        """, (division['id'], current_round + 1))
+                        next_round_teams = cur.fetchone()
+                        teams_in_next_round = dict(next_round_teams)['teams_in_next_round'] if next_round_teams else 0
+                        
+                        can_advance_knockout = (round_stats_dict.get('total', 0) > 0 and 
+                                               round_stats_dict.get('played', 0) == round_stats_dict.get('total', 0) and
+                                               teams_in_next_round > 1)  # More than 1 team means not final
+                
+                divisions.append({
+                    'id': division['id'],
+                    'name': division['name'],
+                    'description': division['description'],
+                    'competition_type': competition_type,
+                    'standings': standings,
+                    'recent_games': recent_games,
+                    'pending_games': pending_games,
+                    'top_goalscorers': division_goalscorers,
+                    'top_assists': division_assists,
+                    'rounds': division_rounds,
+                    'can_advance_knockout': can_advance_knockout
+                })
+            
+            # Get division teams for easy access
+            division_teams = {}
+            for division in divisions:
+                cur.execute("""
+                    SELECT dt.team_id, dt.team_name
+                    FROM division_teams dt
+                    WHERE dt.division_id = ? AND dt.is_active = 1
+                    ORDER BY dt.team_name
+                """, (division['id'],))
+                division_teams[division['id']] = [dict(row) for row in cur.fetchall()]
+            
+            leagues_with_divisions.append({
+                'id': league['id'],
+                'name': league['name'],
+                'description': league['description'],
+                'divisions': divisions,
+                'division_teams': division_teams
+            })
+        
+        return render_template('cpu_leagues.html',
+                             cpu_leagues=leagues_with_divisions,
+                             all_leagues=all_cpu_leagues,
+                             selected_league_id=selected_league_id,
+                             teams=teams,
+                             total_teams=total_teams,
+                             total_games_played=total_games_played,
+                             current_season=get_current_season())
+    
+    except Exception as e:
+        app.logger.error(f"Error in cpu_leagues: {e}")
+        flash('Error loading CPU Leagues data', 'danger')
+        return redirect(url_for('index'))
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/create_league', methods=['POST'])
+@login_required
+def create_cpu_league():
+    """Create a new CPU league"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        league_name = request.form.get('league_name', '').strip()
+        league_description = request.form.get('league_description', '').strip()
+        
+        if not league_name:
+            flash('League name is required', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Check if league name already exists
+        cur.execute("SELECT id FROM leagues WHERE name = ?", (league_name,))
+        existing = cur.fetchone()
+        if existing:
+            flash(f'League "{league_name}" already exists', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Create the league
+        cur.execute("""
+            INSERT INTO leagues (name, description)
+            VALUES (?, ?)
+        """, (league_name, league_description))
+        
+        db_helper.commit()
+        flash(f'League "{league_name}" created successfully!', 'success')
+        return redirect(url_for('cpu_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error creating CPU league: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error creating league: {str(e)}', 'danger')
+        return redirect(url_for('cpu_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/create_division', methods=['POST'])
+@login_required
+def create_cpu_division():
+    """Create a new division in a CPU league"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        league_id = request.form.get('league_id')
+        division_name = request.form.get('division_name', '').strip()
+        division_description = request.form.get('division_description', '').strip()
+        
+        # CPU leagues only support round_robin
+        competition_type = 'round_robin'
+        
+        if not league_id or not division_name:
+            flash('League and division name are required', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Verify league exists and is a CPU league
+        cur.execute("SELECT id, name FROM leagues WHERE id = ? AND name != 'Colados League'", (league_id,))
+        league = cur.fetchone()
+        if not league:
+            flash('Invalid league', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Check if division name already exists in this league
+        cur.execute("SELECT id FROM divisions WHERE league_id = ? AND name = ?", (league_id, division_name))
+        existing = cur.fetchone()
+        if existing:
+            flash(f'Division "{division_name}" already exists in this league', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Create the division
+        cur.execute("""
+            INSERT INTO divisions (league_id, name, description, competition_type)
+            VALUES (?, ?, ?, ?)
+        """, (league_id, division_name, division_description, competition_type))
+        
+        db_helper.commit()
+        flash(f'Division "{division_name}" created successfully!', 'success')
+        return redirect(url_for('cpu_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error creating CPU division: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error creating division: {str(e)}', 'danger')
+        return redirect(url_for('cpu_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/add_team_to_division', methods=['POST'])
+@login_required
+def add_team_to_cpu_division():
+    """Add a team to a CPU league division"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        division_id = request.form.get('division_id')
+        team_id = request.form.get('team_id')
+        
+        if not division_id or not team_id:
+            flash('Missing division or team selection', 'error')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Verify division belongs to a CPU league
+        cur.execute("""
+            SELECT d.id, l.name as league_name
+            FROM divisions d
+            JOIN leagues l ON d.league_id = l.id
+            WHERE d.id = ? AND l.name != 'Colados League'
+        """, (division_id,))
+        division = cur.fetchone()
+        if not division:
+            flash('Invalid division', 'error')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Get team name
+        cur.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+        team_result = cur.fetchone()
+        if not team_result:
+            flash('Team not found', 'error')
+            return redirect(url_for('cpu_leagues'))
+        
+        team_name = team_result['club_name']
+        
+        # Check if team is already in this division
+        cur.execute("""
+            SELECT id, is_active FROM division_teams
+            WHERE division_id = ? AND team_id = ?
+        """, (division_id, team_id))
+        existing = cur.fetchone()
+        
+        if existing:
+            if existing['is_active'] == 1:
+                flash('Team is already in this division', 'error')
+                return redirect(url_for('cpu_leagues'))
+            else:
+                # Reactivate
+                cur.execute("""
+                    UPDATE division_teams
+                    SET is_active = 1, team_name = ?
+                    WHERE id = ?
+                """, (team_name, existing['id']))
+        else:
+            # Add team to division
+            cur.execute("""
+                INSERT INTO division_teams (division_id, team_id, team_name)
+                VALUES (?, ?, ?)
+            """, (division_id, team_id, team_name))
+        
+        # Initialize standings
+        cur.execute("""
+            INSERT OR IGNORE INTO division_standings (division_id, team_id, team_name)
+            VALUES (?, ?, ?)
+        """, (division_id, team_id, team_name))
+        
+        db_helper.commit()
+        flash(f'Team {team_name} added to division successfully!', 'success')
+        return redirect(url_for('cpu_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error adding team to CPU division: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error adding team to division: {str(e)}', 'error')
+        return redirect(url_for('cpu_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/generate_schedule', methods=['POST'])
+@login_required
+def generate_cpu_schedule():
+    """Automatically generate round-robin schedule for a CPU league division"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        division_id = request.form.get('division_id')
+        
+        if not division_id:
+            flash('Missing division', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Verify division belongs to a CPU league and get competition type
+        cur.execute("""
+            SELECT d.id, d.competition_type, l.name as league_name
+            FROM divisions d
+            JOIN leagues l ON d.league_id = l.id
+            WHERE d.id = ? AND l.name != 'Colados League'
+        """, (division_id,))
+        division_row = cur.fetchone()
+        if not division_row:
+            flash('Invalid division', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        division = dict(division_row)
+        competition_type = division.get('competition_type', 'round_robin') or 'round_robin'
+        
+        # Get all teams in the division
+        cur.execute("""
+            SELECT dt.team_id, dt.team_name
+            FROM division_teams dt
+            WHERE dt.division_id = ? AND dt.is_active = 1
+            ORDER BY dt.team_name
+        """, (division_id,))
+        teams = [dict(row) for row in cur.fetchall()]
+        
+        if len(teams) < 2:
+            flash('Need at least 2 teams in division to generate schedule', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Check if games already exist
+        cur.execute("SELECT COUNT(*) as count FROM league_games WHERE division_id = ?", (division_id,))
+        existing_games_result = cur.fetchone()
+        existing_games = dict(existing_games_result)['count'] if existing_games_result else 0
+        
+        if existing_games > 0:
+            flash('Schedule already exists for this division. Please clear existing games first.', 'warning')
+            return redirect(url_for('cpu_leagues'))
+        
+        import random
+        
+        if competition_type == 'knockout':
+            # Generate knockout tournament (single elimination)
+            num_teams = len(teams)
+            
+            if num_teams < 2:
+                flash('Need at least 2 teams for knockout tournament', 'danger')
+                return redirect(url_for('cpu_leagues'))
+            
+            team_list = [{'id': team['team_id'], 'name': team['team_name']} for team in teams]
+            random.shuffle(team_list)  # Randomize seeding
+            
+            # Initialize knockout teams table - all teams start in round 1
+            round_num = 1
+            for team in team_list:
+                cur.execute("""
+                    INSERT OR REPLACE INTO cpu_knockout_teams
+                    (division_id, team_id, round_number)
+                    VALUES (?, ?, ?)
+                """, (division_id, team['id'], round_num))
+            
+            fixtures = []
+            
+            # Pair teams for first round
+            for i in range(0, len(team_list) - 1, 2):
+                if i + 1 < len(team_list):
+                    home_team = team_list[i]
+                    away_team = team_list[i + 1]
+                    
+                    fixtures.append({
+                        'round': round_num,
+                        'home_team_id': home_team['id'],
+                        'away_team_id': away_team['id'],
+                        'home_team_name': home_team['name'],
+                        'away_team_name': away_team['name']
+                    })
+                else:
+                    # Odd team gets a bye - stays in competition for next round
+                    cur.execute("""
+                        INSERT INTO league_games
+                        (division_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, 
+                         home_score, away_score, is_played)
+                        VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1)
+                    """, (division_id, round_num, team_list[i]['id'], team_list[i]['id'], 
+                          team_list[i]['name'], 'BYE'))
+                    # Team with BYE stays in competition for next round
+                    cur.execute("""
+                        INSERT OR REPLACE INTO cpu_knockout_teams
+                        (division_id, team_id, round_number)
+                        VALUES (?, ?, ?)
+                    """, (division_id, team_list[i]['id'], round_num + 1))
+            
+            # Insert fixtures for first round
+            games_created = 0
+            for fixture in fixtures:
+                cur.execute("""
+                    INSERT INTO league_games
+                    (division_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                """, (division_id, fixture['round'], fixture['home_team_id'], fixture['away_team_id'],
+                      fixture['home_team_name'], fixture['away_team_name']))
+                games_created += 1
+            
+            db_helper.commit()
+            flash(f'Successfully generated knockout schedule: {games_created} games created in Round 1!', 'success')
+            return redirect(url_for('cpu_leagues'))
+        
+        elif competition_type == 'round_robin':
+            # Generate round-robin schedule (double round-robin: each team plays each other twice)
+            num_teams = len(teams)
+            num_rounds_first_half = num_teams - 1
+            
+            # Create team list for round-robin algorithm
+            team_list = [{'id': team['team_id'], 'name': team['team_name']} for team in teams]
+            
+            # Generate first half fixtures using circle method round-robin
+            fixtures = []
+            
+            # If odd number of teams, add a dummy BYE team
+            original_num_teams = len(team_list)
+            if original_num_teams % 2 == 1:
+                team_list.append({'id': None, 'name': 'BYE'})
+                num_teams = len(team_list)
+            
+            # Circle method: fix first team, rotate others
+            for round_num in range(1, num_rounds_first_half + 1):
+                # Pair teams: first with last, second with second-to-last, etc.
+                for i in range(num_teams // 2):
+                    home_idx = i
+                    away_idx = num_teams - 1 - i
+                    
+                    # Skip if either is BYE
+                    if team_list[home_idx]['id'] is None or team_list[away_idx]['id'] is None:
+                        continue
+                    
+                    # Alternate home/away for fairness
+                    if (round_num + i) % 2 == 0:
+                        fixtures.append({
+                            'round': round_num,
+                            'home_team_id': team_list[home_idx]['id'],
+                            'away_team_id': team_list[away_idx]['id'],
+                            'home_team_name': team_list[home_idx]['name'],
+                            'away_team_name': team_list[away_idx]['name']
+                        })
+                    else:
+                        fixtures.append({
+                            'round': round_num,
+                            'home_team_id': team_list[away_idx]['id'],
+                            'away_team_id': team_list[home_idx]['id'],
+                            'home_team_name': team_list[away_idx]['name'],
+                            'away_team_name': team_list[home_idx]['name']
+                        })
+                
+                # Rotate teams (keep first fixed, rotate others clockwise)
+                if round_num < num_rounds_first_half:
+                    team_list = [team_list[0]] + [team_list[-1]] + team_list[1:-1]
+            
+            # Generate second half (reverse fixtures)
+            max_round_first_half = num_rounds_first_half
+            second_half_fixtures = []
+            for fixture in fixtures:
+                second_half_fixtures.append({
+                    'round': fixture['round'] + max_round_first_half,
+                    'home_team_id': fixture['away_team_id'],
+                    'away_team_id': fixture['home_team_id'],
+                    'home_team_name': fixture['away_team_name'],
+                    'away_team_name': fixture['home_team_name']
+                })
+            
+            all_fixtures = fixtures + second_half_fixtures
+            
+            # Insert all fixtures into database
+            created_count = 0
+            for fixture in all_fixtures:
+                cur.execute("""
+                    INSERT INTO league_games (division_id, round_number, home_team_id, away_team_id,
+                                            home_team_name, away_team_name, game_date, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 0)
+                """, (division_id, fixture['round'], fixture['home_team_id'], fixture['away_team_id'],
+                      fixture['home_team_name'], fixture['away_team_name']))
+                created_count += 1
+            
+            db_helper.commit()
+            flash(f'Successfully generated round-robin schedule: {created_count} games created ({num_rounds_first_half} rounds × 2 halves)!', 'success')
+            return redirect(url_for('cpu_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error generating CPU schedule: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error generating schedule: {str(e)}', 'danger')
+        return redirect(url_for('cpu_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/simulate_game/<int:game_id>', methods=['POST'])
+@login_required
+def simulate_cpu_game_route(game_id):
+    """Simulate a single CPU game"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get game details
+        cur.execute("""
+            SELECT lg.*, d.name as division_name, l.name as league_name
+            FROM league_games lg
+            JOIN divisions d ON lg.division_id = d.id
+            JOIN leagues l ON d.league_id = l.id
+            WHERE lg.id = ? AND l.name != 'Colados League'
+        """, (game_id,))
+        game = cur.fetchone()
+        
+        if not game:
+            return jsonify({'error': 'Game not found or not a CPU league game'}), 404
+        
+        if game['is_played']:
+            return jsonify({'error': 'Game has already been played'}), 400
+        
+        # Check if this is a knockout division
+        cur.execute("""
+            SELECT competition_type FROM divisions
+            WHERE id = ?
+        """, (game['division_id'],))
+        division_result = cur.fetchone()
+        is_knockout = False
+        if division_result:
+            division_dict = dict(division_result)
+            is_knockout = division_dict.get('competition_type') == 'knockout'
+        
+        # Simulate the game
+        import random
+        simulation_result = simulate_cpu_game(game['home_team_id'], game['away_team_id'], cur)
+        
+        home_score = simulation_result['home_score']
+        away_score = simulation_result['away_score']
+        player_stats = simulation_result['player_stats']
+        mvp_player_id = simulation_result['mvp_player_id']
+        
+        # If knockout and draw, simulate overtime and penalties
+        if is_knockout and home_score == away_score:
+            # Overtime: 30% chance of a goal in each 15-minute period (2 periods = 30 minutes)
+            overtime_home_goal = random.random() < 0.30
+            overtime_away_goal = random.random() < 0.30
+            
+            if overtime_home_goal and not overtime_away_goal:
+                home_score += 1
+            elif overtime_away_goal and not overtime_home_goal:
+                away_score += 1
+            else:
+                # Still tied after overtime - go to penalties
+                # Penalties: each team takes 5 shots, winner determined by most goals
+                home_penalties = sum(1 for _ in range(5) if random.random() < 0.75)  # 75% conversion rate
+                away_penalties = sum(1 for _ in range(5) if random.random() < 0.75)
+                
+                # If still tied after 5 penalties each, sudden death
+                while home_penalties == away_penalties:
+                    # Home takes penalty
+                    home_scores = random.random() < 0.75
+                    if home_scores:
+                        home_penalties += 1
+                    
+                    # Away takes penalty
+                    away_scores = random.random() < 0.75
+                    if away_scores:
+                        away_penalties += 1
+                    
+                    # If home scored and away didn't, home wins
+                    if home_scores and not away_scores:
+                        break
+                    # If away scored and home didn't, away wins
+                    elif away_scores and not home_scores:
+                        break
+                    # If both scored or both missed, continue to next round
+                
+                # Determine winner based on penalties - adjust scores to reflect penalty winner
+                if home_penalties > away_penalties:
+                    # Home wins on penalties
+                    home_score = away_score + 1
+                else:
+                    # Away wins on penalties
+                    away_score = home_score + 1
+        
+        # Update game
+        try:
+            cur.execute("""
+                UPDATE league_games
+                SET home_score = ?, away_score = ?, game_date = datetime('now'), is_played = 1, mvp_player_id = ?
+                WHERE id = ?
+            """, (home_score, away_score, mvp_player_id, game_id))
+        except Exception:
+            # mvp_player_id column might not exist
+            cur.execute("""
+                UPDATE league_games
+                SET home_score = ?, away_score = ?, game_date = datetime('now'), is_played = 1
+                WHERE id = ?
+            """, (home_score, away_score, game_id))
+        
+        # Insert player game stats
+        for stat in player_stats:
+            cur.execute("""
+                INSERT INTO player_game_stats (game_id, player_id, team_id, player_name,
+                                             goals, assists, minutes_played, is_starter)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (game_id, stat['player_id'], stat['team_id'], stat['player_name'],
+                  stat.get('goals', 0), stat.get('assists', 0),
+                  stat.get('minutes_played', 90), stat.get('is_starter', 1)))
+        
+        # Update player career stats
+        for stat in player_stats:
+            is_mvp = (mvp_player_id and stat['player_id'] == mvp_player_id)
+            
+            try:
+                if is_mvp:
+                    cur.execute("""
+                        UPDATE players
+                        SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1, MVP = COALESCE(MVP, 0) + 1
+                        WHERE id = ?
+                    """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+                else:
+                    cur.execute("""
+                        UPDATE players
+                        SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1
+                        WHERE id = ?
+                    """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+            except Exception:
+                # MVP column might not exist
+                cur.execute("""
+                    UPDATE players
+                    SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1
+                    WHERE id = ?
+                """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+        
+        # Update division standings
+        update_division_standings(game['division_id'], game['home_team_id'], game['away_team_id'],
+                                 home_score, away_score)
+        
+        db_helper.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Game simulated: {game["home_team_name"]} {home_score} - {away_score} {game["away_team_name"]}',
+            'home_score': home_score,
+            'away_score': away_score,
+            'game_id': game_id
+        })
+    
+    except Exception as e:
+        app.logger.error(f"Error simulating CPU game: {e}")
+        db_helper.get_connection().rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/simulate_round/<int:division_id>', methods=['POST'])
+@login_required
+def simulate_cpu_round(division_id):
+    """Simulate all pending games in a specific round for a division"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        round_number = request.form.get('round_number')
+        if not round_number:
+            return jsonify({'error': 'Round number required'}), 400
+        
+        round_number = int(round_number)
+        
+        # Verify division belongs to a CPU league and get competition type
+        cur.execute("""
+            SELECT d.id, d.competition_type, l.name as league_name
+            FROM divisions d
+            JOIN leagues l ON d.league_id = l.id
+            WHERE d.id = ? AND l.name != 'Colados League'
+        """, (division_id,))
+        division_row = cur.fetchone()
+        if not division_row:
+            return jsonify({'error': 'Invalid division'}), 404
+        
+        division = dict(division_row)
+        is_knockout = division.get('competition_type') == 'knockout'
+        
+        # Get all pending games for this round
+        cur.execute("""
+            SELECT id, home_team_id, away_team_id, home_team_name, away_team_name
+            FROM league_games
+            WHERE division_id = ? AND round_number = ? AND is_played = 0
+        """, (division_id, round_number))
+        games = [dict(row) for row in cur.fetchall()]
+        
+        if not games:
+            return jsonify({'error': 'No pending games found for this round'}), 404
+        
+        simulated_count = 0
+        errors = []
+        import random
+        
+        for game in games:
+            try:
+                # Simulate the game
+                simulation_result = simulate_cpu_game(game['home_team_id'], game['away_team_id'], cur)
+                
+                home_score = simulation_result['home_score']
+                away_score = simulation_result['away_score']
+                player_stats = simulation_result['player_stats']
+                mvp_player_id = simulation_result['mvp_player_id']
+                
+                # If knockout and draw, simulate overtime and penalties
+                if is_knockout and home_score == away_score:
+                    # Overtime: 30% chance of a goal in each 15-minute period (2 periods = 30 minutes)
+                    overtime_home_goal = random.random() < 0.30
+                    overtime_away_goal = random.random() < 0.30
+                    
+                    if overtime_home_goal and not overtime_away_goal:
+                        home_score += 1
+                    elif overtime_away_goal and not overtime_home_goal:
+                        away_score += 1
+                    else:
+                        # Still tied after overtime - go to penalties
+                        # Penalties: each team takes 5 shots, winner determined by most goals
+                        home_penalties = sum(1 for _ in range(5) if random.random() < 0.75)  # 75% conversion rate
+                        away_penalties = sum(1 for _ in range(5) if random.random() < 0.75)
+                        
+                        # If still tied after 5 penalties each, sudden death
+                        while home_penalties == away_penalties:
+                            # Home takes penalty
+                            home_scores = random.random() < 0.75
+                            if home_scores:
+                                home_penalties += 1
+                            
+                            # Away takes penalty
+                            away_scores = random.random() < 0.75
+                            if away_scores:
+                                away_penalties += 1
+                            
+                            # If home scored and away didn't, home wins
+                            if home_scores and not away_scores:
+                                break
+                            # If away scored and home didn't, away wins
+                            elif away_scores and not home_scores:
+                                break
+                            # If both scored or both missed, continue to next round
+                        
+                        # Determine winner based on penalties - adjust scores to reflect penalty winner
+                        if home_penalties > away_penalties:
+                            # Home wins on penalties
+                            home_score = away_score + 1
+                        else:
+                            # Away wins on penalties
+                            away_score = home_score + 1
+                
+                # Update game
+                try:
+                    cur.execute("""
+                        UPDATE league_games
+                        SET home_score = ?, away_score = ?, game_date = datetime('now'), is_played = 1, mvp_player_id = ?
+                        WHERE id = ?
+                    """, (home_score, away_score, mvp_player_id, game['id']))
+                except Exception:
+                    cur.execute("""
+                        UPDATE league_games
+                        SET home_score = ?, away_score = ?, game_date = datetime('now'), is_played = 1
+                        WHERE id = ?
+                    """, (home_score, away_score, game['id']))
+                
+                # Update knockout teams table if this is a knockout division
+                if is_knockout:
+                    # Get game details
+                    cur.execute("""
+                        SELECT division_id, round_number, home_team_id, away_team_id, 
+                               home_team_name, away_team_name
+                        FROM league_games WHERE id = ?
+                    """, (game['id'],))
+                    game_info_row = cur.fetchone()
+                    if game_info_row:
+                        game_info = dict(game_info_row)
+                        
+                        # Skip BYE games (they're already handled)
+                        if game_info.get('away_team_name') != 'BYE' and game_info.get('home_team_name') != 'BYE':
+                            # Determine winner
+                            winner_id = None
+                            if home_score > away_score:
+                                winner_id = game_info['home_team_id']
+                            elif away_score > home_score:
+                                winner_id = game_info['away_team_id']
+                            
+                            if winner_id:
+                                # Add winner to next round
+                                next_round = game_info['round_number'] + 1
+                                cur.execute("""
+                                    INSERT OR REPLACE INTO cpu_knockout_teams
+                                    (division_id, team_id, round_number)
+                                    VALUES (?, ?, ?)
+                                """, (game_info['division_id'], winner_id, next_round))
+                                app.logger.info(f"Added winner {winner_id} to round {next_round} in knockout division")
+                
+                # Insert player game stats
+                for stat in player_stats:
+                    cur.execute("""
+                        INSERT INTO player_game_stats (game_id, player_id, team_id, player_name,
+                                                     goals, assists, minutes_played, is_starter)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (game['id'], stat['player_id'], stat['team_id'], stat['player_name'],
+                          stat.get('goals', 0), stat.get('assists', 0),
+                          stat.get('minutes_played', 90), stat.get('is_starter', 1)))
+                
+                # Update player career stats
+                for stat in player_stats:
+                    is_mvp = (mvp_player_id and stat['player_id'] == mvp_player_id)
+                    
+                    try:
+                        if is_mvp:
+                            cur.execute("""
+                                UPDATE players
+                                SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1, MVP = COALESCE(MVP, 0) + 1
+                                WHERE id = ?
+                            """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+                        else:
+                            cur.execute("""
+                                UPDATE players
+                                SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1
+                                WHERE id = ?
+                            """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+                    except Exception:
+                        cur.execute("""
+                            UPDATE players
+                            SET goals = goals + ?, assists = assists + ?, games_played = games_played + 1
+                            WHERE id = ?
+                        """, (stat.get('goals', 0), stat.get('assists', 0), stat['player_id']))
+                
+                # Update division standings
+                update_division_standings(division_id, game['home_team_id'], game['away_team_id'],
+                                        home_score, away_score)
+                
+                simulated_count += 1
+                
+            except Exception as e:
+                errors.append(f"Error simulating game {game['id']}: {str(e)}")
+                app.logger.error(f"Error simulating game {game['id']}: {e}")
+        
+        db_helper.commit()
+        
+        if errors:
+            return jsonify({
+                'success': True,
+                'message': f'Simulated {simulated_count} games. {len(errors)} errors occurred.',
+                'simulated_count': simulated_count,
+                'errors': errors
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'message': f'Successfully simulated {simulated_count} games!',
+                'simulated_count': simulated_count
+            })
+    
+    except Exception as e:
+        app.logger.error(f"Error simulating CPU round: {e}")
+        db_helper.get_connection().rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/advance_knockout_round/<int:division_id>', methods=['POST'])
+@login_required
+def advance_cpu_knockout_round(division_id):
+    """Advance to next round of knockout tournament by determining winners and creating next round"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Verify division exists and is knockout type
+        cur.execute("SELECT id, name, competition_type FROM divisions WHERE id = ?", (division_id,))
+        division_row = cur.fetchone()
+        if not division_row:
+            flash('Invalid division', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        division = dict(division_row)
+        if division.get('competition_type') != 'knockout':
+            flash('This division is not a knockout tournament', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Get current round (highest round number)
+        cur.execute("""
+            SELECT MAX(round_number) as max_round
+            FROM league_games
+            WHERE division_id = ?
+        """, (division_id,))
+        result = cur.fetchone()
+        if result:
+            result_dict = dict(result)
+            max_round_val = result_dict.get('max_round')
+            current_round = max_round_val if max_round_val is not None else 0
+        else:
+            current_round = 0
+        
+        if current_round == 0:
+            flash('No rounds found for this division', 'warning')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Check if all games in current round are played
+        cur.execute("""
+            SELECT COUNT(*) as total, SUM(CASE WHEN is_played = 1 THEN 1 ELSE 0 END) as played
+            FROM league_games
+            WHERE division_id = ? AND round_number = ?
+        """, (division_id, current_round))
+        round_stats_row = cur.fetchone()
+        round_stats = dict(round_stats_row) if round_stats_row else {'total': 0, 'played': 0}
+        
+        if round_stats.get('total', 0) == 0:
+            flash('No games found in current round', 'warning')
+            return redirect(url_for('cpu_leagues'))
+        
+        if round_stats.get('played', 0) < round_stats.get('total', 0):
+            flash(f'Not all games in Round {current_round} are completed. Please complete all games first.', 'warning')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Get teams still in competition from cpu_knockout_teams table
+        # This table is maintained when games are played (winners added, losers removed)
+        cur.execute("""
+            SELECT ckt.team_id, dt.team_name
+            FROM cpu_knockout_teams ckt
+            JOIN division_teams dt ON ckt.team_id = dt.team_id AND ckt.division_id = dt.division_id
+            WHERE ckt.division_id = ? AND ckt.round_number = ?
+            ORDER BY dt.team_name ASC
+        """, (division_id, current_round + 1))
+        teams_still_in = [{'id': dict(row)['team_id'], 'name': dict(row)['team_name']} for row in cur.fetchall()]
+        
+        app.logger.info(f"Round {current_round}: Found {len(teams_still_in)} teams still in competition from cpu_knockout_teams table: {[t['name'] for t in teams_still_in]}")
+        
+        # If no teams found in next round, try to get them from current round (fallback)
+        if len(teams_still_in) == 0:
+            app.logger.warning("No teams found in cpu_knockout_teams table, falling back to game-based detection")
+            # Fallback: get from games (for backwards compatibility)
+            cur.execute("""
+                SELECT id, home_team_id, away_team_id, home_team_name, away_team_name, 
+                       home_score, away_score, is_played
+                FROM league_games
+                WHERE division_id = ? AND round_number = ?
+                ORDER BY id ASC
+            """, (division_id, current_round))
+            games = [dict(row) for row in cur.fetchall()]
+            
+            for game in games:
+                if game.get('away_team_name') == 'BYE':
+                    teams_still_in.append({'id': game['home_team_id'], 'name': game['home_team_name']})
+                elif game.get('home_team_name') == 'BYE':
+                    teams_still_in.append({'id': game['away_team_id'], 'name': game['away_team_name']})
+                elif game.get('is_played') == 1:
+                    if game.get('home_score', 0) > game.get('away_score', 0):
+                        teams_still_in.append({'id': game['home_team_id'], 'name': game['home_team_name']})
+                    elif game.get('away_score', 0) > game.get('home_score', 0):
+                        teams_still_in.append({'id': game['away_team_id'], 'name': game['away_team_name']})
+        
+        winners = teams_still_in
+        
+        if len(winners) == 0:
+            flash('No teams found still in competition', 'warning')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Show teams still in competition
+        team_names = ', '.join([t['name'] for t in winners])
+        flash(f'Teams still in competition: {team_names}', 'info')
+        
+        # If only one team left, tournament is complete
+        if len(winners) == 1:
+            winner_name = winners[0]['name']
+            flash(f'🏆🏆🏆 TOURNAMENT CHAMPION! 🏆🏆🏆\n\n{winner_name} has won the tournament!', 'success')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Create next round
+        next_round = current_round + 1
+        winners_list = winners  # Already in correct format
+        
+        # Shuffle teams for random pairing in next round
+        import random
+        random.shuffle(winners_list)
+        
+        # Pair winners for next round
+        fixtures = []
+        games_created = 0
+        for i in range(0, len(winners_list) - 1, 2):
+            if i + 1 < len(winners_list):
+                home_team = winners_list[i]
+                away_team = winners_list[i + 1]
+                
+                fixtures.append({
+                    'round': next_round,
+                    'home_team_id': home_team['id'],
+                    'away_team_id': away_team['id'],
+                    'home_team_name': home_team['name'],
+                    'away_team_name': away_team['name']
+                })
+            else:
+                # Odd number of winners - one gets a bye
+                cur.execute("""
+                    INSERT INTO league_games
+                    (division_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, 
+                     home_score, away_score, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1)
+                """, (division_id, next_round, winners_list[i]['id'], winners_list[i]['id'], 
+                      winners_list[i]['name'], 'BYE'))
+                games_created += 1  # Count the bye game
+                # Add BYE team to next round in cpu_knockout_teams table
+                cur.execute("""
+                    INSERT OR REPLACE INTO cpu_knockout_teams
+                    (division_id, team_id, round_number)
+                    VALUES (?, ?, ?)
+                """, (division_id, winners_list[i]['id'], next_round + 1))
+                app.logger.info(f"Created BYE game for {winners_list[i]['name']} in round {next_round}")
+        
+        # Insert fixtures for next round and add teams to cpu_knockout_teams table
+        for fixture in fixtures:
+            cur.execute("""
+                INSERT INTO league_games
+                (division_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, is_played)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+            """, (division_id, fixture['round'], fixture['home_team_id'], fixture['away_team_id'],
+                  fixture['home_team_name'], fixture['away_team_name']))
+            games_created += 1
+            app.logger.info(f"Created game: {fixture['home_team_name']} vs {fixture['away_team_name']} in round {next_round}")
+            
+            # Add both teams to cpu_knockout_teams table for this round (they'll be removed when they lose)
+            cur.execute("""
+                INSERT OR REPLACE INTO cpu_knockout_teams
+                (division_id, team_id, round_number)
+                VALUES (?, ?, ?)
+            """, (division_id, fixture['home_team_id'], fixture['round']))
+            cur.execute("""
+                INSERT OR REPLACE INTO cpu_knockout_teams
+                (division_id, team_id, round_number)
+                VALUES (?, ?, ?)
+            """, (division_id, fixture['away_team_id'], fixture['round']))
+        
+        db_helper.commit()
+        flash(f'Round {next_round} created! {games_created} games scheduled. Teams: {team_names}', 'success')
+        return redirect(url_for('cpu_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error advancing CPU knockout round: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error advancing round: {str(e)}', 'danger')
+        return redirect(url_for('cpu_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/generate_preferred_lineups', methods=['POST'])
+@login_required
+def generate_preferred_lineups():
+    """Generate preferred lineups for all teams based on best overall per position"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get all teams
+        cur.execute("SELECT id, club_name FROM teams ORDER BY club_name")
+        teams = cur.fetchall()
+        
+        updated_count = 0
+        
+        for team in teams:
+            team_id = team['id']
+            
+            # Get all players for this team
+            cur.execute("""
+                SELECT id, player_name, registered_position, overall
+                FROM players
+                WHERE club_id = ? AND overall IS NOT NULL
+                ORDER BY overall DESC
+            """, (team_id,))
+            players = [dict(row) for row in cur.fetchall()]
+            
+            if not players or len(players) < 11:
+                # Skip teams with less than 11 players
+                continue
+            
+            # Helper function to convert registered_position to int (handles TEXT type in DB)
+            def get_pos_int(p):
+                pos = p.get('registered_position')
+                try:
+                    return int(pos) if pos is not None else -1
+                except (ValueError, TypeError):
+                    return -1
+            
+            # Group players by position - SIMPLE ORDER: GK, CB/SW, SB/WB, CM, SM, FWD
+            gks = sorted([p for p in players if get_pos_int(p) == 0], 
+                        key=lambda x: x.get('overall', 0), reverse=True)
+            centre_backs = sorted([p for p in players if get_pos_int(p) in [2, 3]], 
+                                 key=lambda x: x.get('overall', 0), reverse=True)
+            side_backs = sorted([p for p in players if get_pos_int(p) in [4, 6]], 
+                              key=lambda x: x.get('overall', 0), reverse=True)
+            centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7]], 
+                               key=lambda x: x.get('overall', 0), reverse=True)  # Fixed: removed 8 (SMF) from CM
+            side_mids = sorted([p for p in players if get_pos_int(p) in [8, 10]], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            forwards = sorted([p for p in players if get_pos_int(p) in [11, 12]], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            
+            # FORMATION MAPPING (from top to bottom on field):
+            # Slots 10-11: CF - CF (or SS) - Forwards
+            # Slots 6-9: WF/SMF - CMF - CMF - WF/SMF (CMF includes DMF and AMF)
+            # Slots 2-5: SB/WB - CB/SW - CB/SW - SB/WB
+            # Slot 1: GK
+            preferred_lineup = []
+            used_player_ids = set()
+            
+            # Slots 10-11: Forwards (CF/SS) - TOP ROW
+            slot_num = 10
+            for i in range(2):
+                if i < len(forwards) and forwards[i]['id'] not in used_player_ids:
+                    preferred_lineup.append({
+                        'slot': slot_num,
+                        'player_id': forwards[i]['id'],
+                        'position_group': 'FWD'
+                    })
+                    used_player_ids.add(forwards[i]['id'])
+                    slot_num += 1
+            
+            # Slots 6-9: Midfielders - SECOND ROW
+            # Order: WF/SMF (slot 6), CMF (slot 7), CMF (slot 8), WF/SMF (slot 9)
+            slot_num = 6
+            # Slot 6: First WF/SMF
+            if len(side_mids) > 0 and side_mids[0]['id'] not in used_player_ids:
+                preferred_lineup.append({
+                    'slot': slot_num,
+                    'player_id': side_mids[0]['id'],
+                    'position_group': 'SM'
+                })
+                used_player_ids.add(side_mids[0]['id'])
+            slot_num += 1
+            
+            # Slots 7-8: Two Centre Midfielders (CMF/DMF/AMF)
+            for i in range(2):
+                if i < len(centre_mids) and centre_mids[i]['id'] not in used_player_ids:
+                    preferred_lineup.append({
+                        'slot': slot_num,
+                        'player_id': centre_mids[i]['id'],
+                        'position_group': 'CM'
+                    })
+                    used_player_ids.add(centre_mids[i]['id'])
+                    slot_num += 1
+            
+            # Slot 9: Second WF/SMF
+            if len(side_mids) > 1 and side_mids[1]['id'] not in used_player_ids:
+                preferred_lineup.append({
+                    'slot': slot_num,
+                    'player_id': side_mids[1]['id'],
+                    'position_group': 'SM'
+                })
+                used_player_ids.add(side_mids[1]['id'])
+            slot_num += 1
+            
+            # Slots 2-5: Defenders - THIRD ROW
+            # Order: SB/WB (slot 2), CB/SW (slot 3), CB/SW (slot 4), SB/WB (slot 5)
+            slot_num = 2
+            # Slot 2: First SB/WB
+            if len(side_backs) > 0 and side_backs[0]['id'] not in used_player_ids:
+                preferred_lineup.append({
+                    'slot': slot_num,
+                    'player_id': side_backs[0]['id'],
+                    'position_group': 'SB/WB'
+                })
+                used_player_ids.add(side_backs[0]['id'])
+            slot_num += 1
+            
+            # Slots 3-4: Two Centre-Backs/Sweepers
+            for i in range(2):
+                if i < len(centre_backs) and centre_backs[i]['id'] not in used_player_ids:
+                    preferred_lineup.append({
+                        'slot': slot_num,
+                        'player_id': centre_backs[i]['id'],
+                        'position_group': 'CB/SW'
+                    })
+                    used_player_ids.add(centre_backs[i]['id'])
+                    slot_num += 1
+            
+            # Slot 5: Second SB/WB
+            if len(side_backs) > 1 and side_backs[1]['id'] not in used_player_ids:
+                preferred_lineup.append({
+                    'slot': slot_num,
+                    'player_id': side_backs[1]['id'],
+                    'position_group': 'SB/WB'
+                })
+                used_player_ids.add(side_backs[1]['id'])
+            slot_num += 1
+            
+            # Slot 1: Goalkeeper - BOTTOM ROW
+            if gks:
+                preferred_lineup.append({
+                    'slot': 1,
+                    'player_id': gks[0]['id'],
+                    'position_group': 'GK'
+                })
+                used_player_ids.add(gks[0]['id'])
+            
+            # Fill remaining slots with best available (excluding goalkeepers)
+            # Get all assigned slots to find gaps
+            assigned_slots = {slot_data['slot'] for slot_data in preferred_lineup}
+            all_slots = set(range(1, 12))  # Slots 1-11
+            missing_slots = sorted(list(all_slots - assigned_slots))
+            
+            if missing_slots:
+                available = [p for p in players if p['id'] not in used_player_ids and get_pos_int(p) != 0]
+                available.sort(key=lambda x: x.get('overall', 0), reverse=True)
+                
+                for slot_num in missing_slots:
+                    if not available:
+                        break
+                    p = available.pop(0)
+                    pos = get_pos_int(p)
+                    if pos in [2, 3]:
+                        pos_group = 'CB/SW'
+                    elif pos in [4, 6]:
+                        pos_group = 'SB/WB'
+                    elif pos in [5, 7, 8]:
+                        pos_group = 'CM'
+                    elif pos in [8, 10]:
+                        pos_group = 'SM'
+                    elif pos in [11, 12]:
+                        pos_group = 'FWD'
+                    else:
+                        pos_group = 'FILL'
+                    
+                    preferred_lineup.append({
+                        'slot': slot_num,
+                        'player_id': p['id'],
+                        'position_group': pos_group
+                    })
+                    used_player_ids.add(p['id'])
+            
+            # Delete existing preferred lineup for this team (do this BEFORE building new lineup to avoid conflicts)
+            cur.execute("DELETE FROM team_preferred_lineup WHERE team_id = ?", (team_id,))
+            
+            # Ensure no duplicate slots in preferred_lineup
+            seen_slots = set()
+            unique_lineup = []
+            for slot_data in preferred_lineup:
+                slot_num = slot_data['slot']
+                if slot_num not in seen_slots:
+                    seen_slots.add(slot_num)
+                    unique_lineup.append(slot_data)
+                else:
+                    # Skip duplicate slot - log for debugging
+                    app.logger.warning(f"Duplicate slot {slot_num} for team {team_id}, skipping")
+            
+            # Sort by slot number before inserting
+            unique_lineup.sort(key=lambda x: x['slot'])
+            
+            # Insert new preferred lineup (ensure exactly 11 unique slots)
+            for slot_data in unique_lineup[:11]:
+                try:
+                    cur.execute("""
+                        INSERT INTO team_preferred_lineup (team_id, slot_number, player_id, position_group, updated_at)
+                        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (team_id, slot_data['slot'], slot_data['player_id'], slot_data['position_group']))
+                except Exception as e:
+                    app.logger.error(f"Error inserting slot {slot_data['slot']} for team {team_id}: {e}")
+                    raise
+            
+            updated_count += 1
+        
+        db_helper.commit()
+        flash(f'Preferred lineups generated for {updated_count} teams!', 'success')
+        return redirect(url_for('tools'))
+    
+    except Exception as e:
+        app.logger.error(f"Error generating preferred lineups: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error generating preferred lineups: {str(e)}', 'danger')
+        return redirect(url_for('tools'))
+    finally:
+        cur.close()
+
+@app.route('/cpu_leagues/game/<int:game_id>')
+@login_required
+def cpu_league_game_management(game_id):
+    """CPU League game management page - view game details, player stats, and financial data"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get game details and verify it's a CPU league game
+        cur.execute("""
+            SELECT lg.*, d.name as division_name, l.name as league_name
+            FROM league_games lg
+            JOIN divisions d ON lg.division_id = d.id
+            JOIN leagues l ON d.league_id = l.id
+            WHERE lg.id = ? AND l.name != 'Colados League'
+        """, (game_id,))
+        game_row = cur.fetchone()
+        
+        if not game_row:
+            flash('Game not found or not a CPU league game', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        # Convert sqlite3.Row to dict for easier access
+        game = dict(game_row)
+        
+        division = {'name': game['division_name']}
+        league = {'name': game['league_name']}
+        
+        # Get full squads for both teams (always load, even for pending games)
+        home_squad = []
+        away_squad = []
+        
+        if not game['is_played']:
+            # Load full squads for pending games
+            cur.execute("""
+                SELECT id, player_name, overall, registered_position, age
+                FROM players
+                WHERE club_id = ? AND overall IS NOT NULL
+                ORDER BY registered_position, overall DESC
+            """, (game['home_team_id'],))
+            home_squad = [dict(row) for row in cur.fetchall()]
+            
+            cur.execute("""
+                SELECT id, player_name, overall, registered_position, age
+                FROM players
+                WHERE club_id = ? AND overall IS NOT NULL
+                ORDER BY registered_position, overall DESC
+            """, (game['away_team_id'],))
+            away_squad = [dict(row) for row in cur.fetchall()]
+        
+        # Get player stats if game is played
+        home_player_stats = []
+        away_player_stats = []
+        mvp_player_id = None
+        mvp_player_name = None
+        
+        # Get MVP player info if it exists (check from game record)
+        try:
+            mvp_player_id = game.get('mvp_player_id')
+            if mvp_player_id:
+                cur.execute("SELECT player_name FROM players WHERE id = ?", (mvp_player_id,))
+                mvp_result = cur.fetchone()
+                if mvp_result:
+                    # Convert sqlite3.Row to dict if needed
+                    if hasattr(mvp_result, 'keys'):
+                        mvp_result_dict = dict(mvp_result)
+                        mvp_player_name = mvp_result_dict.get('player_name')
+                    else:
+                        mvp_player_name = mvp_result[0] if mvp_result else None
+        except Exception as e:
+            app.logger.error(f"Error fetching MVP: {e}")
+            mvp_player_id = None
+            mvp_player_name = None
+        
+        if game['is_played']:
+            # Get home team player stats with position information
+            cur.execute("""
+                SELECT pgs.player_id, pgs.player_name, pgs.goals, pgs.assists, pgs.minutes_played, pgs.is_starter,
+                       p.registered_position
+                FROM player_game_stats pgs
+                JOIN players p ON pgs.player_id = p.id
+                WHERE pgs.game_id = ? AND pgs.team_id = ?
+                ORDER BY 
+                    CASE p.registered_position
+                        WHEN 0 THEN 1  -- Goalkeepers first
+                        WHEN 2 THEN 2   -- Defenders
+                        WHEN 3 THEN 2
+                        WHEN 4 THEN 2
+                        WHEN 6 THEN 2
+                        WHEN 5 THEN 3   -- Midfielders
+                        WHEN 7 THEN 3
+                        WHEN 8 THEN 3
+                        WHEN 9 THEN 3
+                        WHEN 10 THEN 3
+                        WHEN 11 THEN 4  -- Forwards
+                        WHEN 12 THEN 4
+                        ELSE 5
+                    END,
+                    p.registered_position,
+                    pgs.goals DESC, pgs.assists DESC
+            """, (game_id, game['home_team_id']))
+            home_player_stats = [dict(row) for row in cur.fetchall()]
+            
+            # Get away team player stats with position information
+            cur.execute("""
+                SELECT pgs.player_id, pgs.player_name, pgs.goals, pgs.assists, pgs.minutes_played, pgs.is_starter,
+                       p.registered_position
+                FROM player_game_stats pgs
+                JOIN players p ON pgs.player_id = p.id
+                WHERE pgs.game_id = ? AND pgs.team_id = ?
+                ORDER BY 
+                    CASE p.registered_position
+                        WHEN 0 THEN 1  -- Goalkeepers first
+                        WHEN 2 THEN 2   -- Defenders
+                        WHEN 3 THEN 2
+                        WHEN 4 THEN 2
+                        WHEN 6 THEN 2
+                        WHEN 5 THEN 3   -- Midfielders
+                        WHEN 7 THEN 3
+                        WHEN 8 THEN 3
+                        WHEN 9 THEN 3
+                        WHEN 10 THEN 3
+                        WHEN 11 THEN 4  -- Forwards
+                        WHEN 12 THEN 4
+                        ELSE 5
+                    END,
+                    p.registered_position,
+                    pgs.goals DESC, pgs.assists DESC
+            """, (game_id, game['away_team_id']))
+            away_player_stats = [dict(row) for row in cur.fetchall()]
+        
+        # Get financial data (if exists - for future implementation)
+        # For now, we'll prepare the structure
+        financial_data = {
+            'ticket_revenue': None,
+            'attendance': None,
+            'other_revenue': None
+        }
+        
+        return render_template('cpu_league_game_management.html',
+                             game=game,
+                             division=division,
+                             league=league,
+                             home_squad=home_squad,
+                             away_squad=away_squad,
+                             home_player_stats=home_player_stats,
+                             away_player_stats=away_player_stats,
+                             mvp_player_id=mvp_player_id,
+                             mvp_player_name=mvp_player_name,
+                             financial_data=financial_data)
+    
+    except Exception as e:
+        app.logger.error(f"Error in cpu_league_game_management: {e}")
+        flash('Error loading game data', 'danger')
+        return redirect(url_for('cpu_leagues'))
+    finally:
+        cur.close()
+
+def normalize_nationality(nationality):
+    """Normalize nationality names to match international team names"""
+    if not nationality:
+        return nationality
+    
+    # Map common variations to standard names
+    nationality_map = {
+        'United States': 'USA',
+        'United States of America': 'USA',
+        'US': 'USA',
+        'U.S.A.': 'USA',
+        'U.S.': 'USA',
+        # Add more mappings as needed
+    }
+    
+    # Check exact match first
+    if nationality in nationality_map:
+        return nationality_map[nationality]
+    
+    # Check case-insensitive match
+    for key, value in nationality_map.items():
+        if nationality.lower() == key.lower():
+            return value
+    
+    return nationality
+
+def populate_international_teams():
+    """Populate international teams table with all available nationalities"""
+    from game_mechanics import NATIONALITY_DATA
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get all nationalities from NATIONALITY_DATA
+        nationalities = list(NATIONALITY_DATA.keys())
+        
+        created_count = 0
+        for nationality in nationalities:
+            # Team name format: "{Nationality} National Team"
+            team_name = f"{nationality} National Team"
+            
+            # Check if international team already exists
+            cur.execute("SELECT id FROM international_teams WHERE nationality = ?", (nationality,))
+            existing = cur.fetchone()
+            
+            if not existing:
+                # Create international team
+                cur.execute("""
+                    INSERT INTO international_teams (nationality, team_name)
+                    VALUES (?, ?)
+                """, (nationality, team_name))
+                created_count += 1
+        
+        db_helper.commit()
+        return {'success': True, 'created': created_count, 'total': len(nationalities)}
+    
+    except Exception as e:
+        app.logger.error(f"Error populating international teams: {e}")
+        db_helper.get_connection().rollback()
+        return {'success': False, 'error': str(e)}
+    finally:
+        cur.close()
+
+def create_fake_international_player(nationality: str, position: str, db_path: str = None) -> int:
+    """Create a fake 65 overall player for international call-ups"""
+    from game_mechanics import NATIONALITY_DATA, SURNAME_DATA, generate_player_name
+    import random
+    
+    if db_path is None:
+        db_path = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Generate name
+        if nationality not in NATIONALITY_DATA:
+            nationality = 'England'
+        
+        first_names = NATIONALITY_DATA[nationality]['names']
+        surnames = SURNAME_DATA.get(nationality, SURNAME_DATA['England'])
+        first_name = random.choice(first_names)
+        surname = random.choice(surnames) if random.random() > 0.3 else ""
+        full_name = f"{first_name} {surname}".strip() if surname else first_name
+        
+        # Position mapping to registered_position
+        position_map = {
+            'GK': '0',
+            'SB/WB': '4',  # Use SB as default
+            'CB/SW': '3',  # Use CB as default
+            'DMF/CMF/AMF': '7',  # Use CMF as default
+            'SMF/WF': '10',  # Use WF as default
+            'SS/CF': '12'  # Use CF as default
+        }
+        registered_position = position_map.get(position, '7')
+        
+        # Create a 65 overall player with balanced stats
+        # All attributes set to 65
+        base_stats = {
+            'attack': 65, 'defense': 65, 'balance': 65, 'stamina': 65,
+            'top_speed': 65, 'acceleration': 65, 'response': 65, 'agility': 65,
+            'dribble_accuracy': 65, 'dribble_speed': 65, 'short_pass_accuracy': 65,
+            'short_pass_speed': 65, 'long_pass_accuracy': 65, 'long_pass_speed': 65,
+            'shot_accuracy': 65, 'shot_power': 65, 'shot_technique': 65,
+            'free_kick_accuracy': 65, 'swerve': 65, 'heading': 65, 'jump': 65,
+            'technique': 65, 'aggression': 65, 'mentality': 65, 'goal_keeping': 65,
+            'team_work': 65, 'consistency': 65, 'condition_fitness': 65
+        }
+        
+        # Create player data dictionary (similar to generate_new_player)
+        player_data = {
+            'player_name': full_name,
+            'age': 25,
+            'nationality': nationality,
+            'skin_color': NATIONALITY_DATA[nationality]['skin_color'],
+            'registered_position': registered_position,
+            'club_id': 141,  # Free agent
+            'salary': 50000,
+            'contract_years_remaining': 1,
+            'yearly_wage_rise': 0.0,
+            'overall': 65,
+            'height': 180,  # Default height
+            'weight': 75,   # Default weight
+            'strong_foot': 'Right',
+            'favoured_side': 'Right',
+            'games_played': 0,
+            'goals': 0,
+            'assists': 0,
+            'MVP': 0,
+            'international_caps_total': 0,
+            'international_goals': 0,
+            'international_assists': 0,
+            'current_season_caps': 0,
+            **base_stats
+        }
+        
+        # Use the insert_new_player_to_database function from game_mechanics
+        from game_mechanics import insert_new_player_to_database
+        if db_path is None:
+            db_path = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
+        
+        player_id = insert_new_player_to_database(db_path, player_data)
+        return player_id
+    
+    except Exception as e:
+        app.logger.error(f"Error creating fake player: {e}")
+        db_helper.get_connection().rollback()
+        return None
+    finally:
+        cur.close()
+
+def call_up_international_squad(international_team_id: int):
+    """Call up 23 players for an international team with specific position requirements"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get team nationality
+        cur.execute("SELECT nationality FROM international_teams WHERE id = ?", (international_team_id,))
+        team = cur.fetchone()
+        if not team:
+            return {'success': False, 'error': 'International team not found'}
+        
+        nationality = team['nationality']
+        
+        # Position requirements: 3 GK, 4 SB/WB, 4 CB/SW, 4 DMF/CMF/AMF, 4 SMF/WF, 4 SS/CF
+        requirements = {
+            'GK': 3,
+            'SB/WB': 4,
+            'CB/SW': 4,
+            'DMF/CMF/AMF': 4,
+            'SMF/WF': 4,
+            'SS/CF': 4
+        }
+        
+        # Clear existing call-up for this team
+        cur.execute("DELETE FROM international_squad_callups WHERE international_team_id = ?", (international_team_id,))
+        
+        called_up_players = []
+        
+        # Get all available players for this nationality
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position
+            FROM players p
+            JOIN international_team_players itp ON p.id = itp.player_id
+            WHERE itp.international_team_id = ? AND p.overall IS NOT NULL
+            ORDER BY p.overall DESC
+        """, (international_team_id,))
+        available_players = [dict(row) for row in cur.fetchall()]
+        
+        # Helper function to get position group (priority order matters for overlapping positions)
+        def get_position_group(registered_position):
+            pos = str(registered_position) if registered_position is not None else ''
+            if pos == '0':
+                return 'GK'
+            elif pos in ['4', '6']:
+                return 'SB/WB'
+            elif pos in ['2', '3']:
+                return 'CB/SW'
+            elif pos == '10':
+                return 'SMF/WF'
+            elif pos in ['8']:
+                # Position 8 (SMF) can be either DMF/CMF/AMF or SMF/WF - assign to SMF/WF first
+                return 'SMF/WF'
+            elif pos in ['5', '7', '9']:
+                return 'DMF/CMF/AMF'
+            elif pos in ['11', '12']:
+                return 'SS/CF'
+            return None
+        
+        # Group available players by position
+        players_by_position = {
+            'GK': [],
+            'SB/WB': [],
+            'CB/SW': [],
+            'DMF/CMF/AMF': [],
+            'SMF/WF': [],
+            'SS/CF': []
+        }
+        
+        for player in available_players:
+            pos_group = get_position_group(player['registered_position'])
+            if pos_group and pos_group in players_by_position:
+                players_by_position[pos_group].append(player)
+        
+        # Select players for each position group with randomness (coaches may prefer different players)
+        import random
+        for pos_group, required_count in requirements.items():
+            available = players_by_position.get(pos_group, [])
+            # Sort by overall (best first)
+            available.sort(key=lambda x: x.get('overall', 0), reverse=True)
+            
+            selected = []
+            used_indices = set()
+            
+            # Select players with randomness (40% best, 30% 2nd, 20% 3rd, 10% 4th)
+            for i in range(required_count):
+                if len(available) == 0:
+                    break
+                
+                # Get available indices (not yet used)
+                available_indices = [idx for idx in range(len(available)) if idx not in used_indices]
+                
+                if len(available_indices) == 0:
+                    break
+                
+                # Random selection weighted towards better players, but with variation
+                rand = random.random()
+                if rand < 0.40 and len(available_indices) >= 1:
+                    # 40% chance: pick best available
+                    selected_idx = min(available_indices)
+                elif rand < 0.70 and len(available_indices) >= 2:
+                    # 30% chance: pick 2nd best available
+                    sorted_indices = sorted(available_indices)
+                    selected_idx = sorted_indices[1] if len(sorted_indices) > 1 else sorted_indices[0]
+                elif rand < 0.90 and len(available_indices) >= 3:
+                    # 20% chance: pick 3rd best available
+                    sorted_indices = sorted(available_indices)
+                    selected_idx = sorted_indices[2] if len(sorted_indices) > 2 else sorted_indices[0]
+                elif len(available_indices) >= 4:
+                    # 10% chance: pick 4th best available
+                    sorted_indices = sorted(available_indices)
+                    selected_idx = sorted_indices[3] if len(sorted_indices) > 3 else sorted_indices[0]
+                else:
+                    # Fallback: pick best available
+                    selected_idx = min(available_indices)
+                
+                selected.append(available[selected_idx])
+                used_indices.add(selected_idx)
+            
+            # Add selected players to call-up (only real players, no fake players created here)
+            for player in selected:
+                try:
+                    cur.execute("""
+                        INSERT OR IGNORE INTO international_squad_callups 
+                        (international_team_id, player_id, position_group, is_fake_player)
+                        VALUES (?, ?, ?, ?)
+                    """, (international_team_id, player['id'], pos_group, 0))
+                    if cur.rowcount > 0:  # Only add if insert was successful
+                        called_up_players.append({
+                            'id': player['id'],
+                            'name': player['player_name'],
+                            'position': pos_group,
+                            'is_fake': False
+                        })
+                except Exception as e:
+                    app.logger.warning(f"Error adding player {player['id']} to call-up: {e}")
+                    continue
+        
+        db_helper.commit()
+        return {
+            'success': True,
+            'called_up': len(called_up_players),
+            'players': called_up_players
+        }
+    
+    except Exception as e:
+        app.logger.error(f"Error calling up international squad: {e}")
+        db_helper.get_connection().rollback()
+        return {'success': False, 'error': str(e)}
+    finally:
+        cur.close()
+
+def populate_international_team_players(nationality=None):
+    """Populate international team players for a specific nationality or all nationalities"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        if nationality:
+            # Populate for specific nationality
+            normalized_nationality = normalize_nationality(nationality)
+            cur.execute("SELECT id FROM international_teams WHERE nationality = ?", (normalized_nationality,))
+            team = cur.fetchone()
+            if not team:
+                return {'success': False, 'error': f'International team for {normalized_nationality} not found'}
+            
+            team_id = team['id']
+            
+            # Get all players with this nationality (try both original and normalized)
+            cur.execute("""
+                SELECT id FROM players
+                WHERE (nationality = ? OR nationality = ?) AND club_id IS NOT NULL AND club_id != 141
+            """, (nationality, normalized_nationality))
+            players = cur.fetchall()
+            
+            added_count = 0
+            for player in players:
+                try:
+                    cur.execute("""
+                        INSERT OR IGNORE INTO international_team_players (international_team_id, player_id)
+                        VALUES (?, ?)
+                    """, (team_id, player['id']))
+                    if cur.rowcount > 0:
+                        added_count += 1
+                except Exception as e:
+                    app.logger.warning(f"Error adding player {player['id']} to {normalized_nationality} team: {e}")
+                    continue
+            
+            db_helper.commit()
+            return {'success': True, 'nationality': normalized_nationality, 'added': added_count}
+        else:
+            # Populate for all nationalities
+            cur.execute("SELECT id, nationality FROM international_teams")
+            teams = cur.fetchall()
+            
+            total_added = 0
+            for team in teams:
+                team_id = team['id']
+                team_nationality = team['nationality']
+                
+                # Get all players with this nationality (try both original and normalized)
+                # Also check for common variations
+                cur.execute("""
+                    SELECT DISTINCT id FROM players
+                    WHERE (nationality = ? OR nationality = ? OR 
+                           (nationality = 'United States' AND ? = 'USA') OR
+                           (nationality = 'USA' AND ? = 'United States'))
+                    AND club_id IS NOT NULL AND club_id != 141
+                """, (team_nationality, normalize_nationality(team_nationality), team_nationality, team_nationality))
+                players = cur.fetchall()
+                
+                for player in players:
+                    try:
+                        cur.execute("""
+                            INSERT OR IGNORE INTO international_team_players (international_team_id, player_id)
+                            VALUES (?, ?)
+                        """, (team_id, player['id']))
+                        if cur.rowcount > 0:
+                            total_added += 1
+                    except Exception as e:
+                        app.logger.warning(f"Error adding player {player['id']} to {team_nationality} team: {e}")
+                        continue
+            
+            db_helper.commit()
+            return {'success': True, 'added': total_added, 'teams_processed': len(teams)}
+    
+    except Exception as e:
+        app.logger.error(f"Error populating international team players: {e}")
+        db_helper.get_connection().rollback()
+        return {'success': False, 'error': str(e)}
+    finally:
+        cur.close()
+
+@app.route('/international')
+@login_required
+def international():
+    """Main International page - similar to CPU Leagues but for international teams"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get selected competition ID from query parameter, or default to first active competition
+        selected_competition_id = request.args.get('competition_id', type=int)
+        
+        # Get all competitions
+        cur.execute("""
+            SELECT id, name, competition_type, is_active, created_at
+            FROM international_competitions
+            ORDER BY is_active DESC, created_at DESC
+        """)
+        all_competitions = cur.fetchall()
+        
+        # Get the default "International Friendlies" competition if it exists
+        cur.execute("""
+            SELECT id, name, competition_type, is_active
+            FROM international_competitions
+            WHERE name = 'International Friendlies' AND is_active = 1
+            LIMIT 1
+        """)
+        default_competition = cur.fetchone()
+        
+        if not default_competition:
+            # Create default competition if it doesn't exist
+            cur.execute("""
+                INSERT INTO international_competitions (name, competition_type, is_active)
+                VALUES ('International Friendlies', 'friendly', 1)
+            """)
+            db_helper.commit()
+            cur.execute("""
+                SELECT id, name, competition_type, is_active
+                FROM international_competitions
+                WHERE name = 'International Friendlies' AND is_active = 1
+                LIMIT 1
+            """)
+            default_competition = cur.fetchone()
+            # Refresh all_competitions
+            cur.execute("""
+                SELECT id, name, competition_type, is_active, created_at
+                FROM international_competitions
+                ORDER BY is_active DESC, created_at DESC
+            """)
+            all_competitions = cur.fetchall()
+        
+        # Determine which competition to display
+        if selected_competition_id:
+            # Find the selected competition
+            competition = next((c for c in all_competitions if c['id'] == selected_competition_id), None)
+            if not competition:
+                competition = default_competition
+        else:
+            # Use default or first active competition
+            competition = default_competition or (all_competitions[0] if all_competitions else None)
+        
+        if not competition:
+            flash('No competitions available', 'warning')
+            return redirect(url_for('index'))
+        
+        competition_id = competition['id']
+        
+        # Get teams selected for this competition
+        cur.execute("""
+            SELECT international_team_id 
+            FROM international_competition_teams 
+            WHERE competition_id = ?
+        """, (competition_id,))
+        selected_team_ids = {row['international_team_id'] for row in cur.fetchall()}
+        
+        # Get all international teams with selection status
+        cur.execute("""
+            SELECT it.id, it.nationality, it.team_name,
+                   COUNT(DISTINCT itp.player_id) as player_count,
+                   CASE WHEN ict.id IS NOT NULL THEN 1 ELSE 0 END as is_selected
+            FROM international_teams it
+            LEFT JOIN international_team_players itp ON it.id = itp.international_team_id
+            LEFT JOIN international_competition_teams ict ON it.id = ict.international_team_id AND ict.competition_id = ?
+            GROUP BY it.id, it.nationality, it.team_name, is_selected
+            ORDER BY is_selected DESC, it.nationality ASC
+        """, (competition_id,))
+        international_teams = cur.fetchall()
+        
+        # Get selected teams count
+        selected_teams_count = len(selected_team_ids)
+        
+        # Get games for this competition
+        cur.execute("""
+            SELECT id, home_team_name, away_team_name, home_score, away_score, 
+                   round_number, is_played, game_date
+            FROM international_games
+            WHERE competition_id = ? AND is_played = 1
+            ORDER BY round_number DESC, game_date DESC
+            LIMIT 20
+        """, (competition_id,))
+        recent_games = cur.fetchall()
+        
+        cur.execute("""
+            SELECT id, home_team_name, away_team_name, round_number, is_played
+            FROM international_games
+            WHERE competition_id = ? AND is_played = 0
+            ORDER BY round_number ASC, id ASC
+        """, (competition_id,))
+        pending_games = cur.fetchall()
+        
+        # Get unique rounds
+        cur.execute("""
+            SELECT DISTINCT round_number
+            FROM international_games
+            WHERE competition_id = ?
+            ORDER BY round_number ASC
+        """, (competition_id,))
+        rounds = [row['round_number'] for row in cur.fetchall()]
+        
+        # Check if schedule exists
+        cur.execute("SELECT COUNT(*) FROM international_games WHERE competition_id = ?", (competition_id,))
+        has_schedule = cur.fetchone()[0] > 0
+        
+        # Get teams still in competition (for knockout display)
+        knockout_teams = []
+        if competition['competition_type'] == 'knockout':
+            # Get current round
+            cur.execute("""
+                SELECT MAX(round_number) as max_round
+                FROM international_games
+                WHERE competition_id = ?
+            """, (competition_id,))
+            result = cur.fetchone()
+            current_round = result['max_round'] if result and result['max_round'] else 0
+            
+            # Get teams still in competition from knockout_teams table
+            # Show ALL teams still in competition (from all rounds)
+            if current_round > 0:
+                # Get all teams still in competition (they may be in different rounds due to BYEs)
+                cur.execute("""
+                    SELECT ikt.international_team_id, it.team_name, ikt.round_number
+                    FROM international_knockout_teams ikt
+                    JOIN international_teams it ON ikt.international_team_id = it.id
+                    WHERE ikt.competition_id = ?
+                    ORDER BY ikt.round_number DESC, it.team_name ASC
+                """, (competition_id,))
+                knockout_teams = cur.fetchall()
+            else:
+                # First round - get all teams in competition
+                cur.execute("""
+                    SELECT ict.international_team_id, it.team_name
+                    FROM international_competition_teams ict
+                    JOIN international_teams it ON ict.international_team_id = it.id
+                    WHERE ict.competition_id = ?
+                    ORDER BY it.team_name ASC
+                """, (competition_id,))
+                knockout_teams = [{'international_team_id': row['international_team_id'], 
+                                  'team_name': row['team_name'], 
+                                  'round_number': 1} for row in cur.fetchall()]
+        
+        # Check if knockout round can be advanced
+        can_advance_knockout = False
+        if competition['competition_type'] == 'knockout' and has_schedule:
+            # Get current round
+            cur.execute("""
+                SELECT MAX(round_number) as max_round
+                FROM international_games
+                WHERE competition_id = ?
+            """, (competition_id,))
+            result = cur.fetchone()
+            current_round = result['max_round'] if result and result['max_round'] else 0
+            
+            if current_round > 0:
+                # Check if all games in current round are played
+                cur.execute("""
+                    SELECT COUNT(*) as total, SUM(CASE WHEN is_played = 1 THEN 1 ELSE 0 END) as played
+                    FROM international_games
+                    WHERE competition_id = ? AND round_number = ?
+                """, (competition_id, current_round))
+                round_stats = cur.fetchone()
+                # Check if there are teams still in competition for next round
+                cur.execute("""
+                    SELECT COUNT(*) as teams_in_next_round
+                    FROM international_knockout_teams
+                    WHERE competition_id = ? AND round_number = ?
+                """, (competition_id, current_round + 1))
+                next_round_teams = cur.fetchone()
+                teams_in_next_round = next_round_teams['teams_in_next_round'] if next_round_teams else 0
+                
+                can_advance_knockout = (round_stats['total'] > 0 and 
+                                       round_stats['played'] == round_stats['total'] and
+                                       teams_in_next_round > 1)  # More than 1 team means not final
+        
+        return render_template('international.html',
+                             competition=competition,
+                             all_competitions=all_competitions,
+                             international_teams=international_teams,
+                             recent_games=recent_games,
+                             pending_games=pending_games,
+                             rounds=rounds,
+                             has_schedule=has_schedule,
+                             can_advance_knockout=can_advance_knockout,
+                             selected_teams_count=selected_teams_count,
+                             knockout_teams=knockout_teams,
+                             current_season=get_current_season())
+    
+    except Exception as e:
+        app.logger.error(f"Error in international: {e}")
+        flash('Error loading International data', 'danger')
+        return redirect(url_for('index'))
+    finally:
+        cur.close()
+
+@app.route('/international/populate_teams', methods=['POST'])
+@login_required
+def populate_international_teams_route():
+    """Populate international teams from nationalities"""
+    result = populate_international_teams()
+    
+    if result['success']:
+        flash(f'Created {result["created"]} international teams from {result["total"]} nationalities!', 'success')
+    else:
+        flash(f'Error populating international teams: {result.get("error", "Unknown error")}', 'danger')
+    
+    return redirect(url_for('international'))
+
+@app.route('/international/populate_players', methods=['POST'])
+@login_required
+def populate_international_players_route():
+    """Populate international team players"""
+    result = populate_international_team_players()
+    
+    if result['success']:
+        flash(f'Added {result["added"]} players to {result["teams_processed"]} international teams!', 'success')
+    else:
+        flash(f'Error populating players: {result.get("error", "Unknown error")}', 'danger')
+    
+    return redirect(url_for('international'))
+
+@app.route('/international/call_up_all', methods=['POST'])
+@login_required
+def call_up_all_international_squads():
+    """Call up 23 players for all international teams at once"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get all international teams
+        cur.execute("SELECT id, team_name FROM international_teams ORDER BY nationality ASC")
+        teams = cur.fetchall()
+        
+        total_called = 0
+        results = []
+        
+        for team in teams:
+            result = call_up_international_squad(team['id'])
+            if result['success']:
+                total_called += result['called_up']
+                results.append(f"{team['team_name']}: {result['called_up']} players")
+            else:
+                results.append(f"{team['team_name']}: Error - {result.get('error', 'Unknown')}")
+        
+        db_helper.commit()
+        flash(f'Called up squads for {len(teams)} teams! Total: {total_called} players.', 'success')
+        return redirect(url_for('international'))
+    
+    except Exception as e:
+        app.logger.error(f"Error calling up all squads: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error calling up squads: {str(e)}', 'danger')
+        return redirect(url_for('international'))
+    finally:
+        cur.close()
+
+@app.route('/international/call_up/<int:team_id>', methods=['POST'])
+@login_required
+def call_up_international_squad_route(team_id):
+    """Call up 23 players for an international team"""
+    result = call_up_international_squad(team_id)
+    
+    if result['success']:
+        flash(f'Called up {result["called_up"]} players! {result["fake_players_created"]} fake players created if needed.', 'success')
+    else:
+        flash(f'Error calling up squad: {result.get("error", "Unknown error")}', 'danger')
+    
+    return redirect(url_for('international'))
+
+@app.route('/international/team/<int:team_id>')
+@login_required
+def view_international_team_squad(team_id):
+    """View called-up squad for an international team"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get team info
+        cur.execute("SELECT id, nationality, team_name FROM international_teams WHERE id = ?", (team_id,))
+        team = cur.fetchone()
+        
+        if not team:
+            flash('International team not found', 'danger')
+            return redirect(url_for('international'))
+        
+        # Get called-up squad
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, 
+                   isc.position_group, isc.is_fake_player
+            FROM players p
+            JOIN international_squad_callups isc ON p.id = isc.player_id
+            WHERE isc.international_team_id = ?
+            ORDER BY 
+                CASE isc.position_group
+                    WHEN 'GK' THEN 1
+                    WHEN 'CB/SW' THEN 2
+                    WHEN 'SB/WB' THEN 3
+                    WHEN 'DMF/CMF/AMF' THEN 4
+                    WHEN 'SMF/WF' THEN 5
+                    WHEN 'SS/CF' THEN 6
+                    ELSE 7
+                END,
+                p.overall DESC
+        """, (team_id,))
+        squad = [dict(row) for row in cur.fetchall()]
+        
+        # Get all available players (for reference)
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+            FROM players p
+            JOIN international_team_players itp ON p.id = itp.player_id
+            WHERE itp.international_team_id = ? AND p.overall IS NOT NULL
+            ORDER BY p.registered_position, p.overall DESC
+        """, (team_id,))
+        all_players = [dict(row) for row in cur.fetchall()]
+        
+        return render_template('international_team_squad.html',
+                             team=team,
+                             squad=squad,
+                             all_players=all_players)
+    
+    except Exception as e:
+        app.logger.error(f"Error viewing international team squad: {e}")
+        flash('Error loading squad', 'danger')
+        return redirect(url_for('international'))
+    finally:
+        cur.close()
+
+@app.route('/international/manage_teams/<int:competition_id>', methods=['POST'])
+@login_required
+def manage_competition_teams(competition_id):
+    """Add or remove teams from a competition"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        action = request.form.get('action')  # 'add' or 'remove'
+        team_id = request.form.get('team_id', type=int)
+        
+        if not team_id:
+            flash('Missing team ID', 'danger')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        # Verify competition exists
+        cur.execute("SELECT id FROM international_competitions WHERE id = ?", (competition_id,))
+        if not cur.fetchone():
+            flash('Invalid competition', 'danger')
+            return redirect(url_for('international'))
+        
+        if action == 'add':
+            cur.execute("""
+                INSERT OR IGNORE INTO international_competition_teams (competition_id, international_team_id)
+                VALUES (?, ?)
+            """, (competition_id, team_id))
+            db_helper.commit()
+            flash('Team added to competition', 'success')
+        elif action == 'remove':
+            cur.execute("""
+                DELETE FROM international_competition_teams
+                WHERE competition_id = ? AND international_team_id = ?
+            """, (competition_id, team_id))
+            db_helper.commit()
+            flash('Team removed from competition', 'success')
+        else:
+            flash('Invalid action', 'danger')
+        
+        return redirect(url_for('international', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error managing competition teams: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error managing teams: {str(e)}', 'danger')
+        return redirect(url_for('international', competition_id=competition_id))
+    finally:
+        cur.close()
+
+@app.route('/international/create_competition', methods=['POST'])
+@login_required
+def create_international_competition():
+    """Create a new international competition"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        competition_name = request.form.get('competition_name', '').strip()
+        competition_type = request.form.get('competition_type', 'friendly')
+        
+        if not competition_name:
+            flash('Competition name is required', 'danger')
+            return redirect(url_for('international'))
+        
+        # Validate competition type
+        valid_types = ['friendly', 'round_robin', 'knockout']
+        if competition_type not in valid_types:
+            flash(f'Invalid competition type. Must be one of: {", ".join(valid_types)}', 'danger')
+            return redirect(url_for('international'))
+        
+        # Check if competition name already exists
+        cur.execute("SELECT id FROM international_competitions WHERE name = ?", (competition_name,))
+        existing = cur.fetchone()
+        if existing:
+            flash(f'Competition "{competition_name}" already exists', 'danger')
+            return redirect(url_for('international'))
+        
+        # Create the competition
+        cur.execute("""
+            INSERT INTO international_competitions (name, competition_type, is_active)
+            VALUES (?, ?, 1)
+        """, (competition_name, competition_type))
+        
+        db_helper.commit()
+        flash(f'Competition "{competition_name}" created successfully!', 'success')
+        return redirect(url_for('international', competition_id=cur.lastrowid))
+    
+    except Exception as e:
+        app.logger.error(f"Error creating international competition: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error creating competition: {str(e)}', 'danger')
+        return redirect(url_for('international'))
+    finally:
+        cur.close()
+
+@app.route('/international/generate_schedule', methods=['POST'])
+@login_required
+def generate_international_schedule():
+    """Generate schedule for international competitions (supports friendly, round_robin, knockout)"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        competition_id = request.form.get('competition_id')
+        schedule_type = request.form.get('schedule_type', 'auto')  # auto, round_robin, knockout
+        
+        if not competition_id:
+            flash('Missing competition', 'danger')
+            return redirect(url_for('international'))
+        
+        # Verify competition exists and get its type
+        cur.execute("SELECT id, name, competition_type FROM international_competitions WHERE id = ?", (competition_id,))
+        competition = cur.fetchone()
+        if not competition:
+            flash('Invalid competition', 'danger')
+            return redirect(url_for('international'))
+        
+        competition_type = competition['competition_type']
+        
+        # If schedule_type is 'auto', use competition_type
+        if schedule_type == 'auto':
+            schedule_type = competition_type
+        
+        # For friendly competitions, allow generating additional rounds
+        # For other types, check if games already exist
+        next_round = 1  # Initialize for all schedule types
+        if schedule_type != 'friendly':
+            cur.execute("SELECT COUNT(*) as count FROM international_games WHERE competition_id = ?", (competition_id,))
+            existing_games_result = cur.fetchone()
+            existing_games = dict(existing_games_result)['count'] if existing_games_result else 0
+            
+            if existing_games > 0:
+                flash('Schedule already exists. Please clear existing games first.', 'warning')
+                return redirect(url_for('international', competition_id=competition_id))
+        else:
+            # For friendlies, get the next round number
+            cur.execute("SELECT MAX(round_number) as max_round FROM international_games WHERE competition_id = ?", (competition_id,))
+            max_round_result = cur.fetchone()
+            if max_round_result:
+                max_round_dict = dict(max_round_result)
+                max_round_val = max_round_dict.get('max_round')
+                if max_round_val is not None:
+                    next_round = max_round_val + 1
+        
+        # Get teams selected for this competition
+        cur.execute("""
+            SELECT it.id, it.team_name, it.nationality
+            FROM international_teams it
+            JOIN international_competition_teams ict ON it.id = ict.international_team_id
+            WHERE ict.competition_id = ?
+            ORDER BY it.nationality ASC
+        """, (competition_id,))
+        teams = cur.fetchall()
+        
+        if len(teams) == 0:
+            flash('No teams selected for this competition. Please select teams first.', 'warning')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        if len(teams) < 2:
+            flash('Need at least 2 international teams to generate schedule', 'danger')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        import random
+        games_created = 0
+        
+        if schedule_type == 'friendly':
+            # Generate single round schedule (1 game per team)
+            # Can generate additional rounds after previous rounds are complete
+            num_teams = len(teams)
+            team_list = [{'id': team['id'], 'name': team['team_name']} for team in teams]
+            random.shuffle(team_list)
+            
+            if num_teams % 2 == 1:
+                team_list.append({'id': None, 'name': 'BYE'})
+                num_teams = len(team_list)
+            
+            fixtures = []
+            for i in range(0, num_teams - 1, 2):
+                if team_list[i]['id'] is not None and team_list[i + 1]['id'] is not None:
+                    fixtures.append({
+                        'home': team_list[i],
+                        'away': team_list[i + 1],
+                        'round': next_round
+                    })
+            
+            for fixture in fixtures:
+                cur.execute("""
+                    INSERT INTO international_games
+                    (competition_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                """, (competition_id, fixture['round'], fixture['home']['id'], fixture['away']['id'],
+                      fixture['home']['name'], fixture['away']['name']))
+                games_created += 1
+        
+        elif schedule_type == 'round_robin':
+            # Generate round-robin schedule (each team plays every other team once)
+            num_teams = len(teams)
+            team_list = [{'id': team['id'], 'name': team['team_name']} for team in teams]
+            
+            # If odd number of teams, add a dummy BYE team
+            original_num_teams = len(team_list)
+            if original_num_teams % 2 == 1:
+                team_list.append({'id': None, 'name': 'BYE'})
+                num_teams = len(team_list)
+            
+            num_rounds = num_teams - 1
+            
+            # Circle method: fix first team, rotate others
+            fixtures = []
+            for round_num in range(1, num_rounds + 1):
+                # Pair teams: first with last, second with second-to-last, etc.
+                for i in range(num_teams // 2):
+                    home_idx = i
+                    away_idx = num_teams - 1 - i
+                    
+                    # Skip if either is BYE
+                    if team_list[home_idx]['id'] is None or team_list[away_idx]['id'] is None:
+                        continue
+                    
+                    # Alternate home/away for fairness
+                    if (round_num + i) % 2 == 0:
+                        fixtures.append({
+                            'round': round_num,
+                            'home_team_id': team_list[home_idx]['id'],
+                            'away_team_id': team_list[away_idx]['id'],
+                            'home_team_name': team_list[home_idx]['name'],
+                            'away_team_name': team_list[away_idx]['name']
+                        })
+                    else:
+                        fixtures.append({
+                            'round': round_num,
+                            'home_team_id': team_list[away_idx]['id'],
+                            'away_team_id': team_list[home_idx]['id'],
+                            'home_team_name': team_list[away_idx]['name'],
+                            'away_team_name': team_list[home_idx]['name']
+                        })
+                
+                # Rotate teams (keep first fixed, rotate others clockwise)
+                if round_num < num_rounds:
+                    team_list = [team_list[0]] + [team_list[-1]] + team_list[1:-1]
+            
+            for fixture in fixtures:
+                cur.execute("""
+                    INSERT INTO international_games
+                    (competition_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                """, (competition_id, fixture['round'], fixture['home_team_id'], fixture['away_team_id'],
+                      fixture['home_team_name'], fixture['away_team_name']))
+                games_created += 1
+        
+        elif schedule_type == 'knockout':
+            # Generate knockout tournament (single elimination)
+            num_teams = len(teams)
+            
+            if num_teams < 2:
+                flash('Need at least 2 teams for knockout tournament', 'danger')
+                return redirect(url_for('international', competition_id=competition_id))
+            
+            team_list = [{'id': team['id'], 'name': team['team_name']} for team in teams]
+            random.shuffle(team_list)  # Randomize seeding
+            
+            # Initialize knockout teams table - all teams start in round 1
+            round_num = 1
+            for team in team_list:
+                cur.execute("""
+                    INSERT OR REPLACE INTO international_knockout_teams
+                    (competition_id, international_team_id, round_number)
+                    VALUES (?, ?, ?)
+                """, (competition_id, team['id'], round_num))
+            
+            fixtures = []
+            
+            # Pair teams for first round
+            for i in range(0, len(team_list) - 1, 2):
+                if i + 1 < len(team_list):
+                    home_team = team_list[i]
+                    away_team = team_list[i + 1]
+                    
+                    fixtures.append({
+                        'round': round_num,
+                        'home_team_id': home_team['id'],
+                        'away_team_id': away_team['id'],
+                        'home_team_name': home_team['name'],
+                        'away_team_name': away_team['name']
+                    })
+                else:
+                    # Odd team gets a bye - stays in competition for next round
+                    # Create a "bye" game that's already won
+                    cur.execute("""
+                        INSERT INTO international_games
+                        (competition_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, 
+                         home_score, away_score, is_played)
+                        VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1)
+                    """, (competition_id, round_num, team_list[i]['id'], team_list[i]['id'], 
+                          team_list[i]['name'], 'BYE'))
+                    games_created += 1
+                    # Team with BYE stays in competition for next round
+                    cur.execute("""
+                        INSERT OR REPLACE INTO international_knockout_teams
+                        (competition_id, international_team_id, round_number)
+                        VALUES (?, ?, ?)
+                    """, (competition_id, team_list[i]['id'], round_num + 1))
+            
+            # Insert fixtures for first round and add teams to knockout_teams table
+            for fixture in fixtures:
+                cur.execute("""
+                    INSERT INTO international_games
+                    (competition_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                """, (competition_id, fixture['round'], fixture['home_team_id'], fixture['away_team_id'],
+                      fixture['home_team_name'], fixture['away_team_name']))
+                games_created += 1
+                
+                # Add both teams to knockout_teams table for round 1
+                cur.execute("""
+                    INSERT OR REPLACE INTO international_knockout_teams
+                    (competition_id, international_team_id, round_number)
+                    VALUES (?, ?, ?)
+                """, (competition_id, fixture['home_team_id'], round_num))
+                cur.execute("""
+                    INSERT OR REPLACE INTO international_knockout_teams
+                    (competition_id, international_team_id, round_number)
+                    VALUES (?, ?, ?)
+                """, (competition_id, fixture['away_team_id'], round_num))
+        
+        db_helper.commit()
+        if schedule_type == 'friendly' and next_round > 1:
+            flash(f'Round {next_round} generated successfully! Created {games_created} games.', 'success')
+        else:
+            flash(f'Schedule generated successfully! Created {games_created} games ({schedule_type} format).', 'success')
+        return redirect(url_for('international', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error generating international schedule: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error generating schedule: {str(e)}', 'danger')
+        return redirect(url_for('international', competition_id=competition_id if 'competition_id' in locals() else None))
+    finally:
+        cur.close()
+
+@app.route('/international/advance_knockout_round/<int:competition_id>', methods=['POST'])
+@login_required
+def advance_knockout_round(competition_id):
+    """Advance to next round of knockout tournament by determining winners and creating next round"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Verify competition exists and is knockout type
+        cur.execute("SELECT id, name, competition_type FROM international_competitions WHERE id = ?", (competition_id,))
+        competition = cur.fetchone()
+        if not competition:
+            flash('Invalid competition', 'danger')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        if competition['competition_type'] != 'knockout':
+            flash('This competition is not a knockout tournament', 'danger')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        # Get current round (highest round number)
+        cur.execute("""
+            SELECT MAX(round_number) as max_round
+            FROM international_games
+            WHERE competition_id = ?
+        """, (competition_id,))
+        result = cur.fetchone()
+        current_round = result['max_round'] if result and result['max_round'] else 0
+        
+        if current_round == 0:
+            flash('No rounds found for this competition', 'warning')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        # Check if all games in current round are played
+        cur.execute("""
+            SELECT COUNT(*) as total, SUM(CASE WHEN is_played = 1 THEN 1 ELSE 0 END) as played
+            FROM international_games
+            WHERE competition_id = ? AND round_number = ?
+        """, (competition_id, current_round))
+        round_stats = cur.fetchone()
+        
+        if round_stats['total'] == 0:
+            flash('No games found in current round', 'warning')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        if round_stats['played'] < round_stats['total']:
+            flash(f'Not all games in Round {current_round} are completed. Please complete all games first.', 'warning')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        # Get teams still in competition from knockout_teams table
+        # This table is maintained when games are played (winners added, losers removed)
+        cur.execute("""
+            SELECT ikt.international_team_id, it.team_name
+            FROM international_knockout_teams ikt
+            JOIN international_teams it ON ikt.international_team_id = it.id
+            WHERE ikt.competition_id = ? AND ikt.round_number = ?
+            ORDER BY it.team_name ASC
+        """, (competition_id, current_round + 1))
+        teams_still_in = [{'id': row['international_team_id'], 'name': row['team_name']} for row in cur.fetchall()]
+        
+        app.logger.info(f"Round {current_round}: Found {len(teams_still_in)} teams still in competition from knockout_teams table: {[t['name'] for t in teams_still_in]}")
+        
+        # If no teams found in next round, try to get them from current round (fallback)
+        if len(teams_still_in) == 0:
+            app.logger.warning("No teams found in knockout_teams table, falling back to game-based detection")
+            # Fallback: get from games (for backwards compatibility)
+            cur.execute("""
+                SELECT id, home_team_id, away_team_id, home_team_name, away_team_name, 
+                       home_score, away_score, is_played
+                FROM international_games
+                WHERE competition_id = ? AND round_number = ?
+                ORDER BY id ASC
+            """, (competition_id, current_round))
+            games = cur.fetchall()
+            
+            for game in games:
+                if game['away_team_name'] == 'BYE':
+                    teams_still_in.append({'id': game['home_team_id'], 'name': game['home_team_name']})
+                elif game['home_team_name'] == 'BYE':
+                    teams_still_in.append({'id': game['away_team_id'], 'name': game['away_team_name']})
+                elif game['is_played'] == 1:
+                    if game['home_score'] > game['away_score']:
+                        teams_still_in.append({'id': game['home_team_id'], 'name': game['home_team_name']})
+                    elif game['away_score'] > game['home_score']:
+                        teams_still_in.append({'id': game['away_team_id'], 'name': game['away_team_name']})
+        
+        winners = teams_still_in
+        
+        if len(winners) == 0:
+            flash('No teams found still in competition', 'warning')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        # Show teams still in competition
+        team_names = ', '.join([t['name'] for t in winners])
+        flash(f'Teams still in competition: {team_names}', 'info')
+        
+        # If only one team left, tournament is complete
+        if len(winners) == 1:
+            winner_name = winners[0]['name']
+            flash(f'🏆🏆🏆 TOURNAMENT CHAMPION! 🏆🏆🏆\n\n{winner_name} has won the tournament!', 'success')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        # Create next round
+        next_round = current_round + 1
+        winners_list = winners  # Already in correct format
+        
+        # Shuffle teams for random pairing in next round
+        import random
+        random.shuffle(winners_list)
+        
+        # Pair winners for next round
+        fixtures = []
+        games_created = 0
+        for i in range(0, len(winners_list) - 1, 2):
+            if i + 1 < len(winners_list):
+                home_team = winners_list[i]
+                away_team = winners_list[i + 1]
+                
+                fixtures.append({
+                    'round': next_round,
+                    'home_team_id': home_team['id'],
+                    'away_team_id': away_team['id'],
+                    'home_team_name': home_team['name'],
+                    'away_team_name': away_team['name']
+                })
+            else:
+                # Odd number of winners - one gets a bye
+                cur.execute("""
+                    INSERT INTO international_games
+                    (competition_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, 
+                     home_score, away_score, is_played)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1)
+                """, (competition_id, next_round, winners_list[i]['id'], winners_list[i]['id'], 
+                      winners_list[i]['name'], 'BYE'))
+                games_created += 1  # Count the bye game
+                # Add BYE team to next round in knockout_teams table
+                cur.execute("""
+                    INSERT OR REPLACE INTO international_knockout_teams
+                    (competition_id, international_team_id, round_number)
+                    VALUES (?, ?, ?)
+                """, (competition_id, winners_list[i]['id'], next_round + 1))
+                app.logger.info(f"Created BYE game for {winners_list[i]['name']} in round {next_round}")
+        
+        # Insert fixtures for next round and add teams to knockout_teams table
+        for fixture in fixtures:
+            cur.execute("""
+                INSERT INTO international_games
+                (competition_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, is_played)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+            """, (competition_id, fixture['round'], fixture['home_team_id'], fixture['away_team_id'],
+                  fixture['home_team_name'], fixture['away_team_name']))
+            games_created += 1
+            app.logger.info(f"Created game: {fixture['home_team_name']} vs {fixture['away_team_name']} in round {next_round}")
+            
+            # Add both teams to knockout_teams table for the NEXT round (round they're playing in)
+            # This ensures they're in the table for the round they need to play
+            cur.execute("""
+                INSERT OR REPLACE INTO international_knockout_teams
+                (competition_id, international_team_id, round_number)
+                VALUES (?, ?, ?)
+            """, (competition_id, fixture['home_team_id'], fixture['round']))
+            cur.execute("""
+                INSERT OR REPLACE INTO international_knockout_teams
+                (competition_id, international_team_id, round_number)
+                VALUES (?, ?, ?)
+            """, (competition_id, fixture['away_team_id'], fixture['round']))
+        
+        db_helper.commit()
+        flash(f'Round {next_round} created! {games_created} games scheduled. Teams: {team_names}', 'success')
+        return redirect(url_for('international', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error advancing knockout round: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error advancing round: {str(e)}', 'danger')
+        return redirect(url_for('international', competition_id=competition_id))
+    finally:
+        cur.close()
+
+@app.route('/international/autosort_schedule', methods=['POST'])
+@login_required
+def autosort_international_schedule():
+    """Auto-sort schedule by randomly pairing teams"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        competition_id = request.form.get('competition_id')
+        
+        if not competition_id:
+            flash('Missing competition', 'danger')
+            return redirect(url_for('international'))
+        
+        # Verify competition exists
+        cur.execute("SELECT id, name FROM international_competitions WHERE id = ?", (competition_id,))
+        competition = cur.fetchone()
+        if not competition:
+            flash('Invalid competition', 'danger')
+            return redirect(url_for('international'))
+        
+        # Check if games already exist
+        cur.execute("SELECT COUNT(*) FROM international_games WHERE competition_id = ?", (competition_id,))
+        existing_games = cur.fetchone()[0]
+        
+        if existing_games > 0:
+            flash('Schedule already exists. Please clear existing games first.', 'warning')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        # Get teams selected for this competition
+        cur.execute("""
+            SELECT it.id, it.team_name, it.nationality
+            FROM international_teams it
+            JOIN international_competition_teams ict ON it.id = ict.international_team_id
+            WHERE ict.competition_id = ?
+            ORDER BY it.nationality ASC
+        """, (competition_id,))
+        teams = cur.fetchall()
+        
+        if len(teams) == 0:
+            flash('No teams selected for this competition. Please select teams first.', 'warning')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        if len(teams) < 2:
+            flash('Need at least 2 international teams to generate schedule', 'danger')
+            return redirect(url_for('international', competition_id=competition_id))
+        
+        # Shuffle teams for random pairing
+        import random
+        team_list = [{'id': team['id'], 'name': team['team_name']} for team in teams]
+        random.shuffle(team_list)
+        
+        # If odd number of teams, add a dummy BYE team
+        num_teams = len(team_list)
+        if num_teams % 2 == 1:
+            team_list.append({'id': None, 'name': 'BYE'})
+            num_teams = len(team_list)
+        
+        # Generate single round fixtures
+        fixtures = []
+        for i in range(0, num_teams - 1, 2):
+            if team_list[i]['id'] is not None and team_list[i + 1]['id'] is not None:
+                fixtures.append({
+                    'home': team_list[i],
+                    'away': team_list[i + 1],
+                    'round': 1
+                })
+        
+        # Insert fixtures into database
+        games_created = 0
+        for fixture in fixtures:
+            cur.execute("""
+                INSERT INTO international_games
+                (competition_id, round_number, home_team_id, away_team_id, home_team_name, away_team_name, is_played)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+            """, (competition_id, fixture['round'], fixture['home']['id'], fixture['away']['id'],
+                  fixture['home']['name'], fixture['away']['name']))
+            games_created += 1
+        
+        db_helper.commit()
+        flash(f'Schedule auto-sorted successfully! Created {games_created} games.', 'success')
+        return redirect(url_for('international', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error auto-sorting international schedule: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error auto-sorting schedule: {str(e)}', 'danger')
+        return redirect(url_for('international', competition_id=competition_id if 'competition_id' in locals() else None))
+    finally:
+        cur.close()
+
+@app.route('/international/simulate_game/<int:game_id>', methods=['POST'])
+@login_required
+def simulate_international_game(game_id):
+    """Simulate an international game"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Ensure game_id is an integer scalar
+        if isinstance(game_id, (dict, list)):
+            app.logger.error(f"game_id is a dict/list: {game_id}, type: {type(game_id)}")
+            flash('Invalid game ID', 'danger')
+            return redirect(url_for('international'))
+        game_id = int(game_id)
+        
+        # Get game details
+        cur.execute("""
+            SELECT * FROM international_games
+            WHERE id = ? AND is_played = 0
+        """, (game_id,))
+        game_row = cur.fetchone()
+        
+        if not game_row:
+            flash('Game not found or already played', 'danger')
+            return redirect(url_for('international'))
+        
+        # Convert Row to dict to ensure proper access
+        if hasattr(game_row, 'keys'):
+            game = dict(game_row)
+        else:
+            # It's a tuple - we need column names, but for now use dict with common fields
+            game = {
+                'id': game_row[0] if len(game_row) > 0 else game_id,
+                'competition_id': game_row[1] if len(game_row) > 1 else None,
+                'home_team_id': game_row[3] if len(game_row) > 3 else None,
+                'away_team_id': game_row[4] if len(game_row) > 4 else None,
+                'home_team_name': game_row[5] if len(game_row) > 5 else '',
+                'away_team_name': game_row[6] if len(game_row) > 6 else ''
+            }
+        
+        # Ensure all game values are scalars
+        game['id'] = int(game['id'])
+        if game.get('competition_id'):
+            game['competition_id'] = int(game['competition_id'])
+        if game.get('home_team_id'):
+            game['home_team_id'] = int(game['home_team_id'])
+        if game.get('away_team_id'):
+            game['away_team_id'] = int(game['away_team_id'])
+        
+        # Get team nationalities
+        cur.execute("SELECT id, nationality FROM international_teams WHERE id IN (?, ?)", (game['home_team_id'], game['away_team_id']))
+        teams_data = cur.fetchall()
+        home_nationality = None
+        away_nationality = None
+        for team in teams_data:
+            if team['id'] == game['home_team_id']:
+                home_nationality = team['nationality']
+            elif team['id'] == game['away_team_id']:
+                away_nationality = team['nationality']
+        
+        if not home_nationality:
+            home_nationality = 'England'
+        if not away_nationality:
+            away_nationality = 'England'
+        
+        from config import Config
+        db_path = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
+        
+        # Get players for home team (from called-up squad)
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, p.club_id
+            FROM players p
+            JOIN international_squad_callups isc ON p.id = isc.player_id
+            WHERE isc.international_team_id = ? AND p.overall IS NOT NULL AND isc.is_fake_player = 0
+            ORDER BY p.overall DESC
+        """, (game['home_team_id'],))
+        home_players = [dict(row) for row in cur.fetchall()]
+        
+        # Get players for away team (from called-up squad)
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, p.club_id
+            FROM players p
+            JOIN international_squad_callups isc ON p.id = isc.player_id
+            WHERE isc.international_team_id = ? AND p.overall IS NOT NULL AND isc.is_fake_player = 0
+            ORDER BY p.overall DESC
+        """, (game['away_team_id'],))
+        away_players = [dict(row) for row in cur.fetchall()]
+        
+        # Create fake players on-the-fly if needed (only for simulation, will be cleaned up)
+        fake_player_ids = []
+        
+        # Helper to create a temporary fake player for simulation
+        def create_temp_fake_player(nationality, position_group):
+            """Create a temporary fake player in temp_players table (NOT in players table)"""
+            position_map = {
+                'GK': '0',
+                'SB/WB': '4',
+                'CB/SW': '3',
+                'DMF/CMF/AMF': '7',
+                'SMF/WF': '10',
+                'SS/CF': '12'
+            }
+            registered_position = position_map.get(position_group, '7')
+            
+            # Create minimal fake player data
+            from game_mechanics import NATIONALITY_DATA, SURNAME_DATA
+            import random
+            
+            first_names = NATIONALITY_DATA.get(nationality, NATIONALITY_DATA['England'])['names']
+            surnames = SURNAME_DATA.get(nationality, SURNAME_DATA['England'])
+            first_name = random.choice(first_names)
+            surname = random.choice(surnames) if random.random() > 0.3 else ""
+            full_name = f"{first_name} {surname}".strip() if surname else first_name
+            
+            # Insert into temp_players table (NOT players table)
+            cur.execute("""
+                INSERT INTO temp_players 
+                (player_name, age, nationality, registered_position, club_id, overall, height, weight,
+                 strong_foot, favoured_side, attack, defense, balance, stamina, top_speed,
+                 acceleration, response, agility, dribble_accuracy, dribble_speed,
+                 short_pass_accuracy, short_pass_speed, long_pass_accuracy, long_pass_speed,
+                 shot_accuracy, shot_power, shot_technique, free_kick_accuracy, swerve,
+                 heading, jump, technique, aggression, mentality, goal_keeping,
+                 team_work, consistency, condition_fitness)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (full_name, 25, nationality, registered_position, None, 65, 180, 75,
+                  'Right', 'Right', 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65,
+                  65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65))
+            
+            fake_id = cur.lastrowid
+            
+            # Return player dict for use in simulation
+            return {
+                'id': fake_id,
+                'player_name': full_name,
+                'age': 25,
+                'nationality': nationality,
+                'registered_position': registered_position,
+                'club_id': None,  # Will be set temporarily for simulation
+                'overall': 65,
+                'height': 180,
+                'weight': 75,
+                'strong_foot': 'Right',
+                'favoured_side': 'Right'
+            }
+        
+        # Ensure we have at least 11 players per team (create fake ones in memory if needed)
+        if len(home_players) < 11:
+            needed = 11 - len(home_players)
+            for i in range(needed):
+                # Determine position group needed (prioritize non-GK positions)
+                if i == 0 and not any(p.get('registered_position') == '0' for p in home_players):
+                    pos_group = 'GK'
+                else:
+                    pos_group = 'DMF/CMF/AMF'  # Default to midfield
+                
+                fake_player = create_temp_fake_player(home_nationality, pos_group)
+                if fake_player and fake_player.get('id'):
+                    fake_player_ids.append(fake_player['id'])
+                    # Add to home_players list (in memory only, not in database)
+                    home_players.append(fake_player)
+        
+        if len(away_players) < 11:
+            needed = 11 - len(away_players)
+            for i in range(needed):
+                # Determine position group needed
+                if i == 0 and not any(p.get('registered_position') == '0' for p in away_players):
+                    pos_group = 'GK'
+                else:
+                    pos_group = 'DMF/CMF/AMF'
+                
+                fake_player = create_temp_fake_player(away_nationality, pos_group)
+                if fake_player:
+                    fake_player_ids.append(fake_player['id'])
+                    # Add to away_players list (in memory only, not in database)
+                    away_players.append(fake_player)
+        
+        # Create temporary club_id mappings for simulation (simulate_cpu_game expects club_id)
+        # We'll use the international_team_id as a temporary club_id for the simulation
+        # But we need to modify the simulation to work with the players we fetched
+        
+        # For now, let's create a modified simulation that works with international teams
+        # We'll need to temporarily set club_id for players or modify simulate_cpu_game
+        
+        # Actually, let's create a wrapper that uses the players we fetched
+        # We'll call simulate_cpu_game but need to handle the fact it queries by club_id
+        
+        # Temporary solution: Create a modified version that accepts players directly
+        # For now, let's use a simpler approach - modify simulate_cpu_game call
+        
+        # We need to modify simulate_cpu_game to accept players directly OR
+        # Temporarily update players' club_id, simulate, then restore
+        
+        # Better approach: Create a wrapper function that handles international games
+        # But for now, let's use a workaround - temporarily set club_id
+        
+        # Actually, the best approach is to create a separate international simulation function
+        # But to save time, let's modify the approach:
+        # 1. Temporarily set club_id to international_team_id for selected players
+        # 2. Run simulation
+        # 3. Restore original club_id
+        # 4. Save stats to international tables
+        
+        # Check if this is a knockout competition
+        game_id_int = int(game_id) if not isinstance(game_id, (dict, list)) else game_id
+        cur.execute("""
+            SELECT competition_type FROM international_competitions
+            WHERE id = (SELECT competition_id FROM international_games WHERE id = ?)
+        """, (game_id_int,))
+        competition_result = cur.fetchone()
+        if competition_result:
+            if hasattr(competition_result, 'keys'):
+                comp_type = dict(competition_result).get('competition_type')
+            else:
+                comp_type = competition_result[0] if len(competition_result) > 0 else None
+            is_knockout = comp_type == 'knockout'
+        else:
+            is_knockout = False
+        
+        # Simulate the game using player lists directly
+        # Fake players are in temp_players table, real players are in players table
+        # Both are already in home_players and away_players lists
+        from international_simulation import simulate_international_game_with_players
+        import random
+        # Pass fake_player_ids to simulation so it can exclude them from MVP selection
+        simulation_result = simulate_international_game_with_players(home_players, away_players, fake_player_ids)
+        
+        # Map team_id strings back to actual international team IDs for stats
+        # Ensure we extract scalar values from game dict
+        home_team_id = int(game['home_team_id']) if game.get('home_team_id') else None
+        away_team_id = int(game['away_team_id']) if game.get('away_team_id') else None
+        
+        team_id_mapping = {
+            'home': home_team_id,
+            'away': away_team_id
+        }
+        
+        # Update player_stats with actual team IDs and ensure all values are scalars
+        for stat in simulation_result['player_stats']:
+            if not isinstance(stat, dict):
+                continue
+                
+            # Map team_id string to actual team ID
+            team_id_str = stat.get('team_id')
+            if team_id_str in team_id_mapping:
+                stat['team_id'] = team_id_mapping[team_id_str]
+            elif isinstance(team_id_str, (int, str)) and str(team_id_str).isdigit():
+                stat['team_id'] = int(team_id_str)
+            else:
+                # Fallback: use home team
+                stat['team_id'] = home_team_id if home_team_id else 1
+            
+            # Ensure player_id is an int
+            player_id = stat.get('player_id')
+            if isinstance(player_id, (int, str)) and str(player_id).isdigit():
+                stat['player_id'] = int(player_id)
+            elif isinstance(player_id, (dict, list)):
+                app.logger.error(f"Invalid player_id in stat: {player_id}, skipping")
+                stat['player_id'] = None
+            else:
+                stat['player_id'] = None
+        
+        home_score = simulation_result['home_score']
+        away_score = simulation_result['away_score']
+        player_stats = simulation_result['player_stats']
+        mvp_player_id = simulation_result['mvp_player_id']
+        
+        # If knockout and draw, simulate overtime and penalties
+        if is_knockout and home_score == away_score:
+            # Overtime: 30% chance of a goal in each 15-minute period (2 periods = 30 minutes)
+            overtime_home_goal = random.random() < 0.30
+            overtime_away_goal = random.random() < 0.30
+            
+            if overtime_home_goal and not overtime_away_goal:
+                home_score += 1
+            elif overtime_away_goal and not overtime_home_goal:
+                away_score += 1
+            else:
+                # Still tied after overtime - go to penalties
+                # Penalties: each team takes 5 shots, winner determined by most goals
+                home_penalties = sum(1 for _ in range(5) if random.random() < 0.75)  # 75% conversion rate
+                away_penalties = sum(1 for _ in range(5) if random.random() < 0.75)
+                
+                # If still tied after 5 penalties each, sudden death
+                while home_penalties == away_penalties:
+                    # Home takes penalty
+                    home_scores = random.random() < 0.75
+                    if home_scores:
+                        home_penalties += 1
+                    
+                    # Away takes penalty
+                    away_scores = random.random() < 0.75
+                    if away_scores:
+                        away_penalties += 1
+                    
+                    # If home scored and away didn't, home wins
+                    if home_scores and not away_scores:
+                        break
+                    # If away scored and home didn't, away wins
+                    elif away_scores and not home_scores:
+                        break
+                    # If both scored or both missed, continue to next round
+                
+                # Determine winner based on penalties - adjust scores to reflect penalty winner
+                if home_penalties > away_penalties:
+                    # Home wins on penalties
+                    home_score = away_score + 1
+                else:
+                    # Away wins on penalties
+                    away_score = home_score + 1
+        
+        # Validate MVP before saving
+        # CRITICAL: If MVP is a fake player or None, set to NULL
+        final_mvp_player_id = None
+        if mvp_player_id and mvp_player_id not in fake_player_ids:
+            # Verify MVP is actually in the game stats
+            mvp_in_stats = any(stat.get('player_id') == mvp_player_id for stat in player_stats)
+            if mvp_in_stats:
+                # Double-check: verify player exists and is not fake
+                cur.execute("SELECT id FROM players WHERE id = ?", (mvp_player_id,))
+                if cur.fetchone():
+                    final_mvp_player_id = mvp_player_id
+                else:
+                    app.logger.warning(f"MVP player {mvp_player_id} not found in players table, setting to NULL")
+            else:
+                app.logger.warning(f"MVP player {mvp_player_id} not in game stats, setting to NULL")
+        else:
+            if mvp_player_id in fake_player_ids:
+                app.logger.info(f"MVP was a fake player ({mvp_player_id}), setting to NULL")
+            else:
+                app.logger.info(f"MVP is None/undetermined (no real players available), setting to NULL")
+        
+        # Log for debugging
+        app.logger.info(f"Simulation result: {home_score}-{away_score}, {len(player_stats)} players, MVP: {final_mvp_player_id} (original: {mvp_player_id})")
+        app.logger.info(f"Fake player IDs to skip: {fake_player_ids}")
+        
+        # Update international game record
+        cur.execute("""
+            UPDATE international_games
+            SET home_score = ?, away_score = ?, is_played = 1, 
+                game_date = CURRENT_TIMESTAMP, mvp_player_id = ?
+            WHERE id = ?
+        """, (home_score, away_score, final_mvp_player_id, game_id))
+        
+        # Update knockout teams table if this is a knockout competition
+        cur.execute("""
+            SELECT competition_type FROM international_competitions
+            WHERE id = (SELECT competition_id FROM international_games WHERE id = ?)
+        """, (game_id,))
+        comp_result = cur.fetchone()
+        if comp_result and comp_result['competition_type'] == 'knockout':
+            # Get game details
+            cur.execute("""
+                SELECT competition_id, round_number, home_team_id, away_team_id, 
+                       home_team_name, away_team_name
+                FROM international_games WHERE id = ?
+            """, (game_id,))
+            game_info_row = cur.fetchone()
+            
+            if not game_info_row:
+                app.logger.warning(f"Game info not found for game {game_id}")
+            else:
+                # Convert to dict if it's a Row object
+                if hasattr(game_info_row, 'keys'):
+                    game_info = dict(game_info_row)
+                else:
+                    # It's a tuple, convert using column names
+                    game_info = {
+                        'competition_id': game_info_row[0],
+                        'round_number': game_info_row[1],
+                        'home_team_id': game_info_row[2],
+                        'away_team_id': game_info_row[3],
+                        'home_team_name': game_info_row[4],
+                        'away_team_name': game_info_row[5]
+                    }
+                
+                # Skip BYE games (they're already handled)
+                if game_info['away_team_name'] != 'BYE' and game_info['home_team_name'] != 'BYE':
+                    # Determine winner
+                    winner_id = None
+                    if home_score > away_score:
+                        winner_id = game_info['home_team_id']
+                    elif away_score > home_score:
+                        winner_id = game_info['away_team_id']
+                    
+                    if winner_id:
+                        # Add winner to next round
+                        next_round = game_info['round_number'] + 1
+                        competition_id_val = game_info['competition_id']
+                        cur.execute("""
+                            INSERT OR REPLACE INTO international_knockout_teams
+                            (competition_id, international_team_id, round_number)
+                            VALUES (?, ?, ?)
+                        """, (competition_id_val, winner_id, next_round))
+                    app.logger.info(f"Added winner {winner_id} to round {next_round} in knockout competition")
+        
+        # Insert player game stats into international_player_game_stats (only for real players)
+        for stat in player_stats:
+            # Skip fake players (they never touch the database)
+            player_id = stat.get('player_id')
+            if not player_id or player_id in fake_player_ids:
+                continue
+            
+            # Ensure player_id is a scalar (not dict/Row)
+            if isinstance(player_id, (dict, list)):
+                app.logger.warning(f"Invalid player_id type: {type(player_id)}, skipping stat")
+                continue
+            player_id = int(player_id)
+            
+            # team_id_mapping was already applied in the simulation result
+            # stat['team_id'] is already the actual international team ID
+            actual_team_id = stat.get('team_id')
+            
+            # Ensure team_id is a scalar
+            if isinstance(actual_team_id, (dict, list)):
+                app.logger.warning(f"Invalid team_id type: {type(actual_team_id)}, using game team_id")
+                # Fallback: determine from which team the player came
+                actual_team_id = game['home_team_id'] if stat.get('team_id') == 'home' else game['away_team_id']
+            actual_team_id = int(actual_team_id)
+            
+            # Get player name safely
+            player_name = stat.get('player_name', f'Player {player_id}')
+            if isinstance(player_name, (dict, list)):
+                player_name = str(player_id)
+            
+            # Verify the team_id exists in international_teams
+            cur.execute("SELECT id FROM international_teams WHERE id = ?", (actual_team_id,))
+            if not cur.fetchone():
+                app.logger.warning(f"Invalid team_id {actual_team_id} for player {player_id} in game {game_id}")
+                continue
+            
+            # Verify the player_id exists
+            cur.execute("SELECT id FROM players WHERE id = ?", (player_id,))
+            if not cur.fetchone():
+                app.logger.warning(f"Invalid player_id {player_id} in game {game_id}")
+                continue
+                
+            try:
+                # Extract all values as scalars with explicit type checking
+                goals = int(stat.get('goals', 0)) if not isinstance(stat.get('goals'), (dict, list)) else 0
+                assists = int(stat.get('assists', 0)) if not isinstance(stat.get('assists'), (dict, list)) else 0
+                minutes_played = int(stat.get('minutes_played', 90)) if not isinstance(stat.get('minutes_played'), (dict, list)) else 90
+                is_starter = int(stat.get('is_starter', 1)) if not isinstance(stat.get('is_starter'), (dict, list)) else 1
+                
+                # Ensure game_id is an int
+                game_id_int = int(game_id) if not isinstance(game_id, (dict, list)) else game_id
+                
+                # Final validation - all parameters must be scalars
+                params = (game_id_int, player_id, actual_team_id, str(player_name), goals, assists, minutes_played, is_starter)
+                for i, param in enumerate(params):
+                    if isinstance(param, (dict, list)):
+                        app.logger.error(f"Parameter {i} is a dict/list: {param} (type: {type(param)})")
+                        raise ValueError(f"Parameter {i} must be a scalar, got {type(param)}")
+                
+                cur.execute("""
+                    INSERT INTO international_player_game_stats 
+                    (game_id, player_id, team_id, player_name, goals, assists, minutes_played, is_starter)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, params)
+            except Exception as e:
+                app.logger.error(f"Error inserting stat for player {player_id} in game {game_id}: {e}")
+                app.logger.error(f"  game_id={game_id} (type: {type(game_id)}), player_id={player_id} (type: {type(player_id)}), team_id={actual_team_id} (type: {type(actual_team_id)})")
+                app.logger.error(f"  stat dict: {stat}")
+                app.logger.error(f"  Full traceback:", exc_info=True)
+                raise
+        
+        # Update player international stats (only for real players)
+        for stat in player_stats:
+            # Skip fake players
+            player_id = stat.get('player_id')
+            if not player_id or player_id in fake_player_ids:
+                continue
+            
+            # Ensure player_id is a scalar
+            if isinstance(player_id, (dict, list)):
+                continue
+            player_id = int(player_id)
+                
+            # Update international caps (only for players who actually played)
+            minutes_played = int(stat.get('minutes_played', 0))
+            if minutes_played > 0:
+                cur.execute("""
+                    UPDATE players
+                    SET international_caps_total = international_caps_total + 1,
+                        current_season_caps = current_season_caps + 1
+                    WHERE id = ?
+                """, (player_id,))
+            
+            # Update international goals
+            goals = int(stat.get('goals', 0))
+            if goals > 0:
+                cur.execute("""
+                    UPDATE players
+                    SET international_goals = international_goals + ?
+                    WHERE id = ?
+                """, (goals, player_id))
+            
+            # Update international assists
+            assists = int(stat.get('assists', 0))
+            if assists > 0:
+                cur.execute("""
+                    UPDATE players
+                    SET international_assists = international_assists + ?
+                    WHERE id = ?
+                """, (assists, player_id))
+        
+        # Delete fake players from temp_players table after simulation
+        for fake_id in fake_player_ids:
+            try:
+                cur.execute("DELETE FROM temp_players WHERE id = ?", (fake_id,))
+            except Exception as e:
+                app.logger.warning(f"Error deleting fake player {fake_id}: {e}")
+        
+        db_helper.commit()
+        flash(f'Game simulated! {game["home_team_name"]} {home_score} - {away_score} {game["away_team_name"]}', 'success')
+        return redirect(url_for('international_game_management', game_id=game_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error simulating international game: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error simulating game: {str(e)}', 'danger')
+        return redirect(url_for('international'))
+    finally:
+        cur.close()
+
+@app.route('/international/game/<int:game_id>')
+@login_required
+def international_game_management(game_id):
+    """International game management page"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get game details
+        cur.execute("""
+            SELECT ig.*, ic.name as competition_name
+            FROM international_games ig
+            JOIN international_competitions ic ON ig.competition_id = ic.id
+            WHERE ig.id = ?
+        """, (game_id,))
+        game_row = cur.fetchone()
+        
+        if not game_row:
+            flash('Game not found', 'danger')
+            return redirect(url_for('international'))
+        
+        game = dict(game_row)
+        
+        # Get player stats if game is played
+        home_player_stats = []
+        away_player_stats = []
+        mvp_player_id = game.get('mvp_player_id')
+        mvp_player_name = None
+        
+        if mvp_player_id:
+            cur.execute("SELECT player_name FROM players WHERE id = ?", (mvp_player_id,))
+            mvp_result = cur.fetchone()
+            if mvp_result:
+                mvp_player_name = mvp_result['player_name'] if hasattr(mvp_result, 'keys') else mvp_result[0]
+        
+        if game['is_played']:
+            # Get home team player stats
+            cur.execute("""
+                SELECT ipgs.player_id, ipgs.player_name, ipgs.goals, ipgs.assists, 
+                       ipgs.minutes_played, ipgs.is_starter, p.registered_position
+                FROM international_player_game_stats ipgs
+                JOIN players p ON ipgs.player_id = p.id
+                WHERE ipgs.game_id = ? AND ipgs.team_id = ?
+                ORDER BY 
+                    CASE p.registered_position
+                        WHEN 0 THEN 1
+                        WHEN 2 THEN 2
+                        WHEN 3 THEN 2
+                        WHEN 4 THEN 2
+                        WHEN 6 THEN 2
+                        WHEN 5 THEN 3
+                        WHEN 7 THEN 3
+                        WHEN 8 THEN 3
+                        WHEN 9 THEN 3
+                        WHEN 10 THEN 3
+                        WHEN 11 THEN 4
+                        WHEN 12 THEN 4
+                        ELSE 5
+                    END,
+                    p.registered_position,
+                    ipgs.goals DESC, ipgs.assists DESC
+            """, (game_id, game['home_team_id']))
+            home_player_stats = [dict(row) for row in cur.fetchall()]
+            
+            # Get away team player stats
+            cur.execute("""
+                SELECT ipgs.player_id, ipgs.player_name, ipgs.goals, ipgs.assists, 
+                       ipgs.minutes_played, ipgs.is_starter, p.registered_position
+                FROM international_player_game_stats ipgs
+                JOIN players p ON ipgs.player_id = p.id
+                WHERE ipgs.game_id = ? AND ipgs.team_id = ?
+                ORDER BY 
+                    CASE p.registered_position
+                        WHEN 0 THEN 1
+                        WHEN 2 THEN 2
+                        WHEN 3 THEN 2
+                        WHEN 4 THEN 2
+                        WHEN 6 THEN 2
+                        WHEN 5 THEN 3
+                        WHEN 7 THEN 3
+                        WHEN 8 THEN 3
+                        WHEN 9 THEN 3
+                        WHEN 10 THEN 3
+                        WHEN 11 THEN 4
+                        WHEN 12 THEN 4
+                        ELSE 5
+                    END,
+                    p.registered_position,
+                    ipgs.goals DESC, ipgs.assists DESC
+            """, (game_id, game['away_team_id']))
+            away_player_stats = [dict(row) for row in cur.fetchall()]
+        else:
+            # Get called-up squads for pending games
+            cur.execute("""
+                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, isc.position_group, isc.is_fake_player
+                FROM players p
+                JOIN international_squad_callups isc ON p.id = isc.player_id
+                WHERE isc.international_team_id = ?
+                ORDER BY isc.position_group, p.overall DESC
+            """, (game['home_team_id'],))
+            home_squad = [dict(row) for row in cur.fetchall()]
+            
+            cur.execute("""
+                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, isc.position_group, isc.is_fake_player
+                FROM players p
+                JOIN international_squad_callups isc ON p.id = isc.player_id
+                WHERE isc.international_team_id = ?
+                ORDER BY isc.position_group, p.overall DESC
+            """, (game['away_team_id'],))
+            away_squad = [dict(row) for row in cur.fetchall()]
+            
+            return render_template('international_game_management.html',
+                                 game=game,
+                                 competition={'name': game['competition_name']},
+                                 home_squad=home_squad,
+                                 away_squad=away_squad,
+                                 home_player_stats=[],
+                                 away_player_stats=[],
+                                 mvp_player_id=None,
+                                 mvp_player_name=None)
+        
+        return render_template('international_game_management.html',
+                             game=game,
+                             competition={'name': game['competition_name']},
+                             home_squad=[],
+                             away_squad=[],
+                             home_player_stats=home_player_stats,
+                             away_player_stats=away_player_stats,
+                             mvp_player_id=mvp_player_id,
+                             mvp_player_name=mvp_player_name)
+    
+    except Exception as e:
+        app.logger.error(f"Error in international_game_management: {e}")
+        flash('Error loading game data', 'danger')
+        return redirect(url_for('international'))
+    finally:
+        cur.close()
 
 if __name__ == '__main__':
     # For local development

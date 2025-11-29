@@ -12,6 +12,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
+# Free agency timer in minutes
+fa_timer = 660
+
 @dataclass
 class TeamComposition:
     """Represents the ideal team composition for CPU teams"""
@@ -55,7 +58,6 @@ class CPUAI:
         try:
             self.conn = sqlite3.connect(self.db_path, timeout=30.0)
             self.conn.row_factory = sqlite3.Row
-            self.conn.execute("PRAGMA journal_mode=WAL")
             return True
         except Exception as e:
             print(f"Error connecting to database: {e}")
@@ -200,6 +202,66 @@ class CPUAI:
         
         return is_toxic, overpayment
     
+    def calculate_good_deal_max_price(self, player_data: Dict) -> float:
+        """
+        Calculate the maximum acceptable price for a player based on good deal criteria.
+        
+        Returns the maximum acceptable price (float).
+        """
+        market_value = player_data.get('market_value', 0) or 1000000
+        current_salary = player_data.get('salary', 0) or 0
+        player_age = player_data.get('age', 25)
+        contract_years = player_data.get('contract_years_remaining', 1) or 1
+        fair_salary = self.calculate_fair_salary(player_data)
+        
+        # Calculate annual overpayment (positive if overpaid, negative if underpaid)
+        annual_overpayment = current_salary - fair_salary
+        total_overpayment = annual_overpayment * contract_years if annual_overpayment > 0 else 0
+        
+        # Check if salary is toxic (for reporting purposes)
+        is_toxic, _ = self.is_toxic_contract(player_data)
+        
+        # Check if salary is beneficial (low - underpaid)
+        is_beneficial_salary = current_salary < fair_salary * 0.8  # 20% below fair salary
+        
+        # Check if player is young
+        is_young = player_age < 25
+        
+        # Calculate max acceptable price based on criteria:
+        if total_overpayment > 0:
+            # Overpayment penalty: 90% MV minus total overpayment (over contract period)
+            # Applies to any overpayment, not just "toxic" contracts
+            max_price = (market_value * 0.90) - total_overpayment
+            return max(0, max_price)  # Ensure non-negative
+        elif is_beneficial_salary and is_young:
+            # 120% threshold: Young (<25) AND beneficial salary
+            return market_value * 1.25
+        elif is_beneficial_salary:
+            # 105% threshold: Older (≥25) with beneficial salary
+            return market_value * 1.15
+        elif is_young:
+            # 100% threshold: Young (<25) with fair salary (not toxic, not beneficial)
+            return market_value * 1.05
+        else:
+            # 90% threshold: Older (≥25) with fair salary (not toxic, not beneficial)
+            return market_value * 0.90
+    
+    def is_good_deal(self, offered_price: int, player_data: Dict) -> bool:
+        """
+        Evaluate if an offer qualifies as a 'good deal' for the CPU team.
+        
+        Criteria:
+        - Toxic contracts: 90% MV - overpayment
+        - Beneficial + Young (<25): 120% MV
+        - Beneficial + Old (≥25): 105% MV
+        - Fair + Young (<25): 100% MV
+        - Fair + Old (≥25): 90% MV
+        
+        Returns True if the offer qualifies as a good deal.
+        """
+        max_acceptable_price = self.calculate_good_deal_max_price(player_data)
+        return offered_price <= max_acceptable_price
+    
     def get_interested_cpu_teams_for_player(self, player_data: Dict) -> List[Dict]:
         """Get CPU teams that would be interested in buying a specific player"""
         if not self.connect():
@@ -297,7 +359,6 @@ class CPUAI:
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
             
             # Check if this team already has active loan listings
@@ -453,7 +514,6 @@ class CPUAI:
             # Use a fresh connection for each operation
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
             
             # Check if this team already has active listings to prevent duplicates
@@ -512,7 +572,8 @@ class CPUAI:
                     WHERE id IN ({})
                 """.format(','.join(map(str, protected_player_ids))))
                 protected_players = cur.fetchall()
-                print(f"Team {team_id} protecting best players: {[f'{p['player_name']} (Pos {p['registered_position']}, {p['overall']} OVR)' for p in protected_players]}")
+                protected_list = [f"{p['player_name']} (Pos {p['registered_position']}, {p['overall']} OVR)" for p in protected_players]
+                print(f"Team {team_id} protecting best players: {protected_list}")
 
             # Get current position counts to ensure we only list from positions with surplus
             cur.execute("""
@@ -694,7 +755,6 @@ class CPUAI:
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
             
             # Get team analysis to understand needs
@@ -735,6 +795,7 @@ class CPUAI:
 
             # Find user loan listings with detailed player info
             # IMPORTANT: Select salary_support_percentage from listing to properly calculate subsidies
+            # Check both user_loan and cpu_loan from the transfer list (market_bazaar_listings)
             cur.execute("""
                 SELECT mbl.*, p.player_name, p.market_value, p.registered_position, p.overall, p.age, p.salary,
                        t.club_name as seller_team_name,
@@ -743,17 +804,19 @@ class CPUAI:
                 JOIN players p ON mbl.player_id = p.id
                 JOIN teams t ON mbl.team_id = t.id
                 WHERE mbl.status = 'active' 
-                AND mbl.listing_type = 'user_loan'
-                AND mbl.team_id IN (
-                    SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id != 1
-                )
+                AND mbl.listing_type IN ('user_loan', 'cpu_loan')  -- Include both user and CPU loan listings
+                AND mbl.team_id != ?  -- Not from own team
                 AND p.id NOT IN (
                     SELECT player_id FROM blacklist WHERE user_id = 1
                 )
-                AND p.overall >= 70  -- Only consider decent players for loans
-                ORDER BY mbl.salary_support_percentage DESC, mbl.asking_price ASC, p.overall DESC  -- Prioritize highest salary support first
+                AND p.overall >= 55  -- Only consider decent players for loans
+                AND p.loaned_by IS NULL  -- Exclude players already on loan
+                ORDER BY 
+                    mbl.salary_support_percentage DESC, 
+                    mbl.asking_price ASC, 
+                    p.overall DESC  -- Prioritize highest salary support first
                 LIMIT 30
-            """)
+            """, (team_id,))
             
             loan_listings = cur.fetchall()
             if not loan_listings:
@@ -828,7 +891,7 @@ class CPUAI:
                 else:
                     # If not a need, add small penalty unless subsidy is extremely high (>= 90%)
                     if subsidy_ratio < 0.9:
-                        interest_score -= 20
+                        interest_score -= 5
                 
                 # Improvement bonus
                 if player_position in position_analysis:
@@ -882,7 +945,7 @@ class CPUAI:
                 # No bonus for older players
 
                 # Squad size pressure: if near capacity, be extremely selective unless 90%+ supported or critical need
-                if total_players >= 31:
+                if total_players >= 32:
                     if player_position not in needed_positions and subsidy_ratio < 0.9:
                         # Skip this candidate altogether when at capacity and it's not critical or highly subsidized
                         continue
@@ -903,12 +966,12 @@ class CPUAI:
                 # Threshold based on salary support - CPU is selective about unsupported loans
                 if subsidy_ratio >= 1.0:  # 100% support
                     min_threshold = 0  # Always accept free loans
-                elif subsidy_ratio >= 0.80:  # 80%+ support
-                    min_threshold = 20  # Low threshold (was 10)
+                elif subsidy_ratio >= 0.70:  # 80%+ support
+                    min_threshold = 0  # Low threshold (was 10)
                 elif subsidy_ratio >= 0.50:  # 50%+ support
-                    min_threshold = 60  # Medium threshold (NEW)
+                    min_threshold = 5  # Medium threshold (NEW)
                 else:  # < 50% support
-                    min_threshold = 100  # High threshold - must be excellent fit (was 25)
+                    min_threshold = 50  # High threshold - must be excellent fit (was 25)
                 
                 if interest_score >= min_threshold:
                     loan_candidates.append({
@@ -1066,7 +1129,6 @@ class CPUAI:
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
             
             # Get team analysis to understand needs
@@ -1083,10 +1145,9 @@ class CPUAI:
             needs = analysis['needs']
             
             # Find listed players that would improve the team
+            # Select p.* to get ALL player columns (needed for calculate_fair_salary which requires skill data)
             cur.execute("""
-                SELECT mbl.*, p.player_name, p.registered_position, p.overall, p.market_value,
-                       p.salary, p.contract_years_remaining, p.age,
-                       t.club_name as seller_team_name
+                SELECT mbl.*, p.*, t.club_name as seller_team_name
                 FROM market_bazaar_listings mbl
                 JOIN players p ON mbl.player_id = p.id
                 JOIN teams t ON mbl.team_id = t.id
@@ -1099,7 +1160,9 @@ class CPUAI:
                 AND mbl.asking_price <= (
                     SELECT budget FROM teams WHERE id = ?
                 ) * 0.3  -- Don't spend more than 30% of budget on one player
-                ORDER BY p.overall DESC, mbl.asking_price ASC
+                ORDER BY 
+                    p.overall DESC, 
+                    mbl.asking_price ASC
                 LIMIT 40
             """, (team_id, team_id))
             
@@ -1154,6 +1217,9 @@ class CPUAI:
                 if is_minor_improvement:
                     priority_score += 50
                 
+                # Note: user-listed players are evaluated for good deals, but no priority bonus
+                is_user_listed = player['listing_type'] == 'user_sale'
+                
                 scored_players.append({
                     'player': player,
                     'priority': priority_score,
@@ -1183,8 +1249,10 @@ class CPUAI:
                 is_position_fill = scored['is_position_fill']
                 is_cpu_reasonable_deal = scored['is_cpu_reasonable_deal']
                 player_market_value = scored['player_market_value']
+                is_user_listed = player['listing_type'] == 'user_sale'
 
-                if is_improvement or (is_cpu_to_cpu and is_reasonable_price) or is_minor_improvement or is_position_fill or is_cpu_reasonable_deal:
+                # Always evaluate user-listed players (for good deal check) OR evaluate CPU players if they meet criteria
+                if is_user_listed or is_improvement or (is_cpu_to_cpu and is_reasonable_price) or is_minor_improvement or is_position_fill or is_cpu_reasonable_deal:
                     # Apply the same sophisticated contract evaluation as CPU offers
                     asking_price = player['asking_price']
                     market_value = player['market_value'] or 1000000
@@ -1221,15 +1289,51 @@ class CPUAI:
                         adjusted_max = min(base_max + contract_bonus, market_value * 1.2)  # Cap at 120% of market value
                     
                     # Check if asking price is within acceptable range OR is a great deal OR is CPU-to-CPU with lenient criteria
-                    is_great_deal = asking_price < market_value * 0.3  # Less than 50% of market value
+                    is_great_deal = asking_price < market_value * 0.3  # Less than 30% of market value
                     is_acceptable_price = adjusted_min <= asking_price <= adjusted_max
                     is_cpu_to_cpu_reasonable = is_cpu_to_cpu and asking_price <= market_value * 1.5  # More lenient for CPU-to-CPU
                     
                     # Additional CPU-to-CPU criteria for more active trading
                     is_cpu_position_need = is_cpu_to_cpu and str(player['registered_position']) in [str(p) for p in self.get_team_position_needs(team_id)]
                     is_cpu_squad_building = is_cpu_to_cpu and asking_price <= market_value * 1.3 and player_overall >= 70  # Squad building trades
+                    
+                    # For user-listed players, check if it's a "good deal" (evaluated at the end of the process)
+                    # is_user_listed already set above
+                    is_good_deal_offer = False
+                    # Check if position is needed (convert to int for comparison)
+                    position_int = int(position) if position else -1
+                    is_position_needed = position_int in needed_positions or (position == '0' and analysis['needs'].needs_goalkeeper)
+                    
+                    if is_user_listed:
+                        # Convert player Row to dict with ALL data (needed for calculate_fair_salary which needs skill columns)
+                        player_data_dict = dict(player)
+                        # Ensure required fields are present
+                        player_data_dict['market_value'] = market_value
+                        player_data_dict['salary'] = current_salary
+                        player_data_dict['age'] = player['age'] or 25
+                        player_data_dict['contract_years_remaining'] = contract_years
+                        
+                        is_good_deal_offer = self.is_good_deal(asking_price, player_data_dict)
+                        if is_good_deal_offer:
+                            print(f"✅ Good Deal Found (buy_listed): {player['player_name']} - Asking: €{asking_price:,} ({asking_price/market_value*100:.1f}% of MV: €{market_value:,})")
+                        else:
+                            # Debug: print why it's not a good deal
+                            max_price = self.calculate_good_deal_max_price(player_data_dict)
+                            print(f"❌ Not a good deal (buy_listed): {player['player_name']} - Asking: €{asking_price:,}, Max: €{max_price:,.0f} ({asking_price/market_value*100:.1f}% vs {max_price/market_value*100:.1f}% of MV: €{market_value:,})")
 
-                    if is_acceptable_price or is_great_deal or is_cpu_to_cpu_reasonable or is_cpu_position_need or is_cpu_squad_building:
+                    # Final decision logic:
+                    # 1. Good deals are always accepted (highest priority for user-listed players)
+                    # 2. For user-listed players in needed positions, good deal is REQUIRED (don't accept bad deals just because position is needed)
+                    # 3. For other cases, use existing logic
+                    if is_good_deal_offer:
+                        # Good deal - always accept
+                        selected_player = player
+                        break
+                    elif is_user_listed and is_position_needed:
+                        # User-listed player in needed position - only accept if it's a good deal (already checked above, so skip)
+                        continue
+                    elif is_acceptable_price or is_great_deal or is_cpu_to_cpu_reasonable or is_cpu_position_need or is_cpu_squad_building:
+                        # Other acceptable conditions (for CPU-to-CPU or non-needed positions)
                         selected_player = player
                         break
             
@@ -1327,7 +1431,6 @@ class CPUAI:
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
             
             # Get team analysis to understand needs
@@ -1498,7 +1601,6 @@ class CPUAI:
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
 
             # Get team analysis to understand needs
@@ -1660,7 +1762,7 @@ class CPUAI:
             
             # Create the free agency offer
             from datetime import datetime, timedelta
-            expires_at = datetime.now() + timedelta(minutes=500)  # 5 minutes like user offers
+            expires_at = datetime.now() + timedelta(minutes=fa_timer)
             
             # Create the offer
             cur.execute("""
@@ -1701,7 +1803,6 @@ class CPUAI:
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
 
             # Get team analysis to check budget
@@ -1772,9 +1873,9 @@ class CPUAI:
             offer_to_raise = selected_target['offer']
             new_salary = selected_target['new_salary']
             
-            # Raise the offer by resetting timer to 5 minutes (same as user raises)
+            # Raise the offer by resetting timer (same as user raises)
             from datetime import datetime, timedelta
-            new_expires_at = datetime.now() + timedelta(minutes=500)
+            new_expires_at = datetime.now() + timedelta(minutes=fa_timer)
             
             # Update the offer
             cur.execute("""
@@ -1817,7 +1918,6 @@ class CPUAI:
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
 
             # Get team analysis to check budget and needs
@@ -2001,9 +2101,9 @@ class CPUAI:
             offer_to_raise = selected_target['offer']
             new_salary = selected_target['new_salary']
             
-            # Raise the offer by resetting timer to 5 minutes
+            # Raise the offer by resetting timer
             from datetime import datetime, timedelta
-            new_expires_at = datetime.now() + timedelta(minutes=500)
+            new_expires_at = datetime.now() + timedelta(minutes=fa_timer)
             
             # Update the offer
             cur.execute("""
@@ -2095,7 +2195,6 @@ class CPUAI:
             # Use a fresh connection for each operation
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
             
             # Get team analysis
@@ -2118,7 +2217,7 @@ class CPUAI:
             if not needed_positions or budget < 1000000:  # Minimum budget for offers
                 return None
             
-            # Find suitable players in market bazaar (only CPU listings, exclude user listings to avoid errors)
+            # Find suitable players in market bazaar (including user listings for good deal evaluation)
             # Exclude blacklisted players
             cur.execute("""
                 SELECT mbl.*, p.player_name, p.market_value, p.registered_position, p.overall, mbl.listing_type,
@@ -2127,7 +2226,7 @@ class CPUAI:
                 JOIN players p ON mbl.player_id = p.id
                 JOIN teams t ON mbl.team_id = t.id
                 WHERE mbl.status = 'active'
-                AND mbl.listing_type IN ('cpu_sale', 'cpu_loan')  -- Only CPU listings (exclude user_sale to avoid errors)
+                AND mbl.listing_type IN ('cpu_sale', 'cpu_loan', 'user_sale')  -- Include user_sale for good deal evaluation
                 AND p.registered_position IN ({})
                 AND mbl.asking_price <= ?
                 AND mbl.team_id != ?
@@ -2240,29 +2339,50 @@ class CPUAI:
                 # Calculate deal quality score
                 deal_score = 0
                 
-                # Price evaluation (inverted from selling logic)
-                if asking_price < market_value * 0.5:
-                    deal_score += 100  # Excellent deal (less than 50% of market value)
-                elif asking_price < market_value * 0.7:
-                    deal_score += 80   # Great deal (less than 70% of market value)
-                elif asking_price < market_value * 0.9:
-                    deal_score += 60   # Good deal (less than 90% of market value)
-                elif asking_price <= market_value * 1.1:
-                    deal_score += 40   # Fair deal (within 110% of market value)
-                elif asking_price <= market_value * 1.3:
-                    deal_score += 20   # Acceptable deal (within 130% of market value)
-                else:
-                    deal_score += 0    # Poor deal
-                
-                # Contract evaluation
-                if salary_difference < 0:
-                    deal_score += 30   # Bonus for underpaid players
-                elif salary_difference > market_value * 0.1:
-                    deal_score -= 50   # Penalty for overpaid players
-                
-                # User listing bonus (users often offer better deals)
+                # For user-listed players, apply "good deal" evaluation
                 if is_user_listed:
-                    deal_score += 25
+                    # Check if this qualifies as a good deal
+                    player_data_dict = {
+                        'market_value': market_value,
+                        'salary': current_salary,
+                        'age': player_age
+                    }
+                    is_good_deal = self.is_good_deal(asking_price, player_data_dict)
+                    
+                    # If it's a good deal, prioritize it highly
+                    if is_good_deal:
+                        # Good deal - CPU should be very interested
+                        deal_score = 150  # High priority for good deals
+                        print(f"✅ Good Deal Found: {player['player_name']} - Asking: €{asking_price:,} ({asking_price/market_value*100:.1f}% of MV: €{market_value:,})")
+                    else:
+                        # Not a good deal - use standard evaluation but with lower priority
+                        deal_score = 30  # Lower priority for non-good deals
+                else:
+                    # For CPU-listed players, use standard deal quality score
+                    # Price evaluation (inverted from selling logic)
+                    if asking_price < market_value * 0.5:
+                        deal_score += 100  # Excellent deal (less than 50% of market value)
+                    elif asking_price < market_value * 0.7:
+                        deal_score += 80   # Great deal (less than 70% of market value)
+                    elif asking_price < market_value * 0.9:
+                        deal_score += 60   # Good deal (less than 90% of market value)
+                    elif asking_price <= market_value * 1.1:
+                        deal_score += 40   # Fair deal (within 110% of market value)
+                    elif asking_price <= market_value * 1.3:
+                        deal_score += 20   # Acceptable deal (within 130% of market value)
+                    else:
+                        deal_score += 0    # Poor deal
+                
+                # Contract evaluation (only for CPU listings or non-good-deal user listings)
+                if not is_user_listed or deal_score < 100:
+                    if salary_difference < 0:
+                        deal_score += 30   # Bonus for underpaid players
+                    elif salary_difference > market_value * 0.1:
+                        deal_score -= 50   # Penalty for overpaid players
+                
+                # Bonus for user-listed players (prioritize buying from users)
+                if is_user_listed:
+                    deal_score += 20 # Significant bonus for user-listed players (even if not a "good deal")
                 
                 # Loan listing bonus (loans are lower risk)
                 if player['listing_type'] == 'cpu_loan':
@@ -2291,7 +2411,20 @@ class CPUAI:
                 is_acceptable_price = asking_price <= adjusted_max
                 is_reasonable_deal = asking_price <= market_value * 1.3
                 
-                if is_acceptable_price or is_great_deal or is_reasonable_deal:
+                # For user-listed players, also check if it's a "good deal" (evaluated at the end)
+                is_good_deal_offer = False
+                if is_user_listed:
+                    player_data_dict = {
+                        'market_value': market_value,
+                        'salary': current_salary,
+                        'age': player_age
+                    }
+                    is_good_deal_offer = self.is_good_deal(asking_price, player_data_dict)
+                    if is_good_deal_offer:
+                        print(f"✅ Good Deal Found (make_offer): {player['player_name']} - Asking: €{asking_price:,} ({asking_price/market_value*100:.1f}% of MV: €{market_value:,})")
+                
+                # Final decision: accept if any of the conditions are met (including good deal)
+                if is_acceptable_price or is_great_deal or is_reasonable_deal or is_good_deal_offer:
                     evaluated_players.append({
                         'player': player,
                         'deal_score': deal_score,
@@ -2478,7 +2611,6 @@ class CPUAI:
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
             
             # For now, we'll create a simple table to track user offers to CPU teams
@@ -2674,7 +2806,7 @@ class CPUAI:
                         discount_multiplier = 0.95 + (player_overall - current_best_overall - 3) * 0.01
                         adjusted_min *= discount_multiplier
                 
-                # Check if the best offer is acceptable (CPU accepts if offer is above minimum)
+                # Check if the best offer is acceptable (CPU accepts if offer is above adjusted minimum)
                 if offered_price >= adjusted_min:
                     # Accept the best offer
                     cur.execute("UPDATE user_cpu_offers SET status = 'accepted' WHERE id = ?", (best_offer['id'],))
@@ -2804,7 +2936,6 @@ class CPUAI:
             # Use a fresh connection
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             cur = conn.cursor()
             
             # Get all CPU teams
@@ -2857,7 +2988,7 @@ class CPUAI:
                                 'action': 'buy_player',
                                 'details': buy_result['details']
                             })
-                    elif action_choice < 0.6:  # 20% chance to loan existing loan listings
+                    elif action_choice < 0.65:  # 25% chance to loan existing loan listings
                         loan_result = self.make_cpu_loan_offer(team_id)
                         if loan_result:
                             actions_taken.append({
@@ -2865,7 +2996,7 @@ class CPUAI:
                                 'action': 'loan_player',
                                 'details': loan_result['details']
                             })
-                    elif action_choice < 0.85:  # 25% chance for free agency activity (combined)
+                    elif action_choice < 0.7:  # 5% chance for free agency activity (combined)
                         # TWO-PHASE FREE AGENCY APPROACH
                         # Phase 1: Try to raise existing offers (prioritized)
                         raise_offer_result = self.raise_cpu_free_agency_offer_aggressive(team_id)
@@ -2888,7 +3019,7 @@ class CPUAI:
                                     'action': 'free_agency_offer',
                                     'details': free_agency_result['details']
                                 })
-                    elif action_choice < 0.9:  # 5% chance to make market bazaar offers
+                    elif action_choice < 0.85:  # 15% chance to make market bazaar offers
                         market_offer_result = self.make_cpu_market_bazaar_offer(team_id)
                         if market_offer_result:
                             actions_taken.append({
@@ -2896,7 +3027,7 @@ class CPUAI:
                                 'action': market_offer_result['action'],
                                 'details': market_offer_result['details']
                             })
-                    else:  # 10% chance to make offer for USER players
+                    else:  # 15% chance to make offer for USER players
                         offer_result = self.make_cpu_offer_for_user_player(team_id)
                         if offer_result:
                             actions_taken.append({
@@ -2921,13 +3052,13 @@ class CPUAI:
                 if player_count < 16:
                     continue  # Small teams don't list players
                 elif player_count > 30:
-                    should_list = random.random() < 0.55 # 55% chance for large rosters
+                    should_list = random.random() < 0.50 # 30% chance for large rosters (reduced from 55%)
                 else:
-                    should_list = random.random() < 0.15  # 15% chance for normal rosters
+                    should_list = random.random() < 0.15  # 8% chance for normal rosters (reduced from 15%)
                 
                 if should_list:
                     action_choice = random.random()
-                    if action_choice < 0.9:  # 90% chance to list for sale
+                    if action_choice < 0.9:  # 70% chance to list for sale (reduced from 90%)
                         list_result = self.list_cpu_player_for_sale(team_id)
                         if list_result:
                             actions_taken.append({

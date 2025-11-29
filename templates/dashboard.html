@@ -48,6 +48,70 @@
         </div>
     </div>
 
+    {# Draft Picks Section #}
+    {% if draft_picks %}
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-trophy"></i> Your Draft Picks
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p style="color: black;">You have the following draft picks available for trading:</p>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Season</th>
+                                    <th>1st Pick</th>
+                                    <th>2nd Pick</th>
+                                    <th>3rd Pick</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% set seasons_list = [] %}
+                                {% for pick in draft_picks %}
+                                    {% if pick.season not in seasons_list %}
+                                        {% set _ = seasons_list.append(pick.season) %}
+                                    {% endif %}
+                                {% endfor %}
+                                {% for season in seasons_list|sort %}
+                                <tr>
+                                    <td><strong>{{ season }}</strong></td>
+                                    <td>
+                                        {% for pick in draft_picks %}
+                                            {% if pick.season == season and pick.pick_number == 1 %}
+                                                <span class="badge badge-success">1st Pick ({{ pick.original_owner_name }})</span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        {% for pick in draft_picks %}
+                                            {% if pick.season == season and pick.pick_number == 2 %}
+                                                <span class="badge badge-info">2nd Pick ({{ pick.original_owner_name }})</span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        {% for pick in draft_picks %}
+                                            {% if pick.season == season and pick.pick_number == 3 %}
+                                                <span class="badge badge-warning">3rd Pick ({{ pick.original_owner_name }})</span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="row mt-3">
         <div class="col-md-6">
             <div class="card">

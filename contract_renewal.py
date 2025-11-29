@@ -111,7 +111,7 @@ class ContractRenewalManager:
                 else:
                     pos_int = -1
                 
-                if pos_int in [0, 2, 3, 4]:
+                if pos_int in [0, 2, 3]:
                     base_salary = int(base_salary * 1.75)
             except (ValueError, TypeError):
                 pass  # Keep base_salary as-is if position is invalid
@@ -147,10 +147,10 @@ class ContractRenewalManager:
             if is_cpu:
                 # CPU gets fair terms (base salary)
                 salary_demand = base_salary
-                signing_bonus_percentage = random.uniform(0.20, 0.40)
+                signing_bonus_percentage = random.uniform(0.10, 0.25)
             else:
                 # User players ask for more (15-30% increase)
-                salary_increase = random.uniform(-0.05, 0.50)
+                salary_increase = random.uniform(-0.05, 0.20)
                 salary_demand = base_salary * (1 + salary_increase)
                 signing_bonus_percentage = random.uniform(0.10, 0.50)
             
@@ -251,7 +251,8 @@ class ContractRenewalManager:
                         SET club_id = 141,
                             contract_years_remaining = ?,
                             salary = ?,
-                            yearly_wage_rise = ?
+                            yearly_wage_rise = ?,
+                            market_value = 0
                         WHERE id = ?
                     """, (
                         contract_terms['contract_years'],
@@ -375,36 +376,57 @@ class ContractRenewalManager:
                         yearly_wage_rise = ?
                     WHERE id = ?
                 """, (contract_years, salary_demand, yearly_wage_rise, player_id))
-                
-            # Deduct signing bonus from team budget
-            cursor.execute("""
-                    UPDATE teams 
-                    SET budget = budget - ?
-                    WHERE id = (
-                        SELECT t.id FROM teams t
-                        JOIN league_teams lt ON t.club_name = lt.team_name
-                        WHERE lt.user_id = ?
-                    )
-                """, (signing_bonus, user_id))
             
-            # Record signing bonus transaction in finances (inline to avoid nested transactions)
-            # Get current budget after signing bonus deduction
+            # Use unified budget system (same as add_user_movement)
+            # Get current budget from user_budgets table
+            cursor.execute("SELECT budget FROM user_budgets WHERE user_id = ?", (user_id,))
+            budget_result = cursor.fetchone()
+            
+            if budget_result:
+                current_budget = budget_result[0]
+            else:
+                # Fallback: get from teams table if user_budgets doesn't exist
+                cursor.execute("""
+                    SELECT t.budget FROM teams t
+                    JOIN league_teams lt ON t.club_name = lt.team_name
+                    WHERE lt.user_id = ?
+                """, (user_id,))
+                team_result = cursor.fetchone()
+                current_budget = team_result[0] if team_result else 450000000
+                # Initialize user_budgets if it doesn't exist
+                cursor.execute("""
+                    INSERT INTO user_budgets (user_id, budget, updated_at)
+                    VALUES (?, ?, datetime('now'))
+                """, (user_id, current_budget))
+            
+            # Calculate new budget after signing bonus deduction
+            new_budget = current_budget - signing_bonus
+            
+            # Update unified budget
             cursor.execute("""
-                SELECT budget FROM teams 
+                UPDATE user_budgets 
+                SET budget = ?, updated_at = datetime('now')
+                WHERE user_id = ?
+            """, (new_budget, user_id))
+            
+            # Also update teams table budget for consistency (legacy)
+            cursor.execute("""
+                UPDATE teams 
+                SET budget = budget - ?
                 WHERE id = (
                     SELECT t.id FROM teams t
                     JOIN league_teams lt ON t.club_name = lt.team_name
                     WHERE lt.user_id = ?
                 )
-            """, (user_id,))
-            current_budget = cursor.fetchone()[0]
+            """, (signing_bonus, user_id))
             
+            # Record signing bonus transaction in finances with correct balance_after
             cursor.execute("""
                 INSERT INTO user_movements (user_id, type, description, amount, balance_after)
                 VALUES (?, ?, ?, ?, ?)
             """, (user_id, 'Signing Bonus', 
                   f"Signing bonus for {player_dict['player_name']} (Contract Renewal)", 
-                  -signing_bonus, current_budget))
+                  -signing_bonus, new_budget))
             
             # Commit database changes first
             self.conn.commit()
@@ -458,7 +480,8 @@ class ContractRenewalManager:
                 SET club_id = 141,
                     contract_years_remaining = ?,
                     salary = ?,
-                    yearly_wage_rise = ?
+                    yearly_wage_rise = ?,
+                    market_value = 0
                 WHERE id = ?
             """, (
                 contract_terms['contract_years'],
@@ -518,7 +541,8 @@ class ContractRenewalManager:
                 SET club_id = 141,
                     contract_years_remaining = ?,
                     salary = ?,
-                    yearly_wage_rise = ?
+                    yearly_wage_rise = ?,
+                    market_value = 0
                 WHERE id = ?
             """, (
                 contract_terms['contract_years'],
@@ -571,7 +595,8 @@ class ContractRenewalManager:
                 SET club_id = 141,
                     contract_years_remaining = ?,
                     salary = ?,
-                    yearly_wage_rise = ?
+                    yearly_wage_rise = ?,
+                    market_value = 0
                 WHERE id = ?
             """, (
                 contract_terms['contract_years'],

@@ -2126,3 +2126,689 @@ class CPULeagueManager:
 
 # Global league manager instance
 league_manager = CPULeagueManager()
+
+def simulate_cpu_game(home_team_id, away_team_id, cur):
+    """
+    SIMPLIFIED and RELIABLE CPU game simulation.
+    Guarantees: 1 GK per team, no GK goals/assists, always selects MVP, includes substitutions.
+    """
+    import random
+    
+    # Helper function to convert registered_position from TEXT to int
+    def get_pos_int(p):
+        """Convert registered_position (TEXT) to int for comparison"""
+        pos = p.get('registered_position')
+        try:
+            return int(pos) if pos is not None else -1
+        except (ValueError, TypeError):
+            return -1
+    
+    # Get all players for both teams
+    cur.execute("""
+        SELECT id, player_name, overall, registered_position
+        FROM players
+        WHERE club_id = ? AND overall IS NOT NULL
+        ORDER BY overall DESC
+    """, (home_team_id,))
+    home_players_all = [dict(row) for row in cur.fetchall()]
+    
+    cur.execute("""
+        SELECT id, player_name, overall, registered_position
+        FROM players
+        WHERE club_id = ? AND overall IS NOT NULL
+        ORDER BY overall DESC
+    """, (away_team_id,))
+    away_players_all = [dict(row) for row in cur.fetchall()]
+    
+    def select_starting_11(players, team_id):
+        """Select exactly 11 players using preferred lineup from DB, with 30% rotation per position"""
+        if not players or len(players) < 11:
+            return []
+        
+        # Get preferred lineup from database
+        cur.execute("""
+            SELECT slot_number, player_id, position_group
+            FROM team_preferred_lineup
+            WHERE team_id = ?
+            ORDER BY slot_number
+        """, (team_id,))
+        preferred_slots = [dict(row) for row in cur.fetchall()]
+        
+        # If no preferred lineup exists OR all slots have invalid position_group, fall back to best overall per position
+        valid_slots = [s for s in preferred_slots if s.get('position_group') and s.get('position_group') != 'FILL']
+        if not preferred_slots or len(valid_slots) < 8:  # Need at least 8 valid slots
+            # Group by position (using get_pos_int helper)
+            gks = sorted([p for p in players if get_pos_int(p) == 0], 
+                        key=lambda x: x.get('overall', 0), reverse=True)
+            side_backs = sorted([p for p in players if get_pos_int(p) in [4, 6]], 
+                               key=lambda x: x.get('overall', 0), reverse=True)
+            centre_backs = sorted([p for p in players if get_pos_int(p) in [2, 3]], 
+                                 key=lambda x: x.get('overall', 0), reverse=True)
+            centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7]], 
+                                key=lambda x: x.get('overall', 0), reverse=True)  # Fixed: removed 8 (SMF) from CM
+            side_mids = sorted([p for p in players if get_pos_int(p) in [8, 10]], 
+                              key=lambda x: x.get('overall', 0), reverse=True)
+            forwards = sorted([p for p in players if get_pos_int(p) in [11, 12]], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            
+            lineup = []
+            if gks:
+                lineup.append(gks[0])
+            for sb in side_backs[:2]:
+                lineup.append(sb)
+            for cb in centre_backs[:2]:
+                lineup.append(cb)
+            for cm in centre_mids[:2]:
+                lineup.append(cm)
+            for sm in side_mids[:2]:
+                lineup.append(sm)
+            for fwd in forwards[:2]:
+                lineup.append(fwd)
+            
+            return lineup[:11]
+        
+        # Build player lookup dict
+        players_dict = {p.get('id'): p for p in players}
+        
+        # Group players by position for rotation (using get_pos_int helper)
+        position_groups = {
+            'GK': [p for p in players if get_pos_int(p) == 0],
+            'SB/WB': [p for p in players if get_pos_int(p) in [4, 6]],
+            'CB/SW': [p for p in players if get_pos_int(p) in [2, 3]],
+            'CM': [p for p in players if get_pos_int(p) in [5, 7]],  # Fixed: removed 8 (SMF) from CM
+            'SM': [p for p in players if get_pos_int(p) in [8, 10]],
+            'FWD': [p for p in players if get_pos_int(p) in [11, 12]]
+        }
+        
+        # Sort each group by overall
+        for group in position_groups.values():
+            group.sort(key=lambda x: x.get('overall', 0), reverse=True)
+        
+        lineup = []
+        used_ids = set()
+        
+        # Process each slot from preferred lineup
+        for slot in preferred_slots:
+            slot_num = slot.get('slot_number')
+            preferred_player_id = slot.get('player_id')
+            position_group = slot.get('position_group', '')
+            
+            # Get preferred player
+            preferred_player = players_dict.get(preferred_player_id)
+            
+            # Skip if position_group is 'FILL' or invalid - determine from player's actual position
+            if not position_group or position_group == 'FILL':
+                if preferred_player:
+                    # Determine position group from player's registered_position (using get_pos_int)
+                    pos = get_pos_int(preferred_player)
+                    if pos == 0:
+                        position_group = 'GK'
+                    elif pos in [4, 6]:
+                        position_group = 'SB/WB'
+                    elif pos in [2, 3]:
+                        position_group = 'CB/SW'
+                    elif pos in [5, 7, 8]:
+                        position_group = 'CM'
+                    elif pos in [8, 10]:
+                        position_group = 'SM'
+                    elif pos in [11, 12]:
+                        position_group = 'FWD'
+                    else:
+                        # Unknown position - just use the player
+                        if preferred_player.get('id') not in used_ids:
+                            lineup.append(preferred_player)
+                            used_ids.add(preferred_player.get('id'))
+                        continue
+                else:
+                    continue
+            
+            # 30% chance to rotate per position group (only if position_group is valid)
+            if random.random() < 0.3 and position_group in position_groups:
+                # Rotate: pick another player from same position group
+                available_players = [p for p in position_groups[position_group] 
+                                   if p.get('id') not in used_ids and p.get('id') != preferred_player_id]
+                if available_players:
+                    # Pick from top 3-4 alternatives
+                    chosen = random.choice(available_players[:min(4, len(available_players))])
+                    lineup.append(chosen)
+                    used_ids.add(chosen.get('id'))
+                elif preferred_player and preferred_player.get('id') not in used_ids:
+                    # Fallback to preferred if no alternatives
+                    lineup.append(preferred_player)
+                    used_ids.add(preferred_player.get('id'))
+            else:
+                # Use preferred player (70% of the time)
+                if preferred_player and preferred_player.get('id') not in used_ids:
+                    lineup.append(preferred_player)
+                    used_ids.add(preferred_player.get('id'))
+                else:
+                    # Preferred player not available, pick best from position group
+                    if position_group in position_groups:
+                        available = [p for p in position_groups[position_group] 
+                                     if p.get('id') not in used_ids]
+                        if available:
+                            chosen = available[0]
+                            lineup.append(chosen)
+                            used_ids.add(chosen.get('id'))
+        
+        # Ensure exactly 11 players
+        if len(lineup) < 11:
+            used_ids_set = set(used_ids)
+            available = sorted([p for p in players if p.get('id') not in used_ids_set 
+                              and get_pos_int(p) != 0], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            needed = 11 - len(lineup)
+            for p in available[:needed]:
+                lineup.append(p)
+                used_ids.add(p.get('id'))
+        
+        # CRITICAL: Ensure exactly 1 goalkeeper (using get_pos_int)
+        gks_in_lineup = [p for p in lineup if get_pos_int(p) == 0]
+        if len(gks_in_lineup) > 1:
+            # Keep only first (best) GK
+            first_gk = gks_in_lineup[0]
+            non_gks = [p for p in lineup if get_pos_int(p) != 0]
+            lineup = [first_gk] + non_gks
+        elif len(gks_in_lineup) == 0:
+            # No GK - add best available
+            available_gks = [p for p in players if get_pos_int(p) == 0 
+                           and p.get('id') not in used_ids]
+            if available_gks:
+                available_gks.sort(key=lambda x: x.get('overall', 0), reverse=True)
+                if len(lineup) >= 11:
+                    lineup = lineup[:-1]
+                lineup = [available_gks[0]] + lineup
+        
+        return lineup[:11]
+    
+    # Select starting 11 for both teams using preferred lineups
+    home_lineup = select_starting_11(home_players_all, home_team_id)
+    away_lineup = select_starting_11(away_players_all, away_team_id)
+    
+    # CRITICAL: Check if lineups are empty
+    if not home_lineup or len(home_lineup) == 0:
+        # Fallback: create basic lineup from available players
+        home_lineup = home_players_all[:11] if len(home_players_all) >= 11 else home_players_all
+    
+    if not away_lineup or len(away_lineup) == 0:
+        # Fallback: create basic lineup from available players
+        away_lineup = away_players_all[:11] if len(away_players_all) >= 11 else away_players_all
+    
+    # CRITICAL: Validate lineups IMMEDIATELY - ensure exactly 1 GK per team (using get_pos_int)
+    def ensure_one_gk(lineup):
+        """Force lineup to have exactly 1 goalkeeper"""
+        gks = [p for p in lineup if get_pos_int(p) == 0]
+        non_gks = [p for p in lineup if get_pos_int(p) != 0]
+        if len(gks) > 1:
+            # Keep only the best (first) goalkeeper
+            return [gks[0]] + non_gks
+        elif len(gks) == 1:
+            return lineup
+        else:
+            # No GK - this shouldn't happen, but return as is
+            return lineup
+    
+    home_lineup = ensure_one_gk(home_lineup)
+    away_lineup = ensure_one_gk(away_lineup)
+    
+    # Double-check: count goalkeepers
+    home_gk_count = sum(1 for p in home_lineup if get_pos_int(p) == 0)
+    away_gk_count = sum(1 for p in away_lineup if get_pos_int(p) == 0)
+    
+    if home_gk_count != 1:
+        # Emergency fix
+        gks = [p for p in home_lineup if get_pos_int(p) == 0]
+        non_gks = [p for p in home_lineup if get_pos_int(p) != 0]
+        home_lineup = ([gks[0]] if gks else []) + non_gks
+    
+    if away_gk_count != 1:
+        # Emergency fix
+        gks = [p for p in away_lineup if get_pos_int(p) == 0]
+        non_gks = [p for p in away_lineup if get_pos_int(p) != 0]
+        away_lineup = ([gks[0]] if gks else []) + non_gks
+    
+    # Perform substitutions (2-3 per team)
+    def make_substitutions(starting_11, all_players):
+        """Make 2-3 substitutions, return final lineup and substitution list"""
+        if len(all_players) <= 11:
+            return starting_11, []
+        
+        num_subs = random.randint(2, 3)
+        used_ids = {p.get('id') for p in starting_11}
+        available_subs = [p for p in all_players if p.get('id') not in used_ids and get_pos_int(p) != 0]
+        
+        if len(available_subs) < num_subs:
+            num_subs = len(available_subs)
+        
+        if num_subs == 0:
+            return starting_11, []
+        
+        # Get non-GK players from starting 11 to substitute out
+        non_gk_starters = [p for p in starting_11 if get_pos_int(p) != 0]
+        if len(non_gk_starters) < num_subs:
+            return starting_11, []
+        
+        # Select players to sub out (not goalkeeper)
+        players_to_sub_out = random.sample(non_gk_starters, num_subs)
+        subs_made = []
+        final_lineup = starting_11.copy()
+        
+        for player_out in players_to_sub_out:
+            if not available_subs:
+                break
+            # Select substitute (prefer similar position)
+            player_out_pos = get_pos_int(player_out)
+            similar_subs = [p for p in available_subs if get_pos_int(p) == player_out_pos]
+            
+            if similar_subs:
+                sub_in = random.choice(similar_subs)
+            else:
+                sub_in = random.choice(available_subs)
+            
+            # Replace in lineup
+            for i, p in enumerate(final_lineup):
+                if p.get('id') == player_out.get('id'):
+                    final_lineup[i] = sub_in
+                    break
+            
+            subs_made.append({
+                'out': player_out,
+                'in': sub_in,
+                'minute': random.randint(60, 85)
+            })
+            available_subs.remove(sub_in)
+        
+        return final_lineup, subs_made
+    
+    home_lineup_final, home_subs = make_substitutions(home_lineup, home_players_all)
+    away_lineup_final, away_subs = make_substitutions(away_lineup, away_players_all)
+    
+    # CRITICAL: Validate final lineups after substitutions - ensure still only 1 GK
+    home_lineup_final = ensure_one_gk(home_lineup_final)
+    away_lineup_final = ensure_one_gk(away_lineup_final)
+    
+    # Final verification (using get_pos_int)
+    if sum(1 for p in home_lineup_final if get_pos_int(p) == 0) != 1:
+        gks = [p for p in home_lineup_final if get_pos_int(p) == 0]
+        non_gks = [p for p in home_lineup_final if get_pos_int(p) != 0]
+        home_lineup_final = ([gks[0]] if gks else []) + non_gks
+    
+    if sum(1 for p in away_lineup_final if get_pos_int(p) == 0) != 1:
+        gks = [p for p in away_lineup_final if get_pos_int(p) == 0]
+        non_gks = [p for p in away_lineup_final if get_pos_int(p) != 0]
+        away_lineup_final = ([gks[0]] if gks else []) + non_gks
+    
+    # Calculate minutes played
+    def calculate_minutes(lineup, subs_made):
+        """Calculate minutes played for all players"""
+        minutes = {}
+        # All starters get 90 minutes initially
+        for p in lineup:
+            minutes[p.get('id')] = 90
+        
+        # Adjust for substitutions
+        for sub in subs_made:
+            player_out_id = sub['out'].get('id')
+            player_in_id = sub['in'].get('id')
+            sub_minute = sub['minute']
+            minutes[player_out_id] = sub_minute
+            minutes[player_in_id] = 90 - sub_minute
+        
+        return minutes
+    
+    home_minutes = calculate_minutes(home_lineup, home_subs)
+    away_minutes = calculate_minutes(away_lineup, away_subs)
+    
+    # Calculate strength and scores
+    home_strength = sum(p['overall'] for p in home_lineup) / len(home_lineup) if home_lineup else 50
+    away_strength = sum(p['overall'] for p in away_lineup) / len(away_lineup) if away_lineup else 50
+    strength_diff = (home_strength - away_strength) / 10
+    home_expected = max(0.5, 1.5 + strength_diff * 1.5 + 0.3)
+    away_expected = max(0.5, 1.5 - strength_diff * 1.5)
+    home_score = max(0, min(6, int(random.gauss(home_expected, 0.8))))
+    away_score = max(0, min(6, int(random.gauss(away_expected, 0.8))))
+    
+    # Player stats
+    player_stats = []
+    stats_dict = {}  # player_id -> stat dict
+    
+    def get_stat(player_id, player_name, team_id):
+        if player_id not in stats_dict:
+            stats_dict[player_id] = {
+                'player_id': player_id,
+                'player_name': player_name,
+                'team_id': team_id,
+                'goals': 0,
+                'assists': 0,
+                'played': True,
+                'minutes_played': 90,
+                'is_starter': 1
+            }
+            player_stats.append(stats_dict[player_id])
+        return stats_dict[player_id]
+    
+    # Position probabilities
+    def score_prob(pos):
+        if pos == 0: return 0.0
+        elif pos in [2, 3, 4, 6]: return 0.10
+        elif pos in [5, 7, 8]: return 0.15
+        elif pos in [10]: return 0.20
+        elif pos in [11, 12]: return 0.55
+        return 0.10
+    
+    def assist_prob(pos):
+        if pos == 0: return 0.01
+        elif pos in [2, 3, 4, 6]: return 0.14
+        elif pos in [5, 7, 8]: return 0.35
+        elif pos in [10]: return 0.25
+        elif pos in [11, 12]: return 0.25
+        return 0.14
+    
+    # Distribute goals (NEVER to goalkeepers) - use final lineup after substitutions
+    # Probability per player remains constant regardless of team size
+    # Not all goals need to be assigned if team is incomplete
+    non_gk_home = [p for p in home_lineup_final if get_pos_int(p) != 0]
+    for _ in range(home_score):
+        if not non_gk_home:
+            # Team incomplete - goal not assigned (this is fine)
+            continue
+        # Calculate weights based on position probability and overall (normalized per player)
+        weights = [(p, score_prob(get_pos_int(p)) * p['overall'] / 100) for p in non_gk_home]
+        total = sum(w for _, w in weights)
+        if total > 0:
+            # Use weighted random selection - probability per player is constant
+            rand = random.random() * total
+            cum = 0
+            scorer = None
+            for p, w in weights:
+                cum += w
+                if rand <= cum:
+                    scorer = p
+                    break
+            if scorer:
+                get_stat(scorer['id'], scorer['player_name'], home_team_id)['goals'] += 1
+                # Assign assist (only if there are other players available)
+                assist_candidates = [p for p in non_gk_home if p['id'] != scorer['id']]
+                if assist_candidates:
+                    assist_weights = [(p, assist_prob(get_pos_int(p)) * p['overall'] / 100) for p in assist_candidates]
+                    total_assist = sum(w for _, w in assist_weights)
+                    if total_assist > 0:
+                        rand = random.random() * total_assist
+                        cum = 0
+                        for p, w in assist_weights:
+                            cum += w
+                            if rand <= cum:
+                                get_stat(p['id'], p['player_name'], home_team_id)['assists'] += 1
+                                break
+                # If no assist candidates, assist is not assigned (this is fine for incomplete teams)
+    
+    # Distribute away goals - use final lineup after substitutions
+    # Probability per player remains constant regardless of team size
+    # Not all goals need to be assigned if team is incomplete
+    non_gk_away = [p for p in away_lineup_final if get_pos_int(p) != 0]
+    for _ in range(away_score):
+        if not non_gk_away:
+            # Team incomplete - goal not assigned (this is fine)
+            continue
+        # Calculate weights based on position probability and overall (normalized per player)
+        weights = [(p, score_prob(get_pos_int(p)) * p['overall'] / 100) for p in non_gk_away]
+        total = sum(w for _, w in weights)
+        if total > 0:
+            # Use weighted random selection - probability per player is constant
+            rand = random.random() * total
+            cum = 0
+            scorer = None
+            for p, w in weights:
+                cum += w
+                if rand <= cum:
+                    scorer = p
+                    break
+            if scorer:
+                get_stat(scorer['id'], scorer['player_name'], away_team_id)['goals'] += 1
+                # Assign assist (only if there are other players available)
+                assist_candidates = [p for p in non_gk_away if p['id'] != scorer['id']]
+                if assist_candidates:
+                    assist_weights = [(p, assist_prob(get_pos_int(p)) * p['overall'] / 100) for p in assist_candidates]
+                    total_assist = sum(w for _, w in assist_weights)
+                    if total_assist > 0:
+                        rand = random.random() * total_assist
+                        cum = 0
+                        for p, w in assist_weights:
+                            cum += w
+                            if rand <= cum:
+                                get_stat(p['id'], p['player_name'], away_team_id)['assists'] += 1
+                                break
+                # If no assist candidates, assist is not assigned (this is fine for incomplete teams)
+    
+    # CRITICAL: Final validation RIGHT BEFORE adding to stats - ensure exactly 1 GK per team
+    def filter_to_one_gk(lineup):
+        """Filter lineup to have exactly 1 goalkeeper"""
+        if not lineup or len(lineup) == 0:
+            return lineup
+        gks = [p for p in lineup if get_pos_int(p) == 0]
+        non_gks = [p for p in lineup if get_pos_int(p) != 0]
+        if len(gks) > 1:
+            return [gks[0]] + non_gks
+        elif len(gks) == 1:
+            return [gks[0]] + non_gks
+        else:
+            return non_gks if non_gks else lineup
+    
+    # CRITICAL: Filter to exactly 1 GK BEFORE any other processing
+    def force_one_gk_final(lineup):
+        """Force lineup to have exactly 1 goalkeeper - FINAL VERSION"""
+        if not lineup:
+            return lineup
+        gks = [p for p in lineup if p.get('registered_position', -1) == 0]
+        non_gks = [p for p in lineup if p.get('registered_position', -1) != 0]
+        if len(gks) > 1:
+            # Keep only the FIRST (best) goalkeeper
+            return [gks[0]] + non_gks[:10]  # Ensure exactly 11 total
+        elif len(gks) == 1:
+            return [gks[0]] + non_gks[:10]  # Ensure exactly 11 total
+        else:
+            # No GK - add one if possible
+            return non_gks[:11] if len(non_gks) >= 11 else non_gks
+    
+    home_lineup_final = force_one_gk_final(home_lineup_final)
+    away_lineup_final = force_one_gk_final(away_lineup_final)
+    
+    # CRITICAL: Final verification - count goalkeepers (using get_pos_int)
+    home_gk_final_count = sum(1 for p in home_lineup_final if get_pos_int(p) == 0)
+    away_gk_final_count = sum(1 for p in away_lineup_final if get_pos_int(p) == 0)
+    
+    if home_gk_final_count != 1:
+        # Emergency: rebuild with exactly 1 GK
+        gks_h = [p for p in home_lineup_final if get_pos_int(p) == 0]
+        non_gks_h = [p for p in home_lineup_final if get_pos_int(p) != 0]
+        home_lineup_final = ([gks_h[0]] if gks_h else []) + non_gks_h[:10]
+    
+    if away_gk_final_count != 1:
+        # Emergency: rebuild with exactly 1 GK
+        gks_a = [p for p in away_lineup_final if get_pos_int(p) == 0]
+        non_gks_a = [p for p in away_lineup_final if get_pos_int(p) != 0]
+        away_lineup_final = ([gks_a[0]] if gks_a else []) + non_gks_a[:10]
+    
+    # CRITICAL: Ensure lineups are not empty
+    if not home_lineup_final or len(home_lineup_final) == 0:
+        # Emergency fallback: use first 11 players
+        home_lineup_final = home_players_all[:11] if len(home_players_all) >= 11 else home_players_all
+        # Ensure at least 1 GK
+        gks_home = [p for p in home_lineup_final if get_pos_int(p) == 0]
+        if not gks_home:
+            # Add best GK if available
+            all_gks_home = [p for p in home_players_all if get_pos_int(p) == 0]
+            if all_gks_home:
+                all_gks_home.sort(key=lambda x: x.get('overall', 0), reverse=True)
+                if len(home_lineup_final) >= 11:
+                    home_lineup_final = home_lineup_final[:-1]
+                home_lineup_final = [all_gks_home[0]] + home_lineup_final
+    
+    if not away_lineup_final or len(away_lineup_final) == 0:
+        # Emergency fallback: use first 11 players
+        away_lineup_final = away_players_all[:11] if len(away_players_all) >= 11 else away_players_all
+        # Ensure at least 1 GK
+        gks_away = [p for p in away_lineup_final if get_pos_int(p) == 0]
+        if not gks_away:
+            # Add best GK if available
+            all_gks_away = [p for p in away_players_all if get_pos_int(p) == 0]
+            if all_gks_away:
+                all_gks_away.sort(key=lambda x: x.get('overall', 0), reverse=True)
+                if len(away_lineup_final) >= 11:
+                    away_lineup_final = away_lineup_final[:-1]
+                away_lineup_final = [all_gks_away[0]] + away_lineup_final
+    
+    # CRITICAL: Final, absolute check - remove any extra goalkeepers RIGHT BEFORE adding to stats
+    def remove_extra_gks_absolute(lineup):
+        """Remove ALL extra goalkeepers, keep only the first one"""
+        if not lineup:
+            return lineup
+        gks = [p for p in lineup if get_pos_int(p) == 0]
+        non_gks = [p for p in lineup if get_pos_int(p) != 0]
+        if len(gks) > 1:
+            # Keep ONLY the first goalkeeper, remove all others
+            return [gks[0]] + non_gks
+        elif len(gks) == 1:
+            return [gks[0]] + non_gks
+        else:
+            return non_gks
+    
+    home_lineup_final = remove_extra_gks_absolute(home_lineup_final)
+    away_lineup_final = remove_extra_gks_absolute(away_lineup_final)
+    
+    # Verify one more time (using get_pos_int)
+    home_gk_count_final = sum(1 for p in home_lineup_final if get_pos_int(p) == 0)
+    away_gk_count_final = sum(1 for p in away_lineup_final if get_pos_int(p) == 0)
+    
+    if home_gk_count_final > 1:
+        # Last resort: rebuild completely
+        gks_h = [p for p in home_lineup_final if get_pos_int(p) == 0]
+        non_gks_h = [p for p in home_lineup_final if get_pos_int(p) != 0]
+        home_lineup_final = [gks_h[0]] + non_gks_h[:10]
+    
+    if away_gk_count_final > 1:
+        # Last resort: rebuild completely
+        gks_a = [p for p in away_lineup_final if get_pos_int(p) == 0]
+        non_gks_a = [p for p in away_lineup_final if get_pos_int(p) != 0]
+        away_lineup_final = [gks_a[0]] + non_gks_a[:10]
+    
+    # Add all players who played (starters and substitutes)
+    all_played_ids = set()
+    
+    # IMPORTANT: Use home_lineup (original starting 11) for starters, NOT home_lineup_final (after subs)
+    # Add starters (home) - ONLY ONE GOALKEEPER ALLOWED
+    home_gk_added = False
+    for p in home_lineup:  # Use original lineup, not final lineup
+        pid = p.get('id')
+        pos = get_pos_int(p)
+        # CRITICAL: Only add ONE goalkeeper per team, skip any extras
+        if pos == 0:
+            if not home_gk_added and pid not in all_played_ids:
+                stat = get_stat(pid, p.get('player_name', 'Unknown'), home_team_id)
+                stat['minutes_played'] = home_minutes.get(pid, 90)
+                stat['is_starter'] = 1  # Explicitly set as starter
+                all_played_ids.add(pid)
+                home_gk_added = True
+            # SKIP any additional goalkeepers - DO NOT ADD THEM
+        elif pid not in all_played_ids:
+            stat = get_stat(pid, p.get('player_name', 'Unknown'), home_team_id)
+            stat['minutes_played'] = home_minutes.get(pid, 90)
+            stat['is_starter'] = 1  # Explicitly set as starter
+            all_played_ids.add(pid)
+    
+    # Add substitutes (home) - NEVER goalkeepers
+    for sub in home_subs:
+        pid = sub['in'].get('id')
+        pos = get_pos_int(sub['in'])
+        if pos != 0:  # Never add goalkeeper substitutes
+            # Get or create stat - ALWAYS set as substitute, even if already exists
+            stat = get_stat(pid, sub['in'].get('player_name', 'Unknown'), home_team_id)
+            stat['minutes_played'] = home_minutes.get(pid, 0)
+            stat['is_starter'] = 0  # CRITICAL: Always set as substitute (override any previous value)
+            all_played_ids.add(pid)
+    
+    # IMPORTANT: Use away_lineup (original starting 11) for starters, NOT away_lineup_final (after subs)
+    # Add starters (away) - ONLY ONE GOALKEEPER ALLOWED
+    away_gk_added = False
+    for p in away_lineup:  # Use original lineup, not final lineup
+        pid = p.get('id')
+        pos = get_pos_int(p)
+        # CRITICAL: Only add ONE goalkeeper per team, skip any extras
+        if pos == 0:
+            if not away_gk_added and pid not in all_played_ids:
+                stat = get_stat(pid, p.get('player_name', 'Unknown'), away_team_id)
+                stat['minutes_played'] = away_minutes.get(pid, 90)
+                stat['is_starter'] = 1  # Explicitly set as starter
+                all_played_ids.add(pid)
+                away_gk_added = True
+            # SKIP any additional goalkeepers - DO NOT ADD THEM
+        elif pid not in all_played_ids:
+            stat = get_stat(pid, p.get('player_name', 'Unknown'), away_team_id)
+            stat['minutes_played'] = away_minutes.get(pid, 90)
+            stat['is_starter'] = 1  # Explicitly set as starter
+            all_played_ids.add(pid)
+    
+    # Add substitutes (away) - NEVER goalkeepers
+    for sub in away_subs:
+        pid = sub['in'].get('id')
+        pos = get_pos_int(sub['in'])
+        if pos != 0:  # Never add goalkeeper substitutes
+            # Get or create stat - ALWAYS set as substitute, even if already exists
+            stat = get_stat(pid, sub['in'].get('player_name', 'Unknown'), away_team_id)
+            stat['minutes_played'] = away_minutes.get(pid, 0)
+            stat['is_starter'] = 0  # CRITICAL: Always set as substitute (override any previous value)
+            all_played_ids.add(pid)
+    
+    # Select MVP - GUARANTEED to return a valid player ID
+    winning_team = home_team_id if home_score > away_score else (away_team_id if away_score > home_score else None)
+    contributors = [s for s in player_stats if s.get('goals', 0) > 0 or s.get('assists', 0) > 0]
+    
+    mvp_player_id = None
+    
+    if contributors:
+        if winning_team:
+            winning_contribs = [s for s in contributors if s.get('team_id') == winning_team]
+            if winning_contribs:
+                mvp_player_id = max(winning_contribs, key=lambda x: x.get('goals', 0) * 3 + x.get('assists', 0) * 2).get('player_id')
+            else:
+                mvp_player_id = max(contributors, key=lambda x: x.get('goals', 0) * 3 + x.get('assists', 0) * 2).get('player_id')
+        else:
+            mvp_player_id = max(contributors, key=lambda x: x.get('goals', 0) * 3 + x.get('assists', 0) * 2).get('player_id')
+    
+    # Fallback: best overall from winning team (non-GK)
+    if not mvp_player_id:
+        if winning_team:
+            winning_lineup = home_lineup_final if winning_team == home_team_id else away_lineup_final
+            non_gk = [p for p in winning_lineup if get_pos_int(p) != 0]
+            if non_gk:
+                mvp_player_id = max(non_gk, key=lambda x: x.get('overall', 0)).get('id')
+            elif winning_lineup:
+                mvp_player_id = max(winning_lineup, key=lambda x: x.get('overall', 0)).get('id')
+        else:
+            all_players = home_lineup_final + away_lineup_final
+            non_gk = [p for p in all_players if get_pos_int(p) != 0]
+            if non_gk:
+                mvp_player_id = max(non_gk, key=lambda x: x.get('overall', 0)).get('id')
+            elif all_players:
+                mvp_player_id = max(all_players, key=lambda x: x.get('overall', 0)).get('id')
+    
+    # Final fallback: any player from lineups
+    if not mvp_player_id:
+        if home_lineup_final:
+            mvp_player_id = home_lineup_final[0].get('id')
+        elif away_lineup_final:
+            mvp_player_id = away_lineup_final[0].get('id')
+        elif player_stats:
+            mvp_player_id = player_stats[0].get('player_id')
+    
+    # CRITICAL: Ensure MVP is always a valid player ID (not None)
+    if not mvp_player_id and player_stats:
+        # Last resort: use first player in stats
+        mvp_player_id = player_stats[0].get('player_id')
+    
+    return {
+        'home_score': home_score,
+        'away_score': away_score,
+        'player_stats': player_stats,
+        'mvp_player_id': mvp_player_id
+    }

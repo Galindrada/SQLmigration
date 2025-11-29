@@ -27,8 +27,27 @@
                 <tr>
                     <td>{{ offer.sender_username }}</td>
                     <td>
-                        <strong>Their Offer:</strong> Players: {{ offer.offered_player_names|join(', ') }} | Money: {{ offer.offered_money }}<br>
-                        <strong>Your Side:</strong> Players: {{ offer.requested_player_names|join(', ') }} | Money: {{ offer.requested_money }}
+                        <strong>Their Offer:</strong> 
+                        {% if offer.offered_player_names %}
+                            Players: {{ offer.offered_player_names|join(', ') }}
+                        {% endif %}
+                        {% if offer.offered_money and offer.offered_money > 0 %}
+                            | Money: €{{ offer.offered_money|int|format_currency }}
+                        {% endif %}
+                        {% if offer.offered_pick_details %}
+                            | Draft Picks: {{ offer.offered_pick_details|join(', ') }}
+                        {% endif %}
+                        <br>
+                        <strong>Your Side:</strong> 
+                        {% if offer.requested_player_names %}
+                            Players: {{ offer.requested_player_names|join(', ') }}
+                        {% endif %}
+                        {% if offer.requested_money and offer.requested_money > 0 %}
+                            | Money: €{{ offer.requested_money|int|format_currency }}
+                        {% endif %}
+                        {% if offer.requested_pick_details %}
+                            | Draft Picks: {{ offer.requested_pick_details|join(', ') }}
+                        {% endif %}
                         {% if offer.is_cpu_offer and offer.cpu_team_name %}
                             <br><em>Negotiating with: {{ offer.cpu_team_name }}</em>
                         {% endif %}

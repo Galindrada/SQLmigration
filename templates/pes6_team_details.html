@@ -150,13 +150,119 @@
     </div>
     {% endif %}
 
+    <!-- Preferred Lineup (Top 11) Section -->
+    {% if preferred_lineup and preferred_lineup|length > 0 %}
+    <div class="preferred-lineup-section" style="margin-bottom: 30px;">
+        <div class="card" style="background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 2px solid #dee2e6; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+            <div class="card-header" style="background: linear-gradient(145deg, #28a745, #20c997); color: white; border-bottom: 2px solid #28a745; border-radius: 8px 8px 0 0;">
+                <h4 style="margin: 0; text-align: center; font-weight: bold;">
+                    <i class="fas fa-futbol"></i> Preferred Starting 11 (4-4-2 Formation)
+                </h4>
+            </div>
+            <div class="card-body" style="padding: 20px;">
+                <div class="soccer-field-container">
+                    <div class="soccer-field">
+                        <!-- Forwards (2) - Slots 10-11 - TOP ROW (CF - CF/SS) -->
+                        <div class="forward-line">
+                            {% for slot_num in [10, 11] %}
+                                <div class="player-position fwd-position" data-slot="{{ slot_num }}">
+                                    {% for player in preferred_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <a href="{{ url_for('pes6_player_details', player_id=player[2]) }}" style="text-decoration: none; display: block;">
+                                                    <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                         alt="{{ player[3] }}" 
+                                                         class="player-image"
+                                                         style="cursor: pointer;"
+                                                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                </a>
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Midfielders (4) - Slots 6-9 - SECOND ROW (WF/SMF - CMF - CMF - WF/SMF) -->
+                        <div class="midfield-line">
+                            {% for slot_num in [6, 7, 8, 9] %}
+                                <div class="player-position mid-position" data-slot="{{ slot_num }}">
+                                    {% for player in preferred_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <a href="{{ url_for('pes6_player_details', player_id=player[2]) }}" style="text-decoration: none; display: block;">
+                                                    <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                         alt="{{ player[3] }}" 
+                                                         class="player-image"
+                                                         style="cursor: pointer;"
+                                                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                </a>
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Defenders (4) - Slots 2-5 - THIRD ROW (SB/WB - CB/SW - CB/SW - SB/WB) -->
+                        <div class="defense-line">
+                            {% for slot_num in [2, 3, 4, 5] %}
+                                <div class="player-position def-position" data-slot="{{ slot_num }}">
+                                    {% for player in preferred_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <a href="{{ url_for('pes6_player_details', player_id=player[2]) }}" style="text-decoration: none; display: block;">
+                                                    <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                         alt="{{ player[3] }}" 
+                                                         class="player-image"
+                                                         style="cursor: pointer;"
+                                                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                </a>
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Goalkeeper - Slot 1 - BOTTOM ROW -->
+                        <div class="player-position gk-position" data-slot="1">
+                            {% for player in preferred_lineup %}
+                                {% if player[0] == 1 %}
+                                    <div class="player-card">
+                                        <a href="{{ url_for('pes6_player_details', player_id=player[2]) }}" style="text-decoration: none; display: block;">
+                                            <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                 alt="{{ player[3] }}" 
+                                                 class="player-image"
+                                                 style="cursor: pointer;"
+                                                 onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                        </a>
+                                        <div class="player-name">{{ player[3] }}</div>
+                                        <div class="player-overall">{{ player[5] }}</div>
+                                    </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     {% if players_in_team %}
         <table>
             <thead>
                 <tr>
                     <th>Name</th>
                     <th>Age</th>
-                    <th>Game Position</th>
+                    <th>Position</th>
                     <th>Side</th>
                     <th>Att</th>
                     <th>Def</th>
@@ -164,6 +270,9 @@
                     <th>Pwr</th>
                     <th>Te</th>
                     <th>GK</th>
+                    <th>Games</th>
+                    <th>Goals</th>
+                    <th>Assists</th>
                     <th>Salary</th>
                     <th>MV</th>
                     <th>CTy</th>
@@ -175,7 +284,23 @@
                     <tr>
                         <td><a href="{{ url_for('pes6_player_details', player_id=player[0]) }}">{{ player[1] }}</a></td> {# player_name #}
                         <td>{{ player[3] }}</td> {# age #}
-                        <td>{{ player[13] }}</td> {# game_position #}
+                        <td>
+                            {% set game_pos = player[13] %}
+                            {% if game_pos == 'Goal-Keeper' %}GK
+                            {% elif game_pos == 'Sweeper' %}SW
+                            {% elif game_pos == 'Centre-Back' %}CB
+                            {% elif game_pos == 'Side-Back' %}SB
+                            {% elif game_pos == 'Wing-Back' %}WB
+                            {% elif game_pos == 'Defensive Midfielder' %}DMF
+                            {% elif game_pos == 'Center-Midfielder' %}CMF
+                            {% elif game_pos == 'Side-Midfielder' %}SMF
+                            {% elif game_pos == 'Attacking Midfielder' %}AMF
+                            {% elif game_pos == 'Winger' %}WF
+                            {% elif game_pos == 'Shadow Striker' %}SS
+                            {% elif game_pos == 'Striker' %}CF
+                            {% else %}{{ game_pos }}
+                            {% endif %}
+                        </td>
                         <td>{{ player[5] }}</td> {# strong_foot #}
                         <td>{{ player[7] }}</td> {# attack_rating #}
                         <td>{{ player[8] }}</td> {# defense_rating #}
@@ -183,6 +308,9 @@
                         <td>{{ player[10] }}</td> {# power_rating #}
                         <td>{{ player[11] }}</td> {# technique_rating #}
                         <td>{{ player[12] }}</td> {# goalkeeping_rating #}
+                        <td>{{ player[19] or 0 }}</td> {# games_played #}
+                        <td>{{ player[20] or 0 }}</td> {# goals #}
+                        <td>{{ player[21] or 0 }}</td> {# assists #}
                         <td>€{{ player[14]|format_currency_compact }}</td> {# salary #}
                         <td>€{{ player[16]|format_currency_compact }}</td> {# market_value #}
                         <td>{{ player[15] }}</td> {# contract_years_remaining #}
@@ -350,6 +478,155 @@
             font-size: 0.8em;
             color: #ffd700;
             font-weight: bold;
+        }
+
+        /* Soccer Field Styles */
+        .soccer-field-container {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .soccer-field {
+            position: relative;
+            width: 100%;
+            height: 600px;
+            background: linear-gradient(90deg, #2d5016 0%, #3a6b1f 50%, #2d5016 100%);
+            border: 4px solid #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .soccer-field::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: 
+                repeating-linear-gradient(0deg, transparent, transparent 29px, rgba(255,255,255,0.1) 29px, rgba(255,255,255,0.1) 30px),
+                repeating-linear-gradient(90deg, transparent, transparent 29px, rgba(255,255,255,0.1) 29px, rgba(255,255,255,0.1) 30px);
+        }
+
+        /* Center circle */
+        .soccer-field::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border: 3px solid rgba(255,255,255,0.5);
+            border-radius: 50%;
+        }
+
+        .player-position {
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .player-card {
+            text-align: center;
+            background: rgba(255,255,255,0.95);
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 5px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            min-width: 70px;
+        }
+
+        .player-card:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+
+        .player-image {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid #333;
+            display: block;
+            margin: 0 auto 3px;
+        }
+
+        .player-name {
+            font-size: 10px;
+            font-weight: bold;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 70px;
+        }
+
+        .player-overall {
+            font-size: 12px;
+            font-weight: bold;
+            color: #28a745;
+            margin-top: 2px;
+        }
+
+        /* Goalkeeper position */
+        .gk-position {
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* Defense line (4-4-2) */
+        .defense-line {
+            position: absolute;
+            bottom: 120px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-around;
+            padding: 0 10%;
+        }
+
+        .def-position {
+            position: relative;
+        }
+
+        /* Midfield line (4-4-2) */
+        .midfield-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
+            display: flex;
+            justify-content: space-around;
+            padding: 0 10%;
+        }
+
+        .mid-position {
+            position: relative;
+        }
+
+        /* Attack line (4-4-2) */
+        .attack-line {
+            position: absolute;
+            top: 120px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-around;
+            padding: 0 25%;
+        }
+
+        .fwd-position {
+            position: relative;
         }
     </style>
 

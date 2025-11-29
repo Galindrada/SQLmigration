@@ -18,23 +18,49 @@
     <nav>
         <div class="container">
             <ul>
-                <li><a href="{{ url_for('index') }}">Home</a></li>
-                <li><a href="{{ url_for('blog') }}">Blog</a></li>
-                <li><a href="{{ url_for('pes6_game_teams') }}">PES6 Game Data</a></li>
-                <li><a href="{{ url_for('cpu_leagues') }}">CPU Leagues</a></li>
-                <li><a href="{{ url_for('tools') }}">Tools</a></li>
-                <li class="player-search-container">
-                    <input type="text" id="player-search" placeholder="🔍 Search Players..." autocomplete="off" style="padding: 8px 15px; border-radius: 20px; border: 1px solid #555; background: #2a2a2a; color: #ffd700; width: 250px; font-size: 14px;">
-                    <div id="player-search-results" style="display: none; position: absolute; background: #2a2a2a; border: 1px solid #555; border-radius: 5px; max-height: 300px; overflow-y: auto; z-index: 1000; margin-top: 5px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);"></div>
+                <!-- Home Group -->
+                <li class="nav-group">
+                    <a href="#" class="nav-header" onclick="toggleNavGroup(event, this)">Home ▼</a>
+                    <ul class="nav-submenu">
+                        <li><a href="{{ url_for('index') }}">Home</a></li>
+                        <li><a href="{{ url_for('blog') }}">Blog</a></li>
+                        <li><a href="{{ url_for('pes6_game_teams') }}">PES Game Data</a></li>
+                        <li><a href="{{ url_for('hall_of_fame') }}">Hall of Fame</a></li>
+                    </ul>
                 </li>
+                
                 {% if current_user.is_authenticated %}
-                    <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
-                    <li><a href="{{ url_for('team_management') }}">My Teams</a></li> {# Updated text #}
-                    <li><a href="{{ url_for('free_agency') }}">Free Agency</a></li>
-                    <li><a href="{{ url_for('draft') }}">Draft Pool</a></li>
-                    <li><a href="{{ url_for('market_bazaar') }}">Market Bazaar</a></li>
-                    <li><a href="{{ url_for('colados_league') }}">Colados League</a></li>
-                    <li><a href="{{ url_for('hall_of_fame') }}">Hall of Fame</a></li>
+                    <!-- Management Group -->
+                    <li class="nav-group">
+                        <a href="#" class="nav-header" onclick="toggleNavGroup(event, this)">Management ▼</a>
+                        <ul class="nav-submenu">
+                            <li><a href="{{ url_for('team_management') }}">My Team</a></li>
+                            <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
+                            <li><a href="{{ url_for('tools') }}">Tools</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- Market Group -->
+                    <li class="nav-group">
+                        <a href="#" class="nav-header" onclick="toggleNavGroup(event, this)">Market ▼</a>
+                        <ul class="nav-submenu">
+                            <li><a href="{{ url_for('market_bazaar') }}">Market Bazaar</a></li>
+                            <li><a href="{{ url_for('free_agency') }}">Free-Agency</a></li>
+                            <li><a href="{{ url_for('draft') }}">Draft Pool</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- Leagues Group -->
+                    <li class="nav-group">
+                        <a href="#" class="nav-header" onclick="toggleNavGroup(event, this)">Leagues ▼</a>
+                        <ul class="nav-submenu">
+                            <li><a href="{{ url_for('colados_league') }}">Colados Leagues</a></li>
+                            <li><a href="{{ url_for('cpu_leagues') }}">CPU Leagues</a></li>
+                            <li><a href="{{ url_for('international') }}">International</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- Inbox (always visible) -->
                     <li>
                         <a href="{{ url_for('inbox') }}" class="inbox-link">
                             Inbox
@@ -44,9 +70,23 @@
                             {% endif %}
                         </a>
                     </li>
-                    {# Removed link to Admin Summary Page #}
+                    
+                    <!-- Search Bar (always visible) -->
+                    <li class="player-search-container">
+                        <input type="text" id="player-search" placeholder="🔍 Search Players..." autocomplete="off" style="padding: 8px 15px; border-radius: 20px; border: 1px solid #555; background: #2a2a2a; color: #ffd700; width: 250px; font-size: 14px;">
+                        <div id="player-search-results" style="display: none; position: absolute; background: #2a2a2a; border: 1px solid #555; border-radius: 5px; max-height: 300px; overflow-y: auto; z-index: 1000; margin-top: 5px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);"></div>
+                    </li>
+                    
                     <li><a href="{{ url_for('logout') }}">Logout</a></li>
                 {% else %}
+                    <!-- For non-authenticated users, show simplified menu -->
+                    <li><a href="{{ url_for('index') }}">Home</a></li>
+                    <li><a href="{{ url_for('blog') }}">Blog</a></li>
+                    <li><a href="{{ url_for('pes6_game_teams') }}">PES Game Data</a></li>
+                    <li class="player-search-container">
+                        <input type="text" id="player-search" placeholder="🔍 Search Players..." autocomplete="off" style="padding: 8px 15px; border-radius: 20px; border: 1px solid #555; background: #2a2a2a; color: #ffd700; width: 250px; font-size: 14px;">
+                        <div id="player-search-results" style="display: none; position: absolute; background: #2a2a2a; border: 1px solid #555; border-radius: 5px; max-height: 300px; overflow-y: auto; z-index: 1000; margin-top: 5px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);"></div>
+                    </li>
                     <li><a href="{{ url_for('login') }}">Login</a></li>
                     <li><a href="{{ url_for('register') }}">Register</a></li>
                 {% endif %}
@@ -78,6 +118,40 @@
     {% endif %}
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
+        // Toggle navigation group
+        function toggleNavGroup(event, element) {
+            event.preventDefault();
+            const group = element.parentElement;
+            const isActive = group.classList.contains('active');
+            
+            // Close all other groups
+            document.querySelectorAll('.nav-group').forEach(g => {
+                g.classList.remove('active');
+            });
+            
+            // Toggle current group
+            if (!isActive) {
+                group.classList.add('active');
+                element.innerHTML = element.innerHTML.replace('▼', '▲');
+            } else {
+                group.classList.remove('active');
+                element.innerHTML = element.innerHTML.replace('▲', '▼');
+            }
+        }
+        
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.nav-group')) {
+                document.querySelectorAll('.nav-group').forEach(g => {
+                    g.classList.remove('active');
+                    const header = g.querySelector('.nav-header');
+                    if (header) {
+                        header.innerHTML = header.innerHTML.replace('▲', '▼');
+                    }
+                });
+            }
+        });
+        
         // Player search functionality
         $(document).ready(function() {
             let searchTimeout;

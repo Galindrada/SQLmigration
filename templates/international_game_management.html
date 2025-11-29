@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+
+{% block title %}International Game - {{ game.home_team_name }} vs {{ game.away_team_name }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <h1>🌍 International Game Details</h1>
+    <p><a href="{{ url_for('international') }}">← Back to International</a></p>
+    
+    <!-- Game Info -->
+    <div class="game-info-section">
+        <h2>{{ game.home_team_name }} vs {{ game.away_team_name }}</h2>
+        <div class="game-details">
+            <p><strong>Competition:</strong> {{ competition.name }}</p>
+            <p><strong>Round:</strong> {{ game.round_number }}</p>
+            <p><strong>Date:</strong> {{ game.game_date or 'N/A' }}</p>
+            <p><strong>Status:</strong> 
+                {% if game.is_played %}
+                    <span class="badge badge-success">Played</span>
+                {% else %}
+                    <span class="badge badge-warning">Pending</span>
+                {% endif %}
+            </p>
+        </div>
+        {% if game.is_played %}
+        <div class="score-display">
+            <h3 class="score">{{ game.home_score }} - {{ game.away_score }}</h3>
+            {% if mvp_player_id and mvp_player_name %}
+            <div class="mvp-info" style="display: flex; align-items: center; justify-content: center; gap: 15px; margin-top: 20px;">
+                <div style="text-align: center;">
+                    <img src="{{ url_for('serve_player_image_by_id', player_id=mvp_player_id) }}" 
+                         alt="{{ mvp_player_name }}"
+                         style="width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 3px solid #ffd700; box-shadow: 0 4px 8px rgba(0,0,0,0.3);"
+                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                </div>
+                <div>
+                    <p style="margin: 0; font-size: 1.2em;">🏆 MVP: <strong>{{ mvp_player_name }}</strong></p>
+                </div>
+            </div>
+            {% elif mvp_player_id %}
+            <p class="mvp-info">🏆 MVP: <strong>Player ID {{ mvp_player_id }}</strong></p>
+            {% else %}
+            <p class="text-muted">🏆 MVP: <em>Undetermined</em> (no eligible players available)</p>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="game-actions">
+            <form method="POST" action="{{ url_for('simulate_international_game', game_id=game.id) }}" style="display: inline;">
+                <button type="submit" class="btn btn-success btn-lg">🤖 Simulate Game</button>
+            </form>
+            <p class="text-muted mt-2">This will automatically generate scores, goals, assists, and MVP.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if not game.is_played %}
+    <!-- Full Squads (for pending games) -->
+    <div class="squads-section">
+        <h3>👥 Full Squads</h3>
+        <div class="row">
+            <div class="col-md-6">
+                <h4>{{ game.home_team_name }}</h4>
+                <div class="squad-table">
+                    <table class="table table-sm table-striped">
+                        <thead>
+                            <tr>
+                                <th>Player</th>
+                                <th>Position</th>
+                                <th>Overall</th>
+                                <th>Age</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in home_squad %}
+                            <tr>
+                                <td><a href="{{ url_for('pes6_player_details', player_id=player.id) }}">{{ player.player_name }}</a></td>
+                                <td>
+                                    {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                                    {% if pos == 0 %}GK
+                                    {% elif pos == 2 %}SW
+                                    {% elif pos == 3 %}CB
+                                    {% elif pos == 4 %}SB
+                                    {% elif pos == 5 %}DMF
+                                    {% elif pos == 6 %}WB
+                                    {% elif pos == 7 %}CMF
+                                    {% elif pos == 8 %}SMF
+                                    {% elif pos == 9 %}AMF
+                                    {% elif pos == 10 %}WF
+                                    {% elif pos == 11 %}SS
+                                    {% elif pos == 12 %}CF
+                                    {% else %}-
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ player.overall }}</strong></td>
+                                <td>{{ player.age }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if not home_squad %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No players available</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <h4>{{ game.away_team_name }}</h4>
+                <div class="squad-table">
+                    <table class="table table-sm table-striped">
+                        <thead>
+                            <tr>
+                                <th>Player</th>
+                                <th>Position</th>
+                                <th>Overall</th>
+                                <th>Age</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in away_squad %}
+                            <tr>
+                                <td><a href="{{ url_for('pes6_player_details', player_id=player.id) }}">{{ player.player_name }}</a></td>
+                                <td>
+                                    {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                                    {% if pos == 0 %}GK
+                                    {% elif pos == 2 %}SW
+                                    {% elif pos == 3 %}CB
+                                    {% elif pos == 4 %}SB
+                                    {% elif pos == 5 %}DMF
+                                    {% elif pos == 6 %}WB
+                                    {% elif pos == 7 %}CMF
+                                    {% elif pos == 8 %}SMF
+                                    {% elif pos == 9 %}AMF
+                                    {% elif pos == 10 %}WF
+                                    {% elif pos == 11 %}SS
+                                    {% elif pos == 12 %}CF
+                                    {% else %}-
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ player.overall }}</strong></td>
+                                <td>{{ player.age }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if not away_squad %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No players available</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if game.is_played %}
+    <!-- Player Statistics -->
+    <div class="player-stats-section">
+        <h3>📊 Player Statistics</h3>
+        <div class="row">
+            <div class="col-md-6">
+                <h4>{{ game.home_team_name }}</h4>
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Player</th>
+                            <th>Position</th>
+                            <th>Goals</th>
+                            <th>Assists</th>
+                            <th>Minutes</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for player in home_player_stats %}
+                        <tr {% if player.player_id == mvp_player_id %}style="background-color: #ffd700; color: #000;"{% endif %}>
+                            <td><a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}">{{ player.player_name }}</a></td>
+                            <td>
+                                {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                                {% if pos == 0 %}GK
+                                {% elif pos == 2 %}SW
+                                {% elif pos == 3 %}CB
+                                {% elif pos == 4 %}SB
+                                {% elif pos == 5 %}DMF
+                                {% elif pos == 6 %}WB
+                                {% elif pos == 7 %}CMF
+                                {% elif pos == 8 %}SMF
+                                {% elif pos == 9 %}AMF
+                                {% elif pos == 10 %}WF
+                                {% elif pos == 11 %}SS
+                                {% elif pos == 12 %}CF
+                                {% else %}-
+                                {% endif %}
+                            </td>
+                            <td><strong>{{ player.goals or 0 }}</strong></td>
+                            <td><strong>{{ player.assists or 0 }}</strong></td>
+                            <td>{{ player.minutes_played or 0 }}</td>
+                            <td>
+                                {% if player.is_starter %}
+                                    <span class="badge badge-primary">Starter</span>
+                                {% elif not player.is_starter and player.minutes_played > 0 %}
+                                    <span class="badge badge-secondary">Sub</span>
+                                {% endif %}
+                                {% if player.player_id == mvp_player_id %}
+                                    <span class="badge badge-warning">🏆 MVP</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if not home_player_stats %}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No player statistics available</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h4>{{ game.away_team_name }}</h4>
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Player</th>
+                            <th>Position</th>
+                            <th>Goals</th>
+                            <th>Assists</th>
+                            <th>Minutes</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for player in away_player_stats %}
+                        <tr {% if player.player_id == mvp_player_id %}style="background-color: #ffd700; color: #000;"{% endif %}>
+                            <td><a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}">{{ player.player_name }}</a></td>
+                            <td>
+                                {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                                {% if pos == 0 %}GK
+                                {% elif pos == 2 %}SW
+                                {% elif pos == 3 %}CB
+                                {% elif pos == 4 %}SB
+                                {% elif pos == 5 %}DMF
+                                {% elif pos == 6 %}WB
+                                {% elif pos == 7 %}CMF
+                                {% elif pos == 8 %}SMF
+                                {% elif pos == 9 %}AMF
+                                {% elif pos == 10 %}WF
+                                {% elif pos == 11 %}SS
+                                {% elif pos == 12 %}CF
+                                {% else %}-
+                                {% endif %}
+                            </td>
+                            <td><strong>{{ player.goals or 0 }}</strong></td>
+                            <td><strong>{{ player.assists or 0 }}</strong></td>
+                            <td>{{ player.minutes_played or 0 }}</td>
+                            <td>
+                                {% if player.is_starter %}
+                                    <span class="badge badge-primary">Starter</span>
+                                {% elif not player.is_starter and player.minutes_played > 0 %}
+                                    <span class="badge badge-secondary">Sub</span>
+                                {% endif %}
+                                {% if player.player_id == mvp_player_id %}
+                                    <span class="badge badge-warning">🏆 MVP</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if not away_player_stats %}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No player statistics available</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.game-info-section {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+    color: white;
+}
+
+.score-display {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.score {
+    font-size: 3em;
+    font-weight: bold;
+    color: #f39c12;
+    margin: 20px 0;
+}
+
+.mvp-info {
+    font-size: 1.2em;
+    color: #ffd700;
+    margin-top: 10px;
+}
+
+.squads-section, .player-stats-section {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+    color: white;
+}
+
+.squads-section h3, .player-stats-section h3 {
+    color: #f39c12;
+    margin-bottom: 20px;
+}
+
+.squad-table {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.table {
+    color: white;
+}
+
+.table thead th {
+    color: #f39c12;
+    border-bottom: 2px solid #f39c12;
+}
+
+.table tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.game-actions {
+    text-align: center;
+    margin-top: 20px;
+}
+</style>
+{% endblock %}
+

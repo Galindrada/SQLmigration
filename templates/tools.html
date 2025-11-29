@@ -212,6 +212,15 @@
         <a href="{{ url_for('download_updated_csv') }}" class="button">Download Updated Player CSV</a>
     </div>
 
+    {# --- Draft Picks Management Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>🎯 Draft Picks Management</h3>
+        <p>Initialize draft picks for all users. Each user will receive 3 picks per season (1st, 2nd, 3rd) for the current season and 2 seasons ahead.</p>
+        <form method="post" action="{{ url_for('initialize_draft_picks') }}" onsubmit="return confirm('Initialize draft picks for all users?\n\nThis will:\n- Create draft picks for all users (excluding CPU)\n- 3 picks per season (1st, 2nd, 3rd)\n- For current season and 2 seasons ahead\n- Only creates picks that don\'t already exist\n\nThis action is safe to run multiple times.')">
+            <button type="submit" class="button" style="background-color: #17a2b8; font-weight: bold;">🎯 Initialize Draft Picks</button>
+        </form>
+    </div>
+
     {# --- Season Management Tools --- #}
     <div class="tool-section" style="margin-bottom: 30px;">
         <h3>Season Management</h3>
@@ -352,6 +361,18 @@
         {% if season_message %}
             <div style="color: green; margin-top: 10px;">{{ season_message }}</div>
         {% endif %}
+    </div>
+
+    {# --- CPU League Preferred Lineups Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>⚽ CPU League Preferred Lineups</h3>
+        <p>Generate preferred starting 11 for all teams based on best overall per position. Use this at the beginning of the championship and mid-season after transfers.</p>
+        <p><strong>Formation:</strong> 1 GK, 2 SB/WB, 2 CB/SW, 2 CM, 2 SM, 2 FWD</p>
+        <form method="post" action="{{ url_for('generate_preferred_lineups') }}">
+            <button type="submit" class="button" style="background-color: #28a745;">
+                🔄 Generate Preferred Lineups for All Teams
+            </button>
+        </form>
     </div>
 
     {# --- Create Newcomers Tool --- #}

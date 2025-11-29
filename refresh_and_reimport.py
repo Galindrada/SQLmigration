@@ -204,6 +204,17 @@ def safe_refresh_database():
             else:
                 print("  ℹ️  draftee column already exists")
         
+        # Add profile_image column to players table
+        print("\n🖼️  Adding profile_image column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN profile_image TEXT DEFAULT NULL")
+            print("  ✅ Added profile_image column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding profile_image column: {e}")
+            else:
+                print("  ℹ️  profile_image column already exists")
+        
         # Add performance tracking columns to players table
         print("\n📊 Adding performance tracking columns to players table...")
         performance_columns = [
@@ -214,6 +225,25 @@ def safe_refresh_database():
         ]
         
         for table, column, definition in performance_columns:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                print(f"  ✅ Added {column} column")
+            except Exception as e:
+                if 'duplicate column name' not in str(e):
+                    print(f"  ❌ Error adding {column} column: {e}")
+                else:
+                    print(f"  ℹ️  {column} column already exists")
+        
+        # Add international statistics columns to players table
+        print("\n🌍 Adding international statistics columns to players table...")
+        international_columns = [
+            ('players', 'international_caps_total', 'INTEGER DEFAULT 0'),
+            ('players', 'international_goals', 'INTEGER DEFAULT 0'),
+            ('players', 'international_assists', 'INTEGER DEFAULT 0'),
+            ('players', 'current_season_caps', 'INTEGER DEFAULT 0')
+        ]
+        
+        for table, column, definition in international_columns:
             try:
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
                 print(f"  ✅ Added {column} column")
@@ -251,6 +281,35 @@ def safe_refresh_database():
                 print(f"  ❌ Error adding requested_players column: {e}")
             else:
                 print("  ℹ️  requested_players column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN requested_money INTEGER DEFAULT 0")
+            print("  ✅ Added requested_money column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding requested_money column: {e}")
+            else:
+                print("  ℹ️  requested_money column already exists")
+        
+        # Add draft picks columns to offers table
+        print("\n🎯 Adding draft picks columns to offers table...")
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN offered_draft_picks TEXT")
+            print("  ✅ Added offered_draft_picks column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding offered_draft_picks column: {e}")
+            else:
+                print("  ℹ️  offered_draft_picks column already exists")
+        
+        try:
+            cursor.execute("ALTER TABLE offers ADD COLUMN requested_draft_picks TEXT")
+            print("  ✅ Added requested_draft_picks column to offers table")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding requested_draft_picks column: {e}")
+            else:
+                print("  ℹ️  requested_draft_picks column already exists")
         
         try:
             cursor.execute("ALTER TABLE offers ADD COLUMN requested_money INTEGER DEFAULT 0")
@@ -554,12 +613,21 @@ def safe_refresh_database():
                     league_id INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     description TEXT,
+                    competition_type TEXT NOT NULL DEFAULT 'round_robin',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     is_active BOOLEAN DEFAULT 1,
                     FOREIGN KEY (league_id) REFERENCES leagues(id)
                 )
             """)
             print("  ✅ Created divisions table")
+            
+            # Add competition_type column if it doesn't exist (for existing databases)
+            try:
+                cursor.execute("ALTER TABLE divisions ADD COLUMN competition_type TEXT NOT NULL DEFAULT 'round_robin'")
+                print("  ✅ Added competition_type column to divisions table")
+            except Exception as e:
+                # Column already exists, ignore
+                pass
             
             # Division teams table
             cursor.execute("""
@@ -576,6 +644,21 @@ def safe_refresh_database():
                 )
             """)
             print("  ✅ Created division_teams table")
+            
+            # CPU knockout teams table to track teams still in knockout divisions
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cpu_knockout_teams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    division_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (division_id) REFERENCES divisions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+                    UNIQUE(division_id, team_id, round_number)
+                )
+            """)
+            print("  ✅ Created cpu_knockout_teams table")
             
             # League games table
             cursor.execute("""
@@ -641,6 +724,17 @@ def safe_refresh_database():
                 )
             """)
             print("  ✅ Created division_standings table")
+            
+            # Add mvp_player_id column to league_games table if it doesn't exist
+            print("\n🏆 Adding mvp_player_id column to league_games table...")
+            try:
+                cursor.execute("ALTER TABLE league_games ADD COLUMN mvp_player_id INTEGER")
+                print("  ✅ Added mvp_player_id column to league_games table")
+            except Exception as e:
+                if 'duplicate column name' not in str(e):
+                    print(f"  ❌ Error adding mvp_player_id column: {e}")
+                else:
+                    print("  ℹ️  mvp_player_id column already exists in league_games table")
             
             # Insert default league and divisions
             cursor.execute("INSERT OR IGNORE INTO leagues (id, name, description) VALUES (1, 'Colados League', 'The premier user league competition')")
@@ -759,6 +853,274 @@ def safe_refresh_database():
             print("  ✅ Created team_historical_data table")
         except Exception as e:
             print(f"  ❌ Error creating team_historical_data table: {e}")
+        
+        # Create draft_picks table for user draft picks
+        print("\n🎯 Creating draft_picks table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS draft_picks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    season TEXT NOT NULL,
+                    pick_number INTEGER NOT NULL CHECK (pick_number IN (1, 2, 3)),
+                    original_user_id INTEGER NOT NULL,
+                    is_expired INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (original_user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    UNIQUE(original_user_id, season, pick_number)
+                )
+            """)
+            print("  ✅ Created draft_picks table")
+        except Exception as e:
+            print(f"  ❌ Error creating draft_picks table: {e}")
+        
+        # Create team_preferred_lineup table for CPU league preferred 11
+        print("\n⚽ Creating team_preferred_lineup table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS team_preferred_lineup (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    team_id INTEGER NOT NULL,
+                    slot_number INTEGER NOT NULL CHECK (slot_number BETWEEN 1 AND 11),
+                    player_id INTEGER NOT NULL,
+                    position_group TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+                    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+                    UNIQUE(team_id, slot_number)
+                )
+            """)
+            print("  ✅ Created team_preferred_lineup table")
+        except Exception as e:
+            print(f"  ❌ Error creating team_preferred_lineup table: {e}")
+        
+        # Create international_teams table for international squads
+        print("\n🌍 Creating international_teams table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS international_teams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nationality TEXT NOT NULL UNIQUE,
+                    team_name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            print("  ✅ Created international_teams table")
+        except Exception as e:
+            print(f"  ❌ Error creating international_teams table: {e}")
+        
+        # Create international_team_players table to link players to international teams
+        print("\n👥 Creating international_team_players table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS international_team_players (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    international_team_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (international_team_id) REFERENCES international_teams(id) ON DELETE CASCADE,
+                    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+                    UNIQUE(international_team_id, player_id)
+                )
+            """)
+            print("  ✅ Created international_team_players table")
+        except Exception as e:
+            print(f"  ❌ Error creating international_team_players table: {e}")
+        
+        # Create international_competitions table
+        print("\n🏆 Creating international_competitions table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS international_competitions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    competition_type TEXT NOT NULL DEFAULT 'friendly',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1
+                )
+            """)
+            print("  ✅ Created international_competitions table")
+        except Exception as e:
+            print(f"  ❌ Error creating international_competitions table: {e}")
+        
+        # Create international_games table
+        print("\n⚽ Creating international_games table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS international_games (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    home_team_id INTEGER NOT NULL,
+                    away_team_id INTEGER NOT NULL,
+                    home_team_name TEXT NOT NULL,
+                    away_team_name TEXT NOT NULL,
+                    home_score INTEGER DEFAULT 0,
+                    away_score INTEGER DEFAULT 0,
+                    game_date TIMESTAMP,
+                    is_played BOOLEAN DEFAULT 0,
+                    mvp_player_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES international_competitions(id),
+                    FOREIGN KEY (home_team_id) REFERENCES international_teams(id),
+                    FOREIGN KEY (away_team_id) REFERENCES international_teams(id),
+                    FOREIGN KEY (mvp_player_id) REFERENCES players(id)
+                )
+            """)
+            print("  ✅ Created international_games table")
+        except Exception as e:
+            print(f"  ❌ Error creating international_games table: {e}")
+        
+        # Create international_player_game_stats table
+        print("\n📊 Creating international_player_game_stats table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS international_player_game_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    player_name TEXT NOT NULL,
+                    goals INTEGER DEFAULT 0,
+                    assists INTEGER DEFAULT 0,
+                    minutes_played INTEGER DEFAULT 90,
+                    is_starter BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES international_games(id),
+                    FOREIGN KEY (player_id) REFERENCES players(id),
+                    FOREIGN KEY (team_id) REFERENCES international_teams(id)
+                )
+            """)
+            print("  ✅ Created international_player_game_stats table")
+        except Exception as e:
+            print(f"  ❌ Error creating international_player_game_stats table: {e}")
+        
+        # Create international_squad_callups table to store 23-player squads
+        print("\n👥 Creating international_squad_callups table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS international_squad_callups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    international_team_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    position_group TEXT NOT NULL,
+                    is_fake_player INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (international_team_id) REFERENCES international_teams(id) ON DELETE CASCADE,
+                    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+                    UNIQUE(international_team_id, player_id)
+                )
+            """)
+            print("  ✅ Created international_squad_callups table")
+        except Exception as e:
+            print(f"  ❌ Error creating international_squad_callups table: {e}")
+        
+        # Create international_competition_teams table to link teams to competitions
+        print("\n🏆 Creating international_competition_teams table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS international_competition_teams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    international_team_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES international_competitions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (international_team_id) REFERENCES international_teams(id) ON DELETE CASCADE,
+                    UNIQUE(competition_id, international_team_id)
+                )
+            """)
+            print("  ✅ Created international_competition_teams table")
+        except Exception as e:
+            print(f"  ❌ Error creating international_competition_teams table: {e}")
+        
+        # Create international_knockout_teams table to track teams still in knockout competitions
+        print("\n🏆 Creating international_knockout_teams table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS international_knockout_teams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    international_team_id INTEGER NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES international_competitions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (international_team_id) REFERENCES international_teams(id) ON DELETE CASCADE,
+                    UNIQUE(competition_id, international_team_id, round_number)
+                )
+            """)
+            print("  ✅ Created international_knockout_teams table")
+        except Exception as e:
+            print(f"  ❌ Error creating international_knockout_teams table: {e}")
+        
+        # Create temp_players table for fake/temporary players (separate from real players)
+        print("\n👤 Creating temp_players table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS temp_players (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_name TEXT NOT NULL,
+                    age INTEGER DEFAULT 25,
+                    nationality TEXT,
+                    registered_position TEXT,
+                    club_id INTEGER,
+                    overall INTEGER DEFAULT 65,
+                    height INTEGER DEFAULT 180,
+                    weight INTEGER DEFAULT 75,
+                    strong_foot TEXT DEFAULT 'Right',
+                    favoured_side TEXT DEFAULT 'Right',
+                    attack INTEGER DEFAULT 65,
+                    defense INTEGER DEFAULT 65,
+                    balance INTEGER DEFAULT 65,
+                    stamina INTEGER DEFAULT 65,
+                    top_speed INTEGER DEFAULT 65,
+                    acceleration INTEGER DEFAULT 65,
+                    response INTEGER DEFAULT 65,
+                    agility INTEGER DEFAULT 65,
+                    dribble_accuracy INTEGER DEFAULT 65,
+                    dribble_speed INTEGER DEFAULT 65,
+                    short_pass_accuracy INTEGER DEFAULT 65,
+                    short_pass_speed INTEGER DEFAULT 65,
+                    long_pass_accuracy INTEGER DEFAULT 65,
+                    long_pass_speed INTEGER DEFAULT 65,
+                    shot_accuracy INTEGER DEFAULT 65,
+                    shot_power INTEGER DEFAULT 65,
+                    shot_technique INTEGER DEFAULT 65,
+                    free_kick_accuracy INTEGER DEFAULT 65,
+                    swerve INTEGER DEFAULT 65,
+                    heading INTEGER DEFAULT 65,
+                    jump INTEGER DEFAULT 65,
+                    technique INTEGER DEFAULT 65,
+                    aggression INTEGER DEFAULT 65,
+                    mentality INTEGER DEFAULT 65,
+                    goal_keeping INTEGER DEFAULT 65,
+                    team_work INTEGER DEFAULT 65,
+                    consistency INTEGER DEFAULT 65,
+                    condition_fitness INTEGER DEFAULT 65,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            print("  ✅ Created temp_players table")
+            
+            # Add club_id column if table already existed without it
+            try:
+                cursor.execute("ALTER TABLE temp_players ADD COLUMN club_id INTEGER")
+                print("  ✅ Added club_id column to temp_players table")
+            except Exception as e:
+                # Column already exists, ignore
+                if "duplicate column name" not in str(e).lower():
+                    print(f"  ℹ️  club_id column: {e}")
+        except Exception as e:
+            print(f"  ❌ Error creating temp_players table: {e}")
+        
+        # Insert default "International Friendlies" competition if it doesn't exist
+        try:
+            cursor.execute("INSERT OR IGNORE INTO international_competitions (id, name, competition_type, is_active) VALUES (1, 'International Friendlies', 'friendly', 1)")
+            print("  ✅ Inserted default International Friendlies competition")
+        except Exception as e:
+            print(f"  ⚠️  Could not insert default competition: {e}")
         
         # Create app_settings table
         print("\n🔄 Creating app_settings table...")

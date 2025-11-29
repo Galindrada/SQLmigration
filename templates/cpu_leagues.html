@@ -1,0 +1,801 @@
+{% extends "base.html" %}
+
+{% block title %}CPU Leagues{% endblock %}
+
+{% block head %}
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <h1>🤖 CPU Leagues</h1>
+    
+    <!-- League Selection -->
+    {% if all_leagues %}
+    <div class="section">
+        <h2>🏆 Leagues</h2>
+        <div class="league-selector">
+            <a href="{{ url_for('cpu_leagues') }}" 
+               class="btn btn-sm {% if not selected_league_id %}btn-primary{% else %}btn-secondary{% endif %}"
+               style="margin: 5px;">
+                All Leagues
+            </a>
+            {% for league in all_leagues %}
+            <a href="{{ url_for('cpu_leagues', league_id=league.id) }}" 
+               class="btn btn-sm {% if selected_league_id == league.id %}btn-primary{% else %}btn-secondary{% endif %}"
+               style="margin: 5px;">
+                {{ league.name }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- League Overview -->
+    <div class="section">
+        <h2>League Overview</h2>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="info-card">
+                    <h4>📊 League Statistics</h4>
+                    <p><strong>Total Teams:</strong> {{ total_teams }}</p>
+                    <p><strong>Total Games Played:</strong> {{ total_games_played }}</p>
+                    <p><strong>Current Season:</strong> {{ current_season }}</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="info-card">
+                    <h4>🎯 Quick Actions</h4>
+                    <button class="btn btn-success" onclick="showCreateLeagueModal()">➕ Create New League</button>
+                    <button class="btn btn-info" onclick="showCreateDivisionModal()">📁 Create Division</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create League Modal -->
+    <div class="modal fade" id="createLeagueModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create New CPU League</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <form method="POST" action="{{ url_for('create_cpu_league') }}">
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="leagueName">League Name:</label>
+                            <input type="text" class="form-control" id="leagueName" name="league_name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="leagueDescription">Description (optional):</label>
+                            <textarea class="form-control" id="leagueDescription" name="league_description" rows="3"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create League</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Division Modal -->
+    <div class="modal fade" id="createDivisionModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create New Division</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <form method="POST" action="{{ url_for('create_cpu_division') }}">
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="divisionLeagueSelect">Select League:</label>
+                            <select class="form-control" id="divisionLeagueSelect" name="league_id" required>
+                                <option value="">-- Select League --</option>
+                                {% for league in cpu_leagues %}
+                                <option value="{{ league.id }}">{{ league.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="divisionName">Division Name:</label>
+                            <input type="text" class="form-control" id="divisionName" name="division_name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="divisionDescription">Description (optional):</label>
+                            <textarea class="form-control" id="divisionDescription" name="division_description" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="divisionCompetitionType">Competition Type:</label>
+                            <input type="hidden" name="competition_type" value="round_robin">
+                            <input type="text" class="form-control" value="Round Robin" readonly style="background-color: #f0f0f0;">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create Division</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- CPU Leagues List -->
+    {% if cpu_leagues %}
+        {% for league in cpu_leagues %}
+        <div class="section">
+            <h2>🏆 {{ league.name }}</h2>
+            {% if league.description %}
+            <p class="text-muted">{{ league.description }}</p>
+            {% endif %}
+            
+            {% if league.divisions %}
+                {% for division in league.divisions %}
+                <div class="division-card" style="margin-bottom: 30px;">
+                    <h3>{{ division.name }}</h3>
+                    {% if division.description %}
+                    <p>{{ division.description }}</p>
+                    {% endif %}
+                    
+                    <!-- Division Standings -->
+                    <div class="standings-table">
+                        <h4>📊 Standings</h4>
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Pos</th>
+                                    <th>Team</th>
+                                    <th>P</th>
+                                    <th>W</th>
+                                    <th>D</th>
+                                    <th>L</th>
+                                    <th>GF</th>
+                                    <th>GA</th>
+                                    <th>GD</th>
+                                    <th>Pts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for team in division.standings %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>{{ team.team_name }}</td>
+                                    <td>{{ team.games_played }}</td>
+                                    <td>{{ team.wins }}</td>
+                                    <td>{{ team.draws }}</td>
+                                    <td>{{ team.losses }}</td>
+                                    <td>{{ team.goals_for }}</td>
+                                    <td>{{ team.goals_against }}</td>
+                                    <td>{{ team.goal_difference }}</td>
+                                    <td><strong>{{ team.points }}</strong></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Round Filter -->
+                    <div class="round-filter" style="margin-bottom: 15px;">
+                        <h4>🔍 Filter by Round</h4>
+                        <div class="round-buttons">
+                            <button class="btn btn-sm btn-round-filter active" data-division="{{ division.id }}" data-round="all" onclick="filterGamesByRound({{ division.id }}, 'all')">
+                                All Rounds
+                            </button>
+                            {% for round_num in division.rounds %}
+                            <button class="btn btn-sm btn-round-filter" data-division="{{ division.id }}" data-round="{{ round_num }}" onclick="filterGamesByRound({{ division.id }}, {{ round_num }})">
+                                Round {{ round_num }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <!-- Recent Games -->
+                    <div class="recent-games" data-division="{{ division.id }}">
+                        <h4>⚽ Recent Games</h4>
+                        <div class="games-container">
+                            {% for game in division.recent_games %}
+                            <div class="game-result" data-round="{{ game.round_number }}" data-division="{{ division.id }}">
+                                <span class="home-team">{{ game.home_team_name }}</span>
+                                <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
+                                <span class="away-team">{{ game.away_team_name }}</span>
+                                <span class="round">Round {{ game.round_number }}</span>
+                                <a href="{{ url_for('cpu_league_game_management', game_id=game.id) }}" class="btn btn-sm btn-primary">⚙️ Manage</a>
+                            </div>
+                            {% endfor %}
+                            {% if not division.recent_games %}
+                            <div class="text-center text-muted" style="padding: 20px;">No games played yet</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <!-- Pending Games -->
+                    <div class="pending-games" data-division="{{ division.id }}">
+                        <h4>⏳ Pending Games</h4>
+                        <div class="games-container">
+                            {% for game in division.pending_games %}
+                            <div class="game-result pending" data-round="{{ game.round_number }}" data-division="{{ division.id }}" data-game-id="{{ game.id }}">
+                                <span class="home-team">{{ game.home_team_name }}</span>
+                                <span class="vs">vs</span>
+                                <span class="away-team">{{ game.away_team_name }}</span>
+                                <span class="round">Round {{ game.round_number }}</span>
+                                <a href="{{ url_for('cpu_league_game_management', game_id=game.id) }}" class="btn btn-sm btn-primary">⚙️ Manage</a>
+                            </div>
+                            {% endfor %}
+                            {% if not division.pending_games %}
+                            <div class="text-center text-muted" style="padding: 20px;">No pending games</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    
+                    <!-- Leaderboards -->
+                    <div class="row" style="margin-top: 20px;">
+                        <div class="col-md-6">
+                            <div class="leaderboard-card">
+                                <h4>⚽ Top Goalscorers</h4>
+                                <table class="table table-sm table-dark">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Player</th>
+                                            <th>Team</th>
+                                            <th>Goals</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for scorer in division.top_goalscorers %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td>{{ scorer.player_name }}</td>
+                                            <td>{{ scorer.team_name }}</td>
+                                            <td><strong>{{ scorer.total_goals }}</strong></td>
+                                        </tr>
+                                        {% endfor %}
+                                        {% if not division.top_goalscorers %}
+                                        <tr>
+                                            <td colspan="4" class="text-center text-muted">No goals scored yet</td>
+                                        </tr>
+                                        {% endif %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="leaderboard-card">
+                                <h4>🎯 Top Assists</h4>
+                                <table class="table table-sm table-dark">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Player</th>
+                                            <th>Team</th>
+                                            <th>Assists</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for assister in division.top_assists %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td>{{ assister.player_name }}</td>
+                                            <td>{{ assister.team_name }}</td>
+                                            <td><strong>{{ assister.total_assists }}</strong></td>
+                                        </tr>
+                                        {% endfor %}
+                                        {% if not division.top_assists %}
+                                        <tr>
+                                            <td colspan="4" class="text-center text-muted">No assists yet</td>
+                                        </tr>
+                                        {% endif %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Division Actions -->
+                    <div class="division-actions" style="margin-top: 20px;">
+                        <button class="btn btn-sm btn-outline-primary" onclick="showAddTeamModal({{ division.id }})">➕ Add Team</button>
+                        {% if not division.rounds %}
+                        <button class="btn btn-sm btn-outline-success" onclick="generateSchedule({{ division.id }})">📅 Generate Schedule</button>
+                        {% endif %}
+                        {% if division.rounds %}
+                        <button class="btn btn-sm btn-outline-warning" onclick="showSimulateRoundModal({{ division.id }})">🤖 Simulate Round</button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="info-card">
+                    <p class="text-muted">No divisions created yet. Create a division to get started!</p>
+                </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="section">
+            <div class="info-card text-center">
+                <h3>No CPU Leagues Created Yet</h3>
+                <p>Create your first CPU league to start simulating games!</p>
+                <button class="btn btn-success btn-lg" onclick="showCreateLeagueModal()">➕ Create Your First League</button>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- Add Team Modal -->
+    <div class="modal fade" id="addTeamModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Team to Division</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <form method="POST" action="{{ url_for('add_team_to_cpu_division') }}">
+                    <div class="modal-body">
+                        <input type="hidden" id="addTeamDivisionId" name="division_id">
+                        <div class="form-group">
+                            <label for="addTeamSelect">Select Team:</label>
+                            <select class="form-control" id="addTeamSelect" name="team_id" required>
+                                <option value="">-- Select Team --</option>
+                                {% for team in teams %}
+                                <option value="{{ team.id }}">{{ team.club_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add Team</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Simulate Round Modal -->
+    <div class="modal fade" id="simulateRoundModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Simulate Round</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <form id="simulateRoundForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="simulateRoundDivisionId" name="division_id">
+                        <div class="form-group">
+                            <label for="roundNumberSelect">Select Round:</label>
+                            <select class="form-control" id="roundNumberSelect" name="round_number" required>
+                                <option value="">-- Select Round --</option>
+                            </select>
+                        </div>
+                        <p class="text-warning">⚠️ This will simulate all pending games in the selected round. This action cannot be undone!</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-warning">🤖 Simulate Round</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    border-radius: 10px;
+    color: white;
+}
+
+.section h2 {
+    color: #f39c12;
+    margin-bottom: 20px;
+}
+
+.info-card, .division-card, .leaderboard-card {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.info-card h4, .division-card h3, .leaderboard-card h4 {
+    color: #f39c12;
+    margin-bottom: 15px;
+}
+
+.standings-table, .recent-games {
+    margin-bottom: 20px;
+}
+
+.standings-table h4, .recent-games h4 {
+    color: #e74c3c;
+    margin-bottom: 10px;
+}
+
+.table {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table th {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    color: white;
+    border: none;
+}
+
+.table td {
+    border-color: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+.game-result {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    margin-bottom: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+}
+
+.score {
+    font-weight: bold;
+    color: #f39c12;
+}
+
+.round {
+    font-size: 0.8em;
+    color: #bdc3c7;
+}
+
+.pending-games {
+    margin-bottom: 20px;
+}
+
+.pending-games h4 {
+    color: #e74c3c;
+    margin-bottom: 10px;
+}
+
+.game-result.pending {
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+.vs {
+    font-weight: bold;
+    color: #f39c12;
+}
+
+.division-actions {
+    margin-top: 15px;
+}
+
+.btn {
+    border-radius: 20px;
+    font-weight: bold;
+    margin-right: 10px;
+}
+
+.btn-primary {
+    background: linear-gradient(145deg, #3498db, #2980b9);
+    border: none;
+}
+
+.btn-success {
+    background: linear-gradient(145deg, #27ae60, #229954);
+    border: none;
+}
+
+.btn-info {
+    background: linear-gradient(145deg, #17a2b8, #138496);
+    border: none;
+}
+
+.btn-warning {
+    background: linear-gradient(145deg, #f39c12, #e67e22);
+    border: none;
+}
+
+.modal-content {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    color: white;
+}
+
+.modal-header {
+    background: linear-gradient(145deg, #e67e22, #d35400);
+    border-bottom: 2px solid #d35400;
+}
+
+.modal-title {
+    color: white;
+}
+
+.form-control {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+.form-control:focus {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #f39c12;
+    color: white;
+    box-shadow: 0 0 0 0.2rem rgba(243, 156, 18, 0.25);
+}
+
+.form-control::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.form-group label {
+    color: #f39c12;
+    font-weight: bold;
+}
+
+.round-filter {
+    margin-bottom: 15px;
+}
+
+.round-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.btn-round-filter {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 15px;
+    transition: all 0.3s;
+}
+
+.btn-round-filter:hover {
+    background: rgba(243, 156, 18, 0.3);
+    border-color: #f39c12;
+    color: white;
+}
+
+.btn-round-filter.active {
+    background: linear-gradient(145deg, #f39c12, #e67e22);
+    border-color: #f39c12;
+    color: white;
+    font-weight: bold;
+}
+
+.league-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+}
+</style>
+
+<script>
+function showCreateLeagueModal() {
+    $('#createLeagueModal').modal('show');
+}
+
+function showCreateDivisionModal() {
+    $('#createDivisionModal').modal('show');
+}
+
+function showAddTeamModal(divisionId) {
+    $('#addTeamDivisionId').val(divisionId);
+    $('#addTeamModal').modal('show');
+}
+
+function generateSchedule(divisionId) {
+    if (!confirm('Generate round-robin schedule for this division? Each team will play every other team twice (home and away). This will create all games as pending.')) {
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('division_id', divisionId);
+    
+    fetch('/cpu_leagues/generate_schedule', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (response.redirected) {
+            window.location.href = response.url;
+        } else {
+            return response.json();
+        }
+    })
+    .then(data => {
+        if (data && data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error generating schedule');
+    });
+}
+
+function showSimulateRoundModal(divisionId) {
+    $('#simulateRoundDivisionId').val(divisionId);
+    
+    // Get rounds for this division
+    const division = document.querySelector(`.division-card`);
+    const rounds = [];
+    document.querySelectorAll(`[data-division="${divisionId}"][data-round]`).forEach(el => {
+        const round = el.getAttribute('data-round');
+        if (round && round !== 'all' && !rounds.includes(parseInt(round))) {
+            rounds.push(parseInt(round));
+        }
+    });
+    
+    rounds.sort((a, b) => a - b);
+    
+    const select = $('#roundNumberSelect');
+    select.empty();
+    select.append('<option value="">-- Select Round --</option>');
+    rounds.forEach(round => {
+        select.append(`<option value="${round}">Round ${round}</option>`);
+    });
+    
+    $('#simulateRoundModal').modal('show');
+}
+
+function simulateGame(gameId) {
+    if (!confirm('Simulate this game? This will generate scores, goals, assists, and MVP automatically.')) {
+        return;
+    }
+    
+    fetch(`/cpu_leagues/simulate_game/${gameId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (confirm(data.message + '\n\nWould you like to view the game details?')) {
+                window.location.href = `/cpu_leagues/game/${data.game_id}`;
+            } else {
+                location.reload();
+            }
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error simulating game');
+    });
+}
+
+$('#simulateRoundForm').on('submit', function(e) {
+    e.preventDefault();
+    
+    const divisionId = $('#simulateRoundDivisionId').val();
+    const roundNumber = $('#roundNumberSelect').val();
+    
+    if (!roundNumber) {
+        alert('Please select a round');
+        return;
+    }
+    
+    if (!confirm(`Simulate all pending games in Round ${roundNumber}? This action cannot be undone!`)) {
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('round_number', roundNumber);
+    
+    fetch(`/cpu_leagues/simulate_round/${divisionId}`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            $('#simulateRoundModal').modal('hide');
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error simulating round');
+    });
+});
+
+function filterGamesByRound(divisionId, roundNumber) {
+    // Update button states
+    const buttons = document.querySelectorAll(`.btn-round-filter[data-division="${divisionId}"]`);
+    buttons.forEach(btn => {
+        if (btn.getAttribute('data-round') == roundNumber) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
+    // Filter recent games
+    const recentGamesContainer = document.querySelector(`.recent-games[data-division="${divisionId}"] .games-container`);
+    if (recentGamesContainer) {
+        const recentGames = recentGamesContainer.querySelectorAll('.game-result');
+        let visibleCount = 0;
+        recentGames.forEach(game => {
+            const gameRound = game.getAttribute('data-round');
+            if (roundNumber === 'all' || gameRound == roundNumber) {
+                game.style.display = 'flex';
+                visibleCount++;
+            } else {
+                game.style.display = 'none';
+            }
+        });
+        
+        const noGamesMsg = recentGamesContainer.querySelector('.text-center.text-muted');
+        if (noGamesMsg) {
+            noGamesMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+    }
+    
+    // Filter pending games
+    const pendingGamesContainer = document.querySelector(`.pending-games[data-division="${divisionId}"] .games-container`);
+    if (pendingGamesContainer) {
+        const pendingGames = pendingGamesContainer.querySelectorAll('.game-result');
+        let visibleCount = 0;
+        pendingGames.forEach(game => {
+            const gameRound = game.getAttribute('data-round');
+            if (roundNumber === 'all' || gameRound == roundNumber) {
+                game.style.display = 'flex';
+                visibleCount++;
+            } else {
+                game.style.display = 'none';
+            }
+        });
+        
+        const noGamesMsg = pendingGamesContainer.querySelector('.text-center.text-muted');
+        if (noGamesMsg) {
+            noGamesMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+    }
+}
+</script>
+{% endblock %}
+

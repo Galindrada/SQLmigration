@@ -543,7 +543,8 @@ function updateTimers() {
 setInterval(updateTimers, 1000);
 updateTimers(); // Initial call
 
-// Check for expired offers every 30 seconds
+// Check for expired offers every 2 minutes (reduced from 30 seconds to improve performance)
+// The page load already processes expired offers, so this is just a backup check
 setInterval(() => {
     fetch('/free_agency/check_expired_offers')
         .then(response => response.json())
@@ -554,7 +555,7 @@ setInterval(() => {
             }
         })
         .catch(error => console.error('Error checking expired offers:', error));
-}, 30000); // Check every 30 seconds
+}, 120000); // Check every 2 minutes (reduced frequency to improve performance)
 
 // Place Player Modal Functions
 let currentOfferId = null;

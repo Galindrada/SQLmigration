@@ -9,6 +9,8 @@ import sys
 import pandas as pd
 from typing import List, Dict, Optional
 import os
+import random
+import time
 
 class TeamManager:
     def __init__(self, db_path: str = 'pes6_league_db.sqlite'):
@@ -1239,14 +1241,155 @@ class TeamManager:
                     correct_id = correct_team['id']
                     print(f"     → Found correct team ID: {correct_id}")
                     
-                    # Update the league_teams entry
+                    # Check if the correct_id already exists in league_teams
                     cursor.execute("""
-                        UPDATE league_teams 
-                        SET id = ? 
-                        WHERE id = ? AND team_name = ?
-                    """, (correct_id, team['id'], team['team_name']))
+                        SELECT id, team_name, user_id FROM league_teams WHERE id = ?
+                    """, (correct_id,))
+                    existing_league_team = cursor.fetchone()
                     
-                    print(f"     ✅ Updated league_teams entry from ID {team['id']} to {correct_id}")
+                    if existing_league_team:
+                        # The target ID already exists in league_teams
+                        # Check if it's the same team (same name) or different
+                        if existing_league_team['team_name'] == team['team_name']:
+                            # Same team, just delete the duplicate entry
+                            print(f"     ℹ️  Duplicate entry found - deleting old entry (ID {team['id']})")
+                            cursor.execute("""
+                                DELETE FROM league_teams WHERE id = ? AND team_name = ?
+                            """, (team['id'], team['team_name']))
+                            print(f"     ✅ Deleted duplicate league_teams entry (ID {team['id']})")
+                        else:
+                            # Different team with conflicting ID - check if the existing team also has a mismatch
+                            print(f"     ⚠️  Target ID {correct_id} already exists for '{existing_league_team['team_name']}'")
+                            
+                            # Check if the existing team's ID matches its teams table entry
+                            cursor.execute("""
+                                SELECT id FROM teams WHERE club_name = ?
+                            """, (existing_league_team['team_name'],))
+                            existing_team_correct = cursor.fetchone()
+                            
+                            if existing_team_correct and existing_team_correct['id'] == correct_id:
+                                # The existing team is correctly using this ID
+                                # We need to find the correct ID for the current team, or use the old ID
+                                # Check if the old ID (team['id']) is available in teams table
+                                cursor.execute("""
+                                    SELECT club_name FROM teams WHERE id = ?
+                                """, (team['id'],))
+                                old_id_team = cursor.fetchone()
+                                
+                                if not old_id_team:
+                                    # Old ID doesn't exist in teams table - this team should be deleted
+                                    print(f"     ❌ Team '{team['team_name']}' has no matching entry in teams table")
+                                    print(f"     ℹ️  Deleting orphaned league_teams entry")
+                                    cursor.execute("""
+                                        DELETE FROM league_teams WHERE id = ? AND team_name = ?
+                                    """, (team['id'], team['team_name']))
+                                    print(f"     ✅ Deleted orphaned entry")
+                                else:
+                                    # Old ID exists but for a different team - complex conflict
+                                    print(f"     ⚠️  Complex conflict: ID {team['id']} belongs to '{old_id_team['club_name']}' in teams table")
+                                    print(f"     ⚠️  Cannot automatically resolve - manual intervention needed")
+                            else:
+                                # The existing team also has a mismatch - we can swap or reassign
+                                if existing_team_correct:
+                                    existing_correct_id = existing_team_correct['id']
+                                    print(f"     ℹ️  Existing team '{existing_league_team['team_name']}' should use ID {existing_correct_id}")
+                                    
+                                    # Check if existing_correct_id is available
+                                    cursor.execute("""
+                                        SELECT id FROM league_teams WHERE id = ?
+                                    """, (existing_correct_id,))
+                                    existing_correct_id_taken = cursor.fetchone()
+                                    
+                                    if not existing_correct_id_taken:
+                                        # We can swap: move existing team to its correct ID, then current team to correct_id
+                                        print(f"     🔄 Swapping IDs: Moving '{existing_league_team['team_name']}' to ID {existing_correct_id}")
+                                        
+                                        # Update foreign keys for existing team first
+                                        old_id = team['id']
+                                        tables_to_update = [
+                                            ('team_players', 'team_id'),
+                                            ('user_cpu_offers', 'cpu_team_id'),
+                                            ('user_cpu_offers', 'buyer_team_id'),
+                                        ]
+                                        
+                                        for table_name, column_name in tables_to_update:
+                                            try:
+                                                cursor.execute(f"""
+                                                    UPDATE {table_name} 
+                                                    SET {column_name} = ? 
+                                                    WHERE {column_name} = ?
+                                                """, (existing_correct_id, correct_id))
+                                            except:
+                                                pass
+                                        
+                                        # Move existing team to its correct ID
+                                        cursor.execute("""
+                                            UPDATE league_teams 
+                                            SET id = ? 
+                                            WHERE id = ? AND team_name = ?
+                                        """, (existing_correct_id, correct_id, existing_league_team['team_name']))
+                                        
+                                        # Now update foreign keys for current team
+                                        for table_name, column_name in tables_to_update:
+                                            try:
+                                                cursor.execute(f"""
+                                                    UPDATE {table_name} 
+                                                    SET {column_name} = ? 
+                                                    WHERE {column_name} = ?
+                                                """, (correct_id, old_id))
+                                            except:
+                                                pass
+                                        
+                                        # Move current team to correct_id
+                                        cursor.execute("""
+                                            UPDATE league_teams 
+                                            SET id = ? 
+                                            WHERE id = ? AND team_name = ?
+                                        """, (correct_id, old_id, team['team_name']))
+                                        
+                                        print(f"     ✅ Swapped IDs: '{team['team_name']}' now uses ID {correct_id}")
+                                    else:
+                                        print(f"     ⚠️  Cannot swap - ID {existing_correct_id} also taken. Manual intervention needed.")
+                                else:
+                                    print(f"     ⚠️  Existing team '{existing_league_team['team_name']}' not found in teams table")
+                                    print(f"     ⚠️  Cannot automatically resolve - manual intervention needed")
+                    else:
+                        # Target ID doesn't exist in league_teams, safe to update
+                        # But we need to update all foreign key references first
+                        old_id = team['id']
+                        
+                        # Update all foreign key references in other tables
+                        # Check what tables reference league_teams.id
+                        tables_to_update = [
+                            ('team_players', 'team_id'),
+                            ('user_cpu_offers', 'cpu_team_id'),
+                            ('user_cpu_offers', 'buyer_team_id'),
+                        ]
+                        
+                        updated_refs = 0
+                        for table_name, column_name in tables_to_update:
+                            try:
+                                cursor.execute(f"""
+                                    UPDATE {table_name} 
+                                    SET {column_name} = ? 
+                                    WHERE {column_name} = ?
+                                """, (correct_id, old_id))
+                                updated_refs += cursor.rowcount
+                            except Exception as e:
+                                # Table or column might not exist, skip
+                                pass
+                        
+                        if updated_refs > 0:
+                            print(f"     ℹ️  Updated {updated_refs} foreign key references")
+                        
+                        # Now update the league_teams entry
+                        cursor.execute("""
+                            UPDATE league_teams 
+                            SET id = ? 
+                            WHERE id = ? AND team_name = ?
+                        """, (correct_id, old_id, team['team_name']))
+                        
+                        print(f"     ✅ Updated league_teams entry from ID {old_id} to {correct_id}")
                 else:
                     print(f"     ❌ No matching team found in teams table for '{team['team_name']}'")
             
@@ -1730,6 +1873,456 @@ class TeamManager:
                 self.conn.rollback()
             return False
     
+    def retire_player_with_random_regen(self, player_id: int) -> bool:
+        """Retire a player and generate a regen with random nationality to replace them"""
+        if not self.conn:
+            print("❌ Not connected to database")
+            return False
+        
+        try:
+            cursor = self.conn.cursor()
+            
+            # Get player details
+            cursor.execute("""
+                SELECT p.*, t.club_name
+                FROM players p
+                JOIN teams t ON p.club_id = t.id
+                WHERE p.id = ?
+            """, (player_id,))
+            
+            player = cursor.fetchone()
+            if not player:
+                print(f"❌ Player ID {player_id} not found in database")
+                return False
+            
+            player_name = player['player_name']
+            team_name = player['club_name']
+            team_id = player['club_id']
+            
+            print(f"\n👴 Retiring Player:")
+            print(f"   Name: {player_name}")
+            print(f"   ID: {player_id}")
+            print(f"   Team: {team_name}")
+            print(f"   Age: {player['age'] if player['age'] is not None else 'N/A'}")
+            print(f"   Position: {player['registered_position'] if player['registered_position'] is not None else 'N/A'}")
+            
+            # Generate regen using the same system as end-of-season (random nationality)
+            from game_mechanics import generate_proper_regen
+            
+            # Convert player data to dictionary format for regen generation
+            retired_player_data = dict(player)
+            
+            # Create regen data WITHOUT nationality override (random nationality)
+            print(f"\n🔄 Generating regen with random nationality...")
+            regen_data = generate_proper_regen(retired_player_data, override_nationality=None)
+            
+            # Modify regen using CSV instead of original.sqlite (to avoid PythonAnywhere concurrent DB issues)
+            regen_data = self.modify_regen_with_base_player_from_csv(regen_data)
+            
+            print(f"   ✅ Regen generated: {regen_data['player_name']} ({regen_data['nationality']})")
+            
+            # Update the player with regen data (reuse the same ID)
+            cursor.execute("""
+                UPDATE players SET
+                    player_name = ?, shirt_name = ?, age = ?, nationality = ?, skin_color = ?,
+                    strong_foot = ?, favoured_side = ?, registered_position = ?,
+                    height = ?, weight = ?,
+                    salary = ?, contract_years_remaining = ?, yearly_wage_rise = ?,
+                    development_key = ?, trait_key = ?, games_played = ?, goals = ?, assists = ?, MVP = ?,
+                    attack = ?, defense = ?, balance = ?, stamina = ?, top_speed = ?,
+                    acceleration = ?, response = ?, agility = ?, dribble_accuracy = ?,
+                    dribble_speed = ?, short_pass_accuracy = ?, short_pass_speed = ?,
+                    long_pass_accuracy = ?, long_pass_speed = ?, shot_accuracy = ?,
+                    shot_power = ?, shot_technique = ?, free_kick_accuracy = ?, swerve = ?,
+                    heading = ?, jump = ?, technique = ?, aggression = ?, mentality = ?,
+                    goal_keeping = ?, team_work = ?, consistency = ?, condition_fitness = ?,
+                    gk = ?, cwp = ?, cbt = ?, sb = ?, dmf = ?, wb = ?, cmf = ?, smf = ?,
+                    amf = ?, wf = ?, ss = ?, cf = ?, dribbling_skill = ?, tactical_dribble = ?,
+                    positioning = ?, reaction = ?, playmaking = ?, passing = ?, scoring = ?,
+                    one_one_scoring = ?, post_player = ?, lines = ?, middle_shooting = ?,
+                    side = ?, centre = ?, penalties = ?, one_touch_pass = ?, outside = ?,
+                    marking = ?, sliding = ?, covering = ?, d_line_control = ?,
+                    penalty_stopper = ?, one_on_one_stopper = ?, long_throw = ?,
+                    face_type = ?, preset_face_number = ?, head_width = ?, neck_length = ?,
+                    neck_width = ?, shoulder_height = ?, shoulder_width = ?, chest_measurement = ?,
+                    waist_circumference = ?, arm_circumference = ?, leg_circumference = ?,
+                    calf_circumference = ?, leg_length = ?, wristband = ?, wristband_color = ?,
+                    international_number = ?, classic_number = ?, club_number = ?,
+                    dribble_style = ?, free_kick_style = ?, pk_style = ?, drop_kick_style = ?, seed_player = ?
+                WHERE id = ?
+            """, (
+                regen_data['player_name'], regen_data['shirt_name'], regen_data['age'], regen_data['nationality'], regen_data['skin_color'],
+                regen_data['strong_foot'], regen_data['favoured_side'], regen_data['registered_position'],
+                regen_data['height'], regen_data['weight'],
+                regen_data['salary'], regen_data['contract_years_remaining'], regen_data['yearly_wage_rise'],
+                regen_data['development_key'], regen_data['trait_key'], regen_data['games_played'], regen_data['goals'], regen_data['assists'], regen_data.get('MVP', 0),
+                regen_data['attack'], regen_data['defense'], regen_data['balance'], regen_data['stamina'], regen_data['top_speed'],
+                regen_data['acceleration'], regen_data['response'], regen_data['agility'], regen_data['dribble_accuracy'],
+                regen_data['dribble_speed'], regen_data['short_pass_accuracy'], regen_data['short_pass_speed'],
+                regen_data['long_pass_accuracy'], regen_data['long_pass_speed'], regen_data['shot_accuracy'],
+                regen_data['shot_power'], regen_data['shot_technique'], regen_data['free_kick_accuracy'], regen_data['swerve'],
+                regen_data['heading'], regen_data['jump'], regen_data['technique'], regen_data['aggression'], regen_data['mentality'],
+                regen_data['goal_keeping'], regen_data['team_work'], regen_data['consistency'], regen_data['condition_fitness'],
+                regen_data['gk'], regen_data['cwp'], regen_data['cbt'], regen_data['sb'], regen_data['dmf'], regen_data['wb'], regen_data['cmf'], regen_data['smf'],
+                regen_data['amf'], regen_data['wf'], regen_data['ss'], regen_data['cf'], regen_data['dribbling_skill'], regen_data['tactical_dribble'],
+                regen_data['positioning'], regen_data['reaction'], regen_data['playmaking'], regen_data['passing'], regen_data['scoring'],
+                regen_data['one_one_scoring'], regen_data['post_player'], regen_data['lines'], regen_data['middle_shooting'],
+                regen_data['side'], regen_data['centre'], regen_data['penalties'], regen_data['one_touch_pass'], regen_data['outside'],
+                regen_data['marking'], regen_data['sliding'], regen_data['covering'], regen_data['d_line_control'],
+                regen_data['penalty_stopper'], regen_data['one_on_one_stopper'], regen_data['long_throw'],
+                regen_data['face_type'], regen_data['preset_face_number'], regen_data['head_width'], regen_data['neck_length'],
+                regen_data['neck_width'], regen_data['shoulder_height'], regen_data['shoulder_width'], regen_data['chest_measurement'],
+                regen_data['waist_circumference'], regen_data['arm_circumference'], regen_data['leg_circumference'],
+                regen_data['calf_circumference'], regen_data['leg_length'], regen_data['wristband'], regen_data['wristband_color'],
+                regen_data['international_number'], regen_data['classic_number'], regen_data['club_number'],
+                regen_data['dribble_style'], regen_data['free_kick_style'], regen_data['pk_style'], regen_data['drop_kick_style'],
+                regen_data.get('seed_player'),
+                player_id
+            ))
+            
+            # Calculate overall rating and bundled skills for the new regen
+            from refresh_and_reimport import calculate_player_overall
+            from game_mechanics import calculate_bundled_skill_ratings
+            
+            # Get the updated player data to calculate overall
+            cursor.execute("SELECT * FROM players WHERE id = ?", (player_id,))
+            updated_player = cursor.fetchone()
+            updated_player_dict = dict(updated_player)
+            
+            # Calculate overall rating
+            overall = calculate_player_overall(updated_player_dict)
+            
+            # Calculate bundled skill ratings
+            bundled_ratings = calculate_bundled_skill_ratings(updated_player_dict)
+            
+            # Update player with overall and bundled ratings
+            cursor.execute("""
+                UPDATE players SET
+                    overall = ?,
+                    attack_rating = ?,
+                    defense_rating = ?,
+                    physical_rating = ?,
+                    power_rating = ?,
+                    technique_rating = ?,
+                    goalkeeping_rating = ?
+                WHERE id = ?
+            """, (
+                overall,
+                bundled_ratings['attack_rating'],
+                bundled_ratings['defense_rating'],
+                bundled_ratings['physical_rating'],
+                bundled_ratings['power_rating'],
+                bundled_ratings['technique_rating'],
+                bundled_ratings['goalkeeping_rating'],
+                player_id
+            ))
+            
+            # Clear individual achievements for the new regen
+            cursor.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (player_id,))
+            
+            # Assign a face from the regen_faces folder based on skin_color
+            from game_mechanics import assign_regen_face
+            import os
+            skin_color = regen_data.get('skin_color', 1)
+            # Get the app root path (use current working directory or script directory)
+            # assign_regen_face will default to script directory if None is passed
+            app_root = os.getcwd() if os.path.exists(os.path.join(os.getcwd(), 'static')) else None
+            assigned_face = assign_regen_face(player_id, skin_color, app_root)
+            if assigned_face:
+                cursor.execute("UPDATE players SET profile_image = ? WHERE id = ?", (assigned_face, player_id))
+            
+            self.conn.commit()
+            
+            print(f"\n✅ Successfully retired {player_name} and generated regen:")
+            print(f"   New Name: {regen_data['player_name']}")
+            print(f"   Nationality: {regen_data['nationality']}")
+            print(f"   Age: {regen_data['age']}")
+            print(f"   Overall: {overall}")
+            print(f"   Position: {regen_data['registered_position']}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error retiring player: {e}")
+            import traceback
+            traceback.print_exc()
+            if self.conn:
+                self.conn.rollback()
+            return False
+    
+    def modify_regen_with_base_player_from_csv(self, regen_data: Dict) -> Dict:
+        """
+        Modify regen_data by using attributes from a base player in pe6_player_data.csv.
+        This is a CSV-based alternative to avoid PythonAnywhere concurrent DB issues.
+        
+        Args:
+            regen_data: The regen data dictionary to modify
+        
+        Returns:
+            Modified regen_data dictionary
+        """
+        # Seed the random number generator to ensure different results on each restart
+        random.seed(time.time())
+        
+        # Randomly select a base player ID from 1 to 4783
+        base_player_id = random.randint(1, 4783)
+        
+        try:
+            # Try to read from pe6_player_data.csv
+            csv_path = 'pe6_player_data.csv'
+            if not os.path.exists(csv_path):
+                print(f"⚠️  Warning: {csv_path} not found. Skipping base player modification.")
+                return regen_data
+            
+            # Read CSV file
+            try:
+                df = pd.read_csv(csv_path, encoding='latin1')
+            except UnicodeDecodeError:
+                try:
+                    df = pd.read_csv(csv_path, encoding='utf-8')
+                except UnicodeDecodeError:
+                    df = pd.read_csv(csv_path, encoding='iso-8859-1')
+            
+            # Find the base player by ID
+            base_player_row = df[df['ID'] == base_player_id]
+            
+            if base_player_row.empty:
+                print(f"⚠️  Warning: Base player with ID {base_player_id} not found in CSV. Skipping modification.")
+                return regen_data
+            
+            # Convert to dictionary (use lowercase column names to match DB)
+            base_player_dict = base_player_row.iloc[0].to_dict()
+            
+            # Map CSV column names to database column names (same mapping as import_pes6_data.py)
+            csv_to_db_mapping = {
+                'ID': 'id',
+                'NAME': 'player_name',
+                'SHIRT_NAME': 'shirt_name',
+                'REGISTERED POSITION': 'registered_position',
+                'HEIGHT': 'height',
+                'ATTACK': 'attack',
+                'DEFENSE': 'defense',
+                'BALANCE': 'balance',
+                'STAMINA': 'stamina',
+                'TOP SPEED': 'top_speed',
+                'ACCELERATION': 'acceleration',
+                'RESPONSE': 'response',
+                'AGILITY': 'agility',
+                'DRIBBLE ACCURACY': 'dribble_accuracy',
+                'DRIBBLE SPEED': 'dribble_speed',
+                'SHORT PASS ACCURACY': 'short_pass_accuracy',
+                'SHORT PASS SPEED': 'short_pass_speed',
+                'LONG PASS ACCURACY': 'long_pass_accuracy',
+                'LONG PASS SPEED': 'long_pass_speed',
+                'SHOT ACCURACY': 'shot_accuracy',
+                'SHOT POWER': 'shot_power',
+                'SHOT TECHNIQUE': 'shot_technique',
+                'FREE KICK ACCURACY': 'free_kick_accuracy',
+                'SWERVE': 'swerve',
+                'HEADING': 'heading',
+                'JUMP': 'jump',
+                'TECHNIQUE': 'technique',
+                'AGGRESSION': 'aggression',
+                'GOAL KEEPING': 'goal_keeping',
+                'TEAM WORK': 'team_work',
+                'CONSISTENCY': 'consistency',
+                'CONDITION / FITNESS': 'condition_fitness',
+                'DRIBBLING': 'dribbling_skill',
+                'TACTIAL DRIBBLE': 'tactical_dribble',
+                'POSITIONING': 'positioning',
+                'REACTION': 'reaction',
+                'PLAYMAKING': 'playmaking',
+                'PASSING': 'passing',
+                'SCORING': 'scoring',
+                '1-1 SCORING': 'one_one_scoring',
+                'POST PLAYER': 'post_player',
+                'LINES': 'lines',
+                'MIDDLE SHOOTING': 'middle_shooting',
+                'SIDE': 'side',
+                'CENTRE': 'centre',
+                'PENALTIES': 'penalties',
+                '1-TOUCH PASS': 'one_touch_pass',
+                'OUTSIDE': 'outside',
+                'MARKING': 'marking',
+                'SLIDING': 'sliding',
+                'COVERING': 'covering',
+                'D-LINE CONTROL': 'd_line_control',
+                'PENALTY STOPPER': 'penalty_stopper',
+                '1-ON-1 STOPPER': 'one_on_one_stopper',
+                'LONG THROW': 'long_throw',
+                'GK  0': 'gk',
+                'CWP  2': 'cwp',
+                'CBT  3': 'cbt',
+                'SB  4': 'sb',
+                'DMF  5': 'dmf',
+                'WB  6': 'wb',
+                'CMF  7': 'cmf',
+                'SMF  8': 'smf',
+                'AMF  9': 'amf',
+                'WF 10': 'wf',
+                'SS  11': 'ss',
+                'CF  12': 'cf'
+            }
+            
+            # Create normalized base player dict with DB column names
+            normalized_base_player = {}
+            for csv_col, db_col in csv_to_db_mapping.items():
+                if csv_col in base_player_dict:
+                    value = base_player_dict[csv_col]
+                    # Handle NaN values
+                    if pd.isna(value):
+                        normalized_base_player[db_col] = None
+                    else:
+                        # Convert to int if it's a numeric column
+                        if db_col in ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf',
+                                     'height', 'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+                                     'response', 'agility', 'dribble_accuracy', 'dribble_speed', 'short_pass_accuracy',
+                                     'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed', 'shot_accuracy',
+                                     'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve', 'heading', 'jump',
+                                     'technique', 'aggression', 'goal_keeping', 'team_work', 'consistency',
+                                     'condition_fitness', 'dribbling_skill', 'tactical_dribble', 'positioning', 'reaction',
+                                     'playmaking', 'passing', 'scoring', 'one_one_scoring', 'post_player', 'lines',
+                                     'middle_shooting', 'side', 'centre', 'penalties', 'one_touch_pass', 'outside',
+                                     'marking', 'sliding', 'covering', 'd_line_control', 'penalty_stopper',
+                                     'one_on_one_stopper', 'long_throw', 'registered_position']:
+                            try:
+                                normalized_base_player[db_col] = int(value)
+                            except (ValueError, TypeError):
+                                normalized_base_player[db_col] = 0
+                        else:
+                            normalized_base_player[db_col] = value
+            
+            # Persist the seed for downstream development orientation
+            regen_data['seed_player'] = int(base_player_id)
+            
+            # Generate random age between 15-20
+            age = random.randint(15, 20)
+            regen_data['age'] = age
+            
+            # Calculate age-based skill modifier (same as original function)
+            age_modifier = 0
+            if age == 15:
+                age_modifier = 4 + random.randint(-3, 3)
+            elif age == 16:
+                age_modifier = 2 + random.randint(-3, 3)
+            elif age == 17:
+                age_modifier = 1 + random.randint(-3, 3)
+            elif age == 18:
+                age_modifier = -2 + random.randint(-3, 3)
+            elif age == 19:
+                age_modifier = -4 + random.randint(-3, 3)
+            elif age == 20:
+                age_modifier = -6 + random.randint(-3, 3)
+            
+            # Get inner_strength from regen_data
+            inner_strength = regen_data.get('inner_strength', 5)
+            
+            # Calculate inner_strength-based penalty
+            if inner_strength == 9:
+                inner_strength_penalty = 15 + random.randint(-3, 3)
+            elif inner_strength == 1:
+                inner_strength_penalty = 30
+            else:
+                inner_strength_penalty = 30 - ((inner_strength - 1) / 8) * 15 + random.randint(-3, 3)
+            
+            # Define positional attributes
+            positional_attributes = {
+                'gk': normalized_base_player.get('gk', 0) or 0,
+                'cwp': normalized_base_player.get('cwp', 0) or 0,
+                'cbt': normalized_base_player.get('cbt', 0) or 0,
+                'sb': normalized_base_player.get('sb', 0) or 0,
+                'dmf': normalized_base_player.get('dmf', 0) or 0,
+                'wb': normalized_base_player.get('wb', 0) or 0,
+                'cmf': normalized_base_player.get('cmf', 0) or 0,
+                'smf': normalized_base_player.get('smf', 0) or 0,
+                'amf': normalized_base_player.get('amf', 0) or 0,
+                'wf': normalized_base_player.get('wf', 0) or 0,
+                'ss': normalized_base_player.get('ss', 0) or 0,
+                'cf': normalized_base_player.get('cf', 0) or 0
+            }
+            
+            # Inherit registered position from base player
+            base_registered_position = normalized_base_player.get('registered_position', None)
+            if base_registered_position is not None:
+                regen_data['registered_position'] = base_registered_position
+                regen_data['game_position'] = base_registered_position
+            
+            # Check if player is a goalkeeper
+            is_goalkeeper = False
+            if base_registered_position is not None:
+                if base_registered_position == 0 or base_registered_position == '0' or str(base_registered_position) == '0':
+                    is_goalkeeper = True
+            
+            # Define special attributes
+            special_attributes = {
+                'dribbling_skill': normalized_base_player.get('dribbling_skill', 0) or 0,
+                'tactical_dribble': normalized_base_player.get('tactical_dribble', 0) or 0,
+                'positioning': normalized_base_player.get('positioning', 0) or 0,
+                'reaction': normalized_base_player.get('reaction', 0) or 0,
+                'playmaking': normalized_base_player.get('playmaking', 0) or 0,
+                'passing': normalized_base_player.get('passing', 0) or 0,
+                'scoring': normalized_base_player.get('scoring', 0) or 0,
+                'one_one_scoring': normalized_base_player.get('one_one_scoring', 0) or 0,
+                'post_player': normalized_base_player.get('post_player', 0) or 0,
+                'lines': normalized_base_player.get('lines', 0) or 0,
+                'middle_shooting': normalized_base_player.get('middle_shooting', 0) or 0,
+                'side': normalized_base_player.get('side', 0) or 0,
+                'centre': normalized_base_player.get('centre', 0) or 0,
+                'penalties': normalized_base_player.get('penalties', 0) or 0,
+                'one_touch_pass': normalized_base_player.get('one_touch_pass', 0) or 0,
+                'outside': normalized_base_player.get('outside', 0) or 0,
+                'marking': normalized_base_player.get('marking', 0) or 0,
+                'sliding': normalized_base_player.get('sliding', 0) or 0,
+                'covering': normalized_base_player.get('covering', 0) or 0,
+                'd_line_control': normalized_base_player.get('d_line_control', 0) or 0,
+                'penalty_stopper': normalized_base_player.get('penalty_stopper', 0) or 0,
+                'one_on_one_stopper': normalized_base_player.get('one_on_one_stopper', 0) or 0,
+                'long_throw': normalized_base_player.get('long_throw', 0) or 0
+            }
+            
+            # Define skill attributes (apply penalties)
+            skill_attributes = {}
+            skill_fields = [
+                'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
+                'response', 'agility', 'dribble_accuracy', 'dribble_speed', 'short_pass_accuracy',
+                'short_pass_speed', 'long_pass_accuracy', 'long_pass_speed', 'shot_accuracy',
+                'shot_power', 'shot_technique', 'free_kick_accuracy', 'swerve', 'heading',
+                'jump', 'technique', 'aggression', 'goal_keeping', 'team_work', 'mentality'
+            ]
+            
+            for skill in skill_fields:
+                base_value = normalized_base_player.get(skill, 0) or 0
+                if base_value is not None:
+                    total_penalty = inner_strength_penalty + age_modifier
+                    skill_randomness = random.randint(-6, 6)
+                    skill_attributes[skill] = max(1, int(base_value - total_penalty + skill_randomness))
+                else:
+                    skill_attributes[skill] = 1
+            
+            # If player is not a goalkeeper, set goal_keeping to 50
+            if not is_goalkeeper:
+                skill_attributes['goal_keeping'] = 50
+            
+            # Keep consistency unchanged
+            skill_attributes['consistency'] = int(normalized_base_player.get('consistency', 50) or 50)
+            skill_attributes['condition_fitness'] = int(normalized_base_player.get('condition_fitness', 50) or 50)
+            
+            # Update regen_data with modified attributes
+            regen_data.update(positional_attributes)
+            regen_data.update(special_attributes)
+            regen_data.update(skill_attributes)
+            
+            player_name = normalized_base_player.get('player_name', 'Unknown')
+            print(f"   ✅ Modified regen using base player ID {base_player_id} ({player_name})")
+            print(f"   Age: {age}, Inner Strength: {inner_strength}, Total penalty: {inner_strength_penalty + age_modifier}")
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Error modifying regen with base player from CSV: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return regen_data
+    
     def refresh_league_standings(self, division_id: int):
         """Manually refresh and display league standings for a division"""
         try:
@@ -1833,7 +2426,8 @@ def display_menu():
     print("18. Fix invalid face/skin combinations")
     print("19. Create secondary market team (CSV-invisible)")
     print("20. List/Delete secondary teams")
-    print("21. Exit")
+    print("21. Retire player and generate regen (random nationality)")
+    print("22. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -2309,13 +2903,13 @@ def duplicate_player_stats(manager: TeamManager):
         for player in players:
             print(f"{player['id']:<6} {player['player_name']:<25} {player['games_played'] or 0:<6} {player['goals'] or 0:<6} {player['assists'] or 0:<8} {player['MVP'] or 0:<6}")
         
-        # Confirm duplication
-        confirm = input(f"\n⚠️  Are you sure you want to DUPLICATE stats for all {len(players)} players on '{team_name}'? (y/N): ").strip().lower()
+        # Confirm multiplication
+        confirm = input(f"\n⚠️  Are you sure you want to multiply stats by 1.5 for all {len(players)} players on '{team_name}'? (y/N): ").strip().lower()
         if confirm != 'y':
             print("❌ Operation cancelled")
             return
         
-        # Perform duplication
+        # Perform multiplication (multiply by 1.5, rounded to integer)
         updated_count = 0
         for player in players:
             player_id = player['id']
@@ -2324,10 +2918,10 @@ def duplicate_player_stats(manager: TeamManager):
             current_assists = player['assists'] or 0
             current_mvp = player['MVP'] or 0
             
-            new_games = current_games * 2
-            new_goals = current_goals * 2
-            new_assists = current_assists * 2
-            new_mvp = current_mvp * 2
+            new_games = int(round(current_games * 1.5))
+            new_goals = int(round(current_goals * 1.5))
+            new_assists = int(round(current_assists * 1.5))
+            new_mvp = int(round(current_mvp * 1.5))
             
             cursor.execute("""
                 UPDATE players 
@@ -2336,11 +2930,11 @@ def duplicate_player_stats(manager: TeamManager):
             """, (new_games, new_goals, new_assists, new_mvp, player_id))
             
             updated_count += 1
-            print(f"   ✅ {player['player_name']}: Games {current_games}→{new_games}, Goals {current_goals}→{new_goals}, Assists {current_assists}→{new_assists}")
+            print(f"   ✅ {player['player_name']}: Games {current_games}→{new_games}, Goals {current_goals}→{new_goals}, Assists {current_assists}→{new_assists}, MVP {current_mvp}→{new_mvp}")
         
         manager.conn.commit()
         
-        print(f"\n🎉 Successfully duplicated stats for {updated_count} players on team '{team_name}'!")
+        print(f"\n🎉 Successfully multiplied stats by 1.5 for {updated_count} players on team '{team_name}'!")
         
     except Exception as e:
         print(f"❌ Error duplicating player stats: {e}")
@@ -2393,6 +2987,60 @@ def create_secondary_team(manager: TeamManager):
 def list_delete_secondary_teams(manager: TeamManager):
     """List and optionally delete secondary teams"""
     manager.list_and_delete_secondary_teams()
+
+def retire_player_with_random_regen(manager: TeamManager):
+    """Retire a player and generate a regen with random nationality"""
+    print("\n👴 RETIRE PLAYER & GENERATE REGEN")
+    print("-" * 40)
+    print("This will retire the selected player and generate a new regen")
+    print("with random nationality to replace them.")
+    print()
+    
+    try:
+        # Get player ID
+        player_id_input = input("Enter player ID to retire: ").strip()
+        if not player_id_input:
+            print("❌ Player ID is required")
+            return
+        
+        try:
+            player_id = int(player_id_input)
+        except ValueError:
+            print("❌ Player ID must be a number")
+            return
+        
+        # Check if player exists
+        cursor = manager.conn.cursor()
+        cursor.execute("SELECT player_name, age, registered_position, club_id FROM players WHERE id = ?", (player_id,))
+        player_info = cursor.fetchone()
+        
+        if not player_info:
+            print(f"❌ Player ID {player_id} not found in database")
+            return
+        
+        player_name, age, position, club_id = player_info
+        print(f"\n📊 Player found:")
+        print(f"   Name: {player_name}")
+        print(f"   ID: {player_id}")
+        print(f"   Age: {age}")
+        print(f"   Position: {position}")
+        
+        # Confirm retirement
+        confirm = input(f"\n⚠️  Are you sure you want to retire {player_name} (ID: {player_id})? (y/N): ").strip().lower()
+        if confirm != 'y':
+            print("❌ Operation cancelled")
+            return
+        
+        # Perform retirement
+        success = manager.retire_player_with_random_regen(player_id)
+        
+        if success:
+            print(f"\n🎉 Player retirement completed successfully!")
+        else:
+            print(f"\n❌ Player retirement failed!")
+            
+    except Exception as e:
+        print(f"❌ Error in retire_player_with_random_regen: {e}")
 
 def delete_colados_game(manager: TeamManager):
     """Delete a game from Colados League"""
@@ -2497,7 +3145,7 @@ def main():
     try:
         while True:
             display_menu()
-            choice = input("\nEnter your choice (1-21): ").strip()
+            choice = input("\nEnter your choice (1-22): ").strip()
             
             if choice == '1':
                 list_users(manager)
@@ -2540,10 +3188,12 @@ def main():
             elif choice == '20':
                 list_delete_secondary_teams(manager)
             elif choice == '21':
+                retire_player_with_random_regen(manager)
+            elif choice == '22':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-21.")
+                print("❌ Invalid choice. Please enter 1-22.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")

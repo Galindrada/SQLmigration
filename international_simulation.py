@@ -1,0 +1,459 @@
+"""
+International game simulation that works with player lists directly
+(no database queries, so fake players never touch the database)
+"""
+import random
+
+def simulate_international_game_with_players(home_players, away_players, fake_player_ids=None):
+    """
+    Simulate an international game using player lists directly.
+    Works exactly like simulate_cpu_game but accepts player lists instead of querying by club_id.
+    This allows fake players to exist only in memory.
+    
+    Args:
+        home_players: List of player dicts for home team
+        away_players: List of player dicts for away team
+        fake_player_ids: Set/list of fake player IDs to exclude from MVP selection
+    """
+    if fake_player_ids is None:
+        fake_player_ids = set()
+    else:
+        fake_player_ids = set(fake_player_ids)  # Convert to set for fast lookup
+    # Helper function to convert registered_position from TEXT to int
+    def get_pos_int(p):
+        """Convert registered_position (TEXT) to int for comparison"""
+        pos = p.get('registered_position')
+        try:
+            return int(pos) if pos is not None else -1
+        except (ValueError, TypeError):
+            return -1
+    
+    def select_starting_11(players):
+        """Select exactly 11 players, ensuring 1 GK"""
+        if not players or len(players) < 11:
+            return players[:11] if players else []
+        
+        # Group by position
+        gks = sorted([p for p in players if get_pos_int(p) == 0], 
+                    key=lambda x: x.get('overall', 0), reverse=True)
+        side_backs = sorted([p for p in players if get_pos_int(p) in [4, 6]], 
+                           key=lambda x: x.get('overall', 0), reverse=True)
+        centre_backs = sorted([p for p in players if get_pos_int(p) in [2, 3]], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+        centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7]], 
+                            key=lambda x: x.get('overall', 0), reverse=True)
+        side_mids = sorted([p for p in players if get_pos_int(p) in [8, 10]], 
+                          key=lambda x: x.get('overall', 0), reverse=True)
+        forwards = sorted([p for p in players if get_pos_int(p) in [11, 12]], 
+                         key=lambda x: x.get('overall', 0), reverse=True)
+        
+        lineup = []
+        if gks:
+            lineup.append(gks[0])
+        for sb in side_backs[:2]:
+            lineup.append(sb)
+        for cb in centre_backs[:2]:
+            lineup.append(cb)
+        for cm in centre_mids[:2]:
+            lineup.append(cm)
+        for sm in side_mids[:2]:
+            lineup.append(sm)
+        for fwd in forwards[:2]:
+            lineup.append(fwd)
+        
+        # Fill remaining slots
+        used_ids = {p.get('id') for p in lineup}
+        available = sorted([p for p in players if p.get('id') not in used_ids 
+                          and get_pos_int(p) != 0], 
+                         key=lambda x: x.get('overall', 0), reverse=True)
+        needed = 11 - len(lineup)
+        for p in available[:needed]:
+            lineup.append(p)
+        
+        # Ensure exactly 1 GK
+        gks_in_lineup = [p for p in lineup if get_pos_int(p) == 0]
+        if len(gks_in_lineup) > 1:
+            first_gk = gks_in_lineup[0]
+            non_gks = [p for p in lineup if get_pos_int(p) != 0]
+            lineup = [first_gk] + non_gks
+        elif len(gks_in_lineup) == 0:
+            # No GK - add best available
+            available_gks = [p for p in players if get_pos_int(p) == 0]
+            if available_gks:
+                available_gks.sort(key=lambda x: x.get('overall', 0), reverse=True)
+                if len(lineup) >= 11:
+                    lineup = lineup[:-1]
+                lineup = [available_gks[0]] + lineup
+        
+        return lineup[:11]
+    
+    # Select starting 11 for both teams
+    home_lineup = select_starting_11(home_players)
+    away_lineup = select_starting_11(away_players)
+    
+    # Make substitutions (2-3 per team)
+    def make_substitutions(starting_11, all_players):
+        """Make 2-3 substitutions"""
+        if len(all_players) <= 11:
+            return starting_11, []
+        
+        num_subs = random.randint(2, 3)
+        used_ids = {p.get('id') for p in starting_11}
+        available_subs = [p for p in all_players if p.get('id') not in used_ids and get_pos_int(p) != 0]
+        
+        if len(available_subs) < num_subs:
+            num_subs = len(available_subs)
+        
+        if num_subs == 0:
+            return starting_11, []
+        
+        non_gk_starters = [p for p in starting_11 if get_pos_int(p) != 0]
+        if len(non_gk_starters) < num_subs:
+            return starting_11, []
+        
+        players_to_sub_out = random.sample(non_gk_starters, num_subs)
+        subs_made = []
+        final_lineup = starting_11.copy()
+        
+        for player_out in players_to_sub_out:
+            if not available_subs:
+                break
+            player_out_pos = get_pos_int(player_out)
+            similar_subs = [p for p in available_subs if get_pos_int(p) == player_out_pos]
+            
+            if similar_subs:
+                sub_in = random.choice(similar_subs)
+            else:
+                sub_in = random.choice(available_subs)
+            
+            for i, p in enumerate(final_lineup):
+                if p.get('id') == player_out.get('id'):
+                    final_lineup[i] = sub_in
+                    break
+            
+            subs_made.append({
+                'out': player_out,
+                'in': sub_in,
+                'minute': random.randint(60, 85)
+            })
+            available_subs.remove(sub_in)
+        
+        return final_lineup, subs_made
+    
+    home_lineup_final, home_subs = make_substitutions(home_lineup, home_players)
+    away_lineup_final, away_subs = make_substitutions(away_lineup, away_players)
+    
+    # Ensure still only 1 GK after substitutions
+    def ensure_one_gk(lineup):
+        gks = [p for p in lineup if get_pos_int(p) == 0]
+        non_gks = [p for p in lineup if get_pos_int(p) != 0]
+        if len(gks) > 1:
+            return [gks[0]] + non_gks
+        elif len(gks) == 1:
+            return lineup
+        else:
+            return lineup
+    
+    home_lineup_final = ensure_one_gk(home_lineup_final)
+    away_lineup_final = ensure_one_gk(away_lineup_final)
+    
+    # Calculate minutes played for ALL players (starters and subs)
+    def calculate_minutes(starting_lineup, final_lineup, subs_made):
+        minutes = {}
+        
+        # Initialize ALL starters first (they all play at least some minutes)
+        starter_ids = {p.get('id') for p in starting_lineup}
+        subbed_out_ids = {sub['out'].get('id') for sub in subs_made}
+        
+        # All starters who weren't subbed out play 90 minutes
+        for p in starting_lineup:
+            player_id = p.get('id')
+            if player_id not in subbed_out_ids:
+                minutes[player_id] = 90
+        
+        # Handle substitutions - update minutes for subbed-out and subbed-in players
+        for sub in subs_made:
+            player_out_id = sub['out'].get('id')
+            player_in_id = sub['in'].get('id')
+            sub_minute = sub['minute']
+            minutes[player_out_id] = sub_minute  # Player subbed out
+            minutes[player_in_id] = 90 - sub_minute  # Player subbed in
+        
+        # Ensure all players in final lineup have minutes (in case they weren't in starting lineup)
+        for p in final_lineup:
+            player_id = p.get('id')
+            if player_id not in minutes:
+                # This shouldn't happen, but if it does, give them 0 minutes
+                minutes[player_id] = 0
+        
+        # CRITICAL: Ensure ALL starters are in minutes dict (even if they somehow weren't added)
+        for p in starting_lineup:
+            player_id = p.get('id')
+            if player_id not in minutes:
+                # This should never happen, but ensure all starters are tracked
+                minutes[player_id] = 90 if player_id not in subbed_out_ids else 0
+        
+        return minutes
+    
+    home_minutes = calculate_minutes(home_lineup, home_lineup_final, home_subs)
+    away_minutes = calculate_minutes(away_lineup, away_lineup_final, away_subs)
+    
+    # Calculate strength and scores
+    home_strength = sum(p['overall'] for p in home_lineup) / len(home_lineup) if home_lineup else 50
+    away_strength = sum(p['overall'] for p in away_lineup) / len(away_lineup) if away_lineup else 50
+    strength_diff = (home_strength - away_strength) / 10
+    home_expected = max(0.5, 1.5 + strength_diff * 1.75 + 0.3)
+    away_expected = max(0.5, 1.5 - strength_diff * 1.75)
+    home_score = max(0, min(6, int(random.gauss(home_expected, 0.9))))
+    away_score = max(0, min(6, int(random.gauss(away_expected, 0.9))))
+    
+    # Player stats
+    player_stats = []
+    stats_dict = {}
+    
+    def get_stat(player_id, player_name, team_id):
+        if player_id not in stats_dict:
+            stats_dict[player_id] = {
+                'player_id': player_id,
+                'player_name': player_name,
+                'team_id': team_id,
+                'goals': 0,
+                'assists': 0,
+                'minutes_played': 90,
+                'is_starter': 1
+            }
+            player_stats.append(stats_dict[player_id])
+        return stats_dict[player_id]
+    
+    # Position probabilities
+    def score_prob(pos):
+        if pos == 0: return 0.0
+        elif pos in [2, 3, 4, 6]: return 0.10
+        elif pos in [5, 7, 8]: return 0.15
+        elif pos in [10]: return 0.20
+        elif pos in [11, 12]: return 0.55
+        return 0.10
+    
+    def assist_prob(pos):
+        if pos == 0: return 0.01
+        elif pos in [2, 3, 4, 6]: return 0.14
+        elif pos in [5, 7, 8]: return 0.35
+        elif pos in [10]: return 0.25
+        elif pos in [11, 12]: return 0.25
+        return 0.14
+    
+    # Distribute goals (NEVER to goalkeepers)
+    non_gk_home = [p for p in home_lineup_final if get_pos_int(p) != 0]
+    for _ in range(home_score):
+        if not non_gk_home:
+            continue
+        weights = [(p, score_prob(get_pos_int(p)) * p['overall'] / 100) for p in non_gk_home]
+        total = sum(w for _, w in weights)
+        if total > 0:
+            r = random.random() * total
+            cumsum = 0
+            for p, w in weights:
+                cumsum += w
+                if r <= cumsum:
+                    stat = get_stat(p['id'], p['player_name'], 'home')
+                    stat['goals'] += 1
+                    break
+    
+    non_gk_away = [p for p in away_lineup_final if get_pos_int(p) != 0]
+    for _ in range(away_score):
+        if not non_gk_away:
+            continue
+        weights = [(p, score_prob(get_pos_int(p)) * p['overall'] / 100) for p in non_gk_away]
+        total = sum(w for _, w in weights)
+        if total > 0:
+            r = random.random() * total
+            cumsum = 0
+            for p, w in weights:
+                cumsum += w
+                if r <= cumsum:
+                    stat = get_stat(p['id'], p['player_name'], 'away')
+                    stat['goals'] += 1
+                    break
+    
+    # Distribute assists
+    all_players_final = home_lineup_final + away_lineup_final
+    total_assists = home_score + away_score
+    for _ in range(total_assists):
+        if not all_players_final:
+            continue
+        weights = [(p, assist_prob(get_pos_int(p)) * p['overall'] / 100) for p in all_players_final]
+        total = sum(w for _, w in weights)
+        if total > 0:
+            r = random.random() * total
+            cumsum = 0
+            for p, w in weights:
+                cumsum += w
+                if r <= cumsum:
+                    team_id = 'home' if p in home_lineup_final else 'away'
+                    stat = get_stat(p['id'], p['player_name'], team_id)
+                    stat['assists'] += 1
+                    break
+    
+    # Create stats for ALL players who played (not just scorers/assisters)
+    # CRITICAL: Add ALL starters first (even if they were subbed out)
+    # This ensures all 11 (or however many) starters are in stats_dict
+    home_starter_ids = {p.get('id') for p in home_lineup}
+    away_starter_ids = {p.get('id') for p in away_lineup}
+    
+    # Add ALL home starters to stats_dict first
+    # CRITICAL: Always ensure is_starter=1, even if player already has stats from goals/assists
+    for p in home_lineup:
+        player_id = p.get('id')
+        if player_id not in stats_dict:
+            stat = get_stat(player_id, p['player_name'], 'home')
+        # CRITICAL: Always set is_starter=1 for starters, even if they already have stats
+        stats_dict[player_id]['is_starter'] = 1
+    
+    # Add ALL away starters to stats_dict first
+    # CRITICAL: Always ensure is_starter=1, even if player already has stats from goals/assists
+    for p in away_lineup:
+        player_id = p.get('id')
+        if player_id not in stats_dict:
+            stat = get_stat(player_id, p['player_name'], 'away')
+        # CRITICAL: Always set is_starter=1 for starters, even if they already have stats
+        stats_dict[player_id]['is_starter'] = 1
+    
+    # Add all substitutes who came on (they're in final lineup but not starting lineup)
+    for p in home_lineup_final:
+        player_id = p.get('id')
+        if player_id not in stats_dict:
+            stat = get_stat(player_id, p['player_name'], 'home')
+            stat['is_starter'] = 0  # Explicitly set as substitute
+    
+    for p in away_lineup_final:
+        player_id = p.get('id')
+        if player_id not in stats_dict:
+            stat = get_stat(player_id, p['player_name'], 'away')
+            stat['is_starter'] = 0  # Explicitly set as substitute
+    
+    # Now update minutes and ensure is_starter is correct for all players
+    for player_id, minutes in home_minutes.items():
+        if player_id in stats_dict:
+            stats_dict[player_id]['minutes_played'] = minutes
+            # Ensure is_starter is set correctly (1 if in home_starter_ids, 0 otherwise)
+            stats_dict[player_id]['is_starter'] = 1 if player_id in home_starter_ids else 0
+    
+    for player_id, minutes in away_minutes.items():
+        if player_id in stats_dict:
+            stats_dict[player_id]['minutes_played'] = minutes
+            # Ensure is_starter is set correctly (1 if in away_starter_ids, 0 otherwise)
+            stats_dict[player_id]['is_starter'] = 1 if player_id in away_starter_ids else 0
+    
+    # CRITICAL: Final pass - ensure ALL starters have stats entries with correct is_starter flag
+    # This catches any starters that might have been missed
+    for p in home_lineup:
+        player_id = p.get('id')
+        if player_id not in stats_dict:
+            stat = get_stat(player_id, p['player_name'], 'home')
+            stat['is_starter'] = 1
+            stat['minutes_played'] = home_minutes.get(player_id, 90)
+        else:
+            # Double-check: ensure is_starter is 1 (in case it was overwritten)
+            stats_dict[player_id]['is_starter'] = 1
+    
+    for p in away_lineup:
+        player_id = p.get('id')
+        if player_id not in stats_dict:
+            stat = get_stat(player_id, p['player_name'], 'away')
+            stat['is_starter'] = 1
+            stat['minutes_played'] = away_minutes.get(player_id, 90)
+        else:
+            # Double-check: ensure is_starter is 1 (in case it was overwritten)
+            stats_dict[player_id]['is_starter'] = 1
+    
+    # Select MVP (best performing player, not GK)
+    # CRITICAL: Only consider players who actually played in THIS game (from home or away teams)
+    mvp_player_id = None
+    
+    # Build sets of valid player IDs for this game (home and away)
+    home_player_ids = {p.get('id') for p in home_lineup_final + [sub['out'] for sub in home_subs]}
+    away_player_ids = {p.get('id') for p in away_lineup_final + [sub['out'] for sub in away_subs]}
+    all_valid_player_ids = home_player_ids | away_player_ids
+    
+    # Get player objects for all players who played to check positions
+    players_who_played = {}
+    for p in home_lineup_final + away_lineup_final:
+        players_who_played[p.get('id')] = p
+    # Also include subbed-out players
+    for sub in home_subs + away_subs:
+        players_who_played[sub['out'].get('id')] = sub['out']
+    
+    if player_stats:
+        # Determine winning team (if any)
+        winning_team = None
+        if home_score > away_score:
+            winning_team = 'home'
+        elif away_score > home_score:
+            winning_team = 'away'
+        
+        # Filter to only non-GK players who actually played in THIS game
+        # CRITICAL: Verify player_id is in all_valid_player_ids AND is not a fake player
+        non_gk_stats = []
+        for stat in player_stats:
+            player_id = stat.get('player_id')
+            # CRITICAL: Only consider players who are actually in this game
+            if player_id not in all_valid_player_ids:
+                continue
+            # CRITICAL: Exclude fake players from MVP selection
+            if player_id in fake_player_ids:
+                continue
+            if player_id in players_who_played:
+                player_obj = players_who_played[player_id]
+                if get_pos_int(player_obj) != 0:  # Not a goalkeeper
+                    non_gk_stats.append(stat)
+        
+        if non_gk_stats:
+            # Prefer MVP from winning team if there's a winner
+            if winning_team:
+                winning_stats = [s for s in non_gk_stats if s.get('team_id') == winning_team]
+                if winning_stats:
+                    mvp = max(winning_stats, key=lambda s: s['goals'] * 3 + s['assists'] * 2 + random.random())
+                    mvp_player_id = mvp['player_id']
+                else:
+                    # No winning team contributors, select from all
+                    mvp = max(non_gk_stats, key=lambda s: s['goals'] * 3 + s['assists'] * 2 + random.random())
+                    mvp_player_id = mvp['player_id']
+            else:
+                # Draw - select best performer
+                mvp = max(non_gk_stats, key=lambda s: s['goals'] * 3 + s['assists'] * 2 + random.random())
+                mvp_player_id = mvp['player_id']
+        
+        # Fallback: best non-GK player from winning team (or any team if draw)
+        # CRITICAL: Exclude fake players from fallback selection
+        if not mvp_player_id:
+            if winning_team == 'home':
+                non_gk_players = [p for p in home_lineup_final 
+                                if get_pos_int(p) != 0 and p.get('id') not in fake_player_ids]
+            elif winning_team == 'away':
+                non_gk_players = [p for p in away_lineup_final 
+                                if get_pos_int(p) != 0 and p.get('id') not in fake_player_ids]
+            else:
+                # Draw - select from either team
+                non_gk_players = [p for p in (home_lineup_final + away_lineup_final) 
+                                if get_pos_int(p) != 0 and p.get('id') not in fake_player_ids]
+            
+            if non_gk_players:
+                mvp_player_id = max(non_gk_players, key=lambda x: x.get('overall', 0)).get('id')
+        
+        # Final fallback: any non-GK player from the game (excluding fake players)
+        if not mvp_player_id:
+            all_non_gk = [p for p in (home_lineup_final + away_lineup_final) 
+                          if get_pos_int(p) != 0 and p.get('id') not in fake_player_ids]
+            if all_non_gk:
+                mvp_player_id = all_non_gk[0].get('id')
+            else:
+                # Only fake players available - set MVP to None
+                mvp_player_id = None
+    
+    return {
+        'home_score': home_score,
+        'away_score': away_score,
+        'player_stats': player_stats,
+        'mvp_player_id': mvp_player_id
+    }
+

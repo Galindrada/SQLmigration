@@ -26,6 +26,27 @@
     
     <h1>🏆 Colados League</h1>
     
+    <!-- Division Selection -->
+    {% if all_divisions %}
+    <div class="section">
+        <h2>📋 Divisions</h2>
+        <div class="division-selector">
+            <a href="{{ url_for('colados_league') }}" 
+               class="btn btn-sm {% if not selected_division_id %}btn-primary{% else %}btn-secondary{% endif %}"
+               style="margin: 5px;">
+                All Divisions
+            </a>
+            {% for division in all_divisions %}
+            <a href="{{ url_for('colados_league', division_id=division.id) }}" 
+               class="btn btn-sm {% if selected_division_id == division.id %}btn-primary{% else %}btn-secondary{% endif %}"
+               style="margin: 5px;">
+                {{ division.name }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
     <!-- League Overview -->
     <div class="section">
         <h2>League Overview</h2>
@@ -87,8 +108,8 @@
                     </form>
                 </div>
             </div>
-        </div>
-    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -201,15 +222,15 @@
                     <div class="recent-games" data-division="{{ division.id }}">
                         <h4>⚽ Recent Games</h4>
                         <div class="games-container">
-                            {% for game in division.recent_games %}
+                        {% for game in division.recent_games %}
                             <div class="game-result" data-round="{{ game.round_number }}" data-division="{{ division.id }}">
-                                <span class="home-team">{{ game.home_team_name }}</span>
-                                <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
-                                <span class="away-team">{{ game.away_team_name }}</span>
-                                <span class="round">Round {{ game.round_number }}</span>
-                                <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-warning">Edit</a>
-                            </div>
-                            {% endfor %}
+                            <span class="home-team">{{ game.home_team_name }}</span>
+                            <span class="score">{{ game.home_score }} - {{ game.away_score }}</span>
+                            <span class="away-team">{{ game.away_team_name }}</span>
+                            <span class="round">Round {{ game.round_number }}</span>
+                            <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-warning">Edit</a>
+                        </div>
+                        {% endfor %}
                             {% if not division.recent_games %}
                             <div class="text-center text-muted" style="padding: 20px;">No games played yet</div>
                             {% endif %}
@@ -220,15 +241,15 @@
                     <div class="pending-games" data-division="{{ division.id }}">
                         <h4>⏳ Pending Games</h4>
                         <div class="games-container">
-                            {% for game in division.pending_games %}
+                        {% for game in division.pending_games %}
                             <div class="game-result pending" data-round="{{ game.round_number }}" data-division="{{ division.id }}">
-                                <span class="home-team">{{ game.home_team_name }}</span>
-                                <span class="vs">vs</span>
-                                <span class="away-team">{{ game.away_team_name }}</span>
-                                <span class="round">Round {{ game.round_number }}</span>
-                                <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-primary">Manage</a>
-                            </div>
-                            {% endfor %}
+                            <span class="home-team">{{ game.home_team_name }}</span>
+                            <span class="vs">vs</span>
+                            <span class="away-team">{{ game.away_team_name }}</span>
+                            <span class="round">Round {{ game.round_number }}</span>
+                            <a href="{{ url_for('game_management', game_id=game.id) }}" class="btn btn-sm btn-primary">Manage</a>
+                        </div>
+                        {% endfor %}
                             {% if not division.pending_games %}
                             <div class="text-center text-muted" style="padding: 20px;">No pending games</div>
                             {% endif %}
@@ -671,6 +692,13 @@
     border-color: #f39c12;
     color: white;
     font-weight: bold;
+}
+
+.division-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
 }
 </style>
 

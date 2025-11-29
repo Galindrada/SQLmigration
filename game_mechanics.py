@@ -1276,7 +1276,7 @@ def calculate_player_financials(player_data: Dict, db_path: str = 'pes6_league_d
         else:
             pos_int = -1
         
-        if pos_int in [0, 2, 3, 4]:
+        if pos_int in [0, 2, 3]:
             base_salary = int(base_salary * 1.75)
     except (ValueError, TypeError) as e:
         # Keep base_salary as-is if position is invalid
@@ -2756,6 +2756,10 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None, overri
         'games_played': 0,
         'goals': 0,
         'assists': 0,
+        'international_caps_total': 0,
+        'international_goals': 0,
+        'international_assists': 0,
+        'current_season_caps': 0,
         **skill_attributes,
         **positional_attributes,
         **special_attributes,
@@ -3189,7 +3193,7 @@ def recalculate_free_agent_salaries(db_path: str) -> Dict:
                     else:
                         pos_int = -1
                     
-                    if pos_int in [0, 2, 3, 4]:
+                    if pos_int in [0, 2, 3]:
                         new_salary = int(new_salary * 1.75)
                 except (ValueError, TypeError):
                     pass  # Keep new_salary as-is if position is invalid
@@ -3271,6 +3275,10 @@ def generate_new_player(team_id: int, position: str = None, db_path: str = None)
         'games_played': 0,
         'goals': 0,
         'assists': 0,
+        'international_caps_total': 0,
+        'international_goals': 0,
+        'international_assists': 0,
+        'current_season_caps': 0,
         **attributes
     }
     

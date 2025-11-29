@@ -1,0 +1,67 @@
+Round,Team1,Team2
+1,SBV Excelsior,F.C. Barcelona
+1,CSKA Moskva,Arsenal
+1,Le Mans UC 72,West Ham United
+1,Inter,Olympique Lyonnais
+1,Manchester City,Newcastle United
+1,Manchester United,Sparta Rotterdam
+2,SBV Excelsior,Manchester United
+2,Newcastle United,CSKA Moskva
+2,Sparta Rotterdam,Le Mans UC 72
+2,West Ham United,Inter
+2,F.C. Barcelona,Manchester City
+2,Arsenal,Olympique Lyonnais
+3,Sparta Rotterdam,SBV Excelsior
+3,Inter,CSKA Moskva
+3,Olympique Lyonnais,Le Mans UC 72
+3,Manchester City,Arsenal
+3,Manchester United,West Ham United
+3,F.C. Barcelona,Newcastle United
+4,West Ham United,SBV Excelsior
+4,CSKA Moskva,Manchester United
+4,Le Mans UC 72,Manchester City
+4,Inter,F.C. Barcelona
+4,Olympique Lyonnais,Sparta Rotterdam
+4,Arsenal,Newcastle United
+5,SBV Excelsior,Inter
+5,CSKA Moskva,Olympique Lyonnais
+5,Arsenal,Le Mans UC 72
+5,Manchester City,West Ham United
+5,Manchester United,Newcastle United
+5,Sparta Rotterdam,F.C. Barcelona
+6,SBV Excelsior,CSKA Moskva
+6,Inter,Le Mans UC 72
+6,Manchester City,Olympique Lyonnais
+6,Manchester United,Arsenal
+6,F.C. Barcelona,West Ham United
+6,Newcastle United,Sparta Rotterdam
+7,Olympique Lyonnais,SBV Excelsior
+7,West Ham United,CSKA Moskva
+7,Le Mans UC 72,Newcastle United
+7,Arsenal,Inter
+7,Sparta Rotterdam,Manchester City
+7,F.C. Barcelona,Manchester United
+8,SBV Excelsior,Le Mans UC 72
+8,Manchester City,CSKA Moskva
+8,Manchester United,Inter
+8,Olympique Lyonnais,F.C. Barcelona
+8,Arsenal,Sparta Rotterdam
+8,Newcastle United,West Ham United
+9,SBV Excelsior,Arsenal
+9,CSKA Moskva,Sparta Rotterdam
+9,F.C. Barcelona,Le Mans UC 72
+9,Inter,Newcastle United
+9,Manchester City,Manchester United
+9,West Ham United,Olympique Lyonnais
+10,Newcastle United,SBV Excelsior
+10,Le Mans UC 72,CSKA Moskva
+10,Inter,Manchester City
+10,Manchester United,Olympique Lyonnais
+10,Arsenal,F.C. Barcelona
+10,Sparta Rotterdam,West Ham United
+11,Manchester City,SBV Excelsior
+11,F.C. Barcelona,CSKA Moskva
+11,Le Mans UC 72,Manchester United
+11,Sparta Rotterdam,Inter
+11,West Ham United,Arsenal
+11,Olympique Lyonnais,Newcastle United
