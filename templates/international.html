@@ -115,10 +115,122 @@
                         </form>
                     </div>
                     {% endif %}
+                    <div style="margin-top: 10px;">
+                        <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#deleteCompetitionModal">
+                            🗑️ Delete Competition
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+    
+    <!-- Leaderboard and Top Performers (only for round-robin competitions) -->
+    {% if competition.competition_type == 'round_robin' and standings %}
+    <div class="section">
+        <h2>📊 Leaderboard</h2>
+        <div class="info-card">
+            <table class="table table-striped table-dark">
+                <thead>
+                    <tr>
+                        <th>Pos</th>
+                        <th>Team</th>
+                        <th>P</th>
+                        <th>W</th>
+                        <th>D</th>
+                        <th>L</th>
+                        <th>GF</th>
+                        <th>GA</th>
+                        <th>GD</th>
+                        <th>Pts</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for team in standings %}
+                    <tr>
+                        <td><strong>{{ loop.index }}</strong></td>
+                        <td><strong>{{ team.team_name }}</strong></td>
+                        <td>{{ team.played }}</td>
+                        <td>{{ team.won }}</td>
+                        <td>{{ team.drawn }}</td>
+                        <td>{{ team.lost }}</td>
+                        <td>{{ team.goals_for }}</td>
+                        <td>{{ team.goals_against }}</td>
+                        <td>{{ team.goals_for - team.goals_against }}</td>
+                        <td><strong>{{ team.points }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>⚽ Top Performers</h2>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="info-card">
+                    <h4>🥅 Top Goalscorers</h4>
+                    <table class="table table-sm table-dark">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Player</th>
+                                <th>Team</th>
+                                <th>Goals</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for scorer in competition_goalscorers %}
+                            <tr>
+                                <td><strong>{{ loop.index }}</strong></td>
+                                <td>{{ scorer.player_name }}</td>
+                                <td>{{ scorer.team_name }}</td>
+                                <td><strong>{{ scorer.total_goals }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                            {% if not competition_goalscorers %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No goals scored yet</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="info-card">
+                    <h4>🎯 Top Assists</h4>
+                    <table class="table table-sm table-dark">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Player</th>
+                                <th>Team</th>
+                                <th>Assists</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for assister in competition_assists %}
+                            <tr>
+                                <td><strong>{{ loop.index }}</strong></td>
+                                <td>{{ assister.player_name }}</td>
+                                <td>{{ assister.team_name }}</td>
+                                <td><strong>{{ assister.total_assists }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                            {% if not competition_assists %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No assists recorded yet</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
     <!-- Knockout Teams Table (only for knockout competitions) -->
     {% if competition.competition_type == 'knockout' %}
@@ -179,6 +291,38 @@
                         <button type="submit" class="btn btn-primary">Create Competition</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Competition Modal -->
+    <div class="modal fade" id="deleteCompetitionModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">⚠️ Delete Competition</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p><strong>Are you sure you want to delete "{{ competition.name }}"?</strong></p>
+                    <p>This will permanently delete:</p>
+                    <ul>
+                        <li>The competition</li>
+                        <li>All games in this competition</li>
+                        <li>All game statistics</li>
+                        <li>All team assignments</li>
+                    </ul>
+                    <p class="text-warning"><strong>⚠️ Warning:</strong> This action cannot be undone!</p>
+                    <p class="text-info"><strong>ℹ️ Note:</strong> Player international statistics (caps, goals, assists) will be preserved.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <form method="POST" action="{{ url_for('delete_international_competition', competition_id=competition.id) }}" style="display: inline;">
+                        <button type="submit" class="btn btn-danger">🗑️ Delete Competition</button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>

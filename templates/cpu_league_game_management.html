@@ -300,38 +300,100 @@
         </div>
     </div>
 
-    <!-- Financial Data Section (for future implementation) -->
+    <!-- Financial Data Section -->
     <div class="financial-section">
-        <h3>💰 Financial Data</h3>
-        <div class="info-card">
-            <p class="text-muted">Financial data (ticketing, attendance, etc.) will be available here in a future update.</p>
-            <!-- Placeholder for future financial data form -->
-            <!-- 
-            <form id="financialDataForm">
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="form-group">
-                            <label for="attendance">Attendance:</label>
-                            <input type="number" class="form-control" id="attendance" min="0">
-                        </div>
+        <h3>💰 Match-Day Finances</h3>
+        {% if game.home_total_earnings or game.away_total_earnings %}
+        <div class="row">
+            <!-- Home Team Finances -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5>🏠 {{ game.home_team_name }}</h5>
                     </div>
-                    <div class="col-md-4">
-                        <div class="form-group">
-                            <label for="ticketRevenue">Ticket Revenue (€):</label>
-                            <input type="number" class="form-control" id="ticketRevenue" min="0">
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="form-group">
-                            <label for="otherRevenue">Other Revenue (€):</label>
-                            <input type="number" class="form-control" id="otherRevenue" min="0">
-                        </div>
+                    <div class="card-body">
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>🎟️ Attendance Revenue:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.home_attendance_revenue or 0) }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>🤝 Sponsor Premium:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.home_sponsor_premium or 0) }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>👕 Merchandise Revenue:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.home_merchandise_revenue or 0) }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>📺 TV Rights Revenue:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.home_tv_rights_revenue or 0) }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>🏆 Prize Bonus:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.home_prize_bonus or 0) }}</td>
+                            </tr>
+                            <tr class="table-success">
+                                <td><strong>💰 TOTAL EARNINGS:</strong></td>
+                                <td class="text-right"><strong>€{{ "{:,}".format(game.home_total_earnings or 0) }}</strong></td>
+                            </tr>
+                        </table>
                     </div>
                 </div>
-                <button type="submit" class="btn btn-primary">Save Financial Data</button>
-            </form>
-            -->
+            </div>
+            
+            <!-- Away Team Finances -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h5>✈️ {{ game.away_team_name }}</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>🤝 Sponsor Premium:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.away_sponsor_premium or 0) }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>👕 Merchandise Revenue:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.away_merchandise_revenue or 0) }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>📺 TV Rights Revenue:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.away_tv_rights_revenue or 0) }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>🏆 Prize Bonus:</strong></td>
+                                <td class="text-right">€{{ "{:,}".format(game.away_prize_bonus or 0) }}</td>
+                            </tr>
+                            <tr class="table-success">
+                                <td><strong>💰 TOTAL EARNINGS:</strong></td>
+                                <td class="text-right"><strong>€{{ "{:,}".format(game.away_total_earnings or 0) }}</strong></td>
+                            </tr>
+                        </table>
+                        <p class="text-muted small mb-0"><em>Note: Away team doesn't receive attendance revenue</em></p>
+                    </div>
+                </div>
+            </div>
         </div>
+        
+        <!-- Financial Summary -->
+        <div class="alert alert-info mt-3">
+            <strong>📊 Match Financial Summary:</strong><br>
+            Total Revenue Generated: €{{ "{:,}".format((game.home_total_earnings or 0) + (game.away_total_earnings or 0)) }}<br>
+            {% if game.home_score > game.away_score %}
+                🏆 {{ game.home_team_name }} won and received €{{ "{:,}".format(game.home_prize_bonus or 0) }} prize bonus
+            {% elif game.away_score > game.home_score %}
+                🏆 {{ game.away_team_name }} won and received €{{ "{:,}".format(game.away_prize_bonus or 0) }} prize bonus
+            {% else %}
+                🤝 Draw - Both teams received €{{ "{:,}".format(game.home_prize_bonus or 0) }} each
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="info-card">
+            <p class="text-muted">Financial data not yet calculated for this game. This may be an older game from before the financial system was implemented.</p>
+        </div>
+        {% endif %}
     </div>
     {% else %}
     <div class="info-card">

@@ -242,57 +242,133 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
         elif pos in [11, 12]: return 0.25
         return 0.14
     
-    # Distribute goals (NEVER to goalkeepers)
+    # Distribute goals AND assists together (prevents self-assists and ensures assists <= goals)
+    # Track scorers so we can exclude them from assist candidates
+    home_goal_scorers = []
     non_gk_home = [p for p in home_lineup_final if get_pos_int(p) != 0]
+    
     for _ in range(home_score):
         if not non_gk_home:
             continue
-        weights = [(p, score_prob(get_pos_int(p)) * p['overall'] / 100) for p in non_gk_home]
+        
+        # Calculate weights with:
+        # 1. Position probability
+        # 2. Overall rating SQUARED (favors higher-rated players more)
+        # 3. Minutes played factor (subs less likely to score)
+        weights = []
+        for p in non_gk_home:
+            player_id = p.get('id')
+            minutes = home_minutes.get(player_id, 90)
+            
+            # Minutes factor: full starters (90 min) = 1.0, subs get reduced weight
+            # Subs typically play 10-30 minutes, so they get 0.11-0.33x weight
+            minutes_factor = minutes / 90.0
+            
+            # Overall squared to favor better players (85 overall = 7225, 70 overall = 4900)
+            overall_squared = (p['overall'] ** 2) / 10000  # Normalize to reasonable range
+            
+            weight = score_prob(get_pos_int(p)) * overall_squared * minutes_factor
+            weights.append((p, weight))
+        
         total = sum(w for _, w in weights)
         if total > 0:
             r = random.random() * total
             cumsum = 0
+            scorer = None
             for p, w in weights:
                 cumsum += w
                 if r <= cumsum:
-                    stat = get_stat(p['id'], p['player_name'], 'home')
-                    stat['goals'] += 1
+                    scorer = p
                     break
+            
+            if scorer:
+                stat = get_stat(scorer['id'], scorer['player_name'], 'home')
+                stat['goals'] += 1
+                home_goal_scorers.append(scorer['id'])
+                
+                # Assign assist (60% of goals have assists, exclude the scorer)
+                if random.random() < 0.60:
+                    assist_candidates = [p for p in non_gk_home if p['id'] != scorer['id']]
+                    if assist_candidates:
+                        # Same weighting system for assists
+                        assist_weights = []
+                        for p in assist_candidates:
+                            player_id = p.get('id')
+                            minutes = home_minutes.get(player_id, 90)
+                            minutes_factor = minutes / 90.0
+                            overall_squared = (p['overall'] ** 2) / 10000
+                            weight = assist_prob(get_pos_int(p)) * overall_squared * minutes_factor
+                            assist_weights.append((p, weight))
+                        
+                        total_assist = sum(w for _, w in assist_weights)
+                        if total_assist > 0:
+                            r = random.random() * total_assist
+                            cumsum = 0
+                            for p, w in assist_weights:
+                                cumsum += w
+                                if r <= cumsum:
+                                    stat = get_stat(p['id'], p['player_name'], 'home')
+                                    stat['assists'] += 1
+                                    break
     
+    # Distribute away goals AND assists
+    away_goal_scorers = []
     non_gk_away = [p for p in away_lineup_final if get_pos_int(p) != 0]
+    
     for _ in range(away_score):
         if not non_gk_away:
             continue
-        weights = [(p, score_prob(get_pos_int(p)) * p['overall'] / 100) for p in non_gk_away]
+        
+        # Calculate weights with minutes factor and squared overall
+        weights = []
+        for p in non_gk_away:
+            player_id = p.get('id')
+            minutes = away_minutes.get(player_id, 90)
+            minutes_factor = minutes / 90.0
+            overall_squared = (p['overall'] ** 2) / 10000
+            weight = score_prob(get_pos_int(p)) * overall_squared * minutes_factor
+            weights.append((p, weight))
+        
         total = sum(w for _, w in weights)
         if total > 0:
             r = random.random() * total
             cumsum = 0
+            scorer = None
             for p, w in weights:
                 cumsum += w
                 if r <= cumsum:
-                    stat = get_stat(p['id'], p['player_name'], 'away')
-                    stat['goals'] += 1
+                    scorer = p
                     break
-    
-    # Distribute assists
-    all_players_final = home_lineup_final + away_lineup_final
-    total_assists = home_score + away_score
-    for _ in range(total_assists):
-        if not all_players_final:
-            continue
-        weights = [(p, assist_prob(get_pos_int(p)) * p['overall'] / 100) for p in all_players_final]
-        total = sum(w for _, w in weights)
-        if total > 0:
-            r = random.random() * total
-            cumsum = 0
-            for p, w in weights:
-                cumsum += w
-                if r <= cumsum:
-                    team_id = 'home' if p in home_lineup_final else 'away'
-                    stat = get_stat(p['id'], p['player_name'], team_id)
-                    stat['assists'] += 1
-                    break
+            
+            if scorer:
+                stat = get_stat(scorer['id'], scorer['player_name'], 'away')
+                stat['goals'] += 1
+                away_goal_scorers.append(scorer['id'])
+                
+                # Assign assist (60% of goals have assists, exclude the scorer)
+                if random.random() < 0.60:
+                    assist_candidates = [p for p in non_gk_away if p['id'] != scorer['id']]
+                    if assist_candidates:
+                        # Same weighting system for assists
+                        assist_weights = []
+                        for p in assist_candidates:
+                            player_id = p.get('id')
+                            minutes = away_minutes.get(player_id, 90)
+                            minutes_factor = minutes / 90.0
+                            overall_squared = (p['overall'] ** 2) / 10000
+                            weight = assist_prob(get_pos_int(p)) * overall_squared * minutes_factor
+                            assist_weights.append((p, weight))
+                        
+                        total_assist = sum(w for _, w in assist_weights)
+                        if total_assist > 0:
+                            r = random.random() * total_assist
+                            cumsum = 0
+                            for p, w in assist_weights:
+                                cumsum += w
+                                if r <= cumsum:
+                                    stat = get_stat(p['id'], p['player_name'], 'away')
+                                    stat['assists'] += 1
+                                    break
     
     # Create stats for ALL players who played (not just scorers/assisters)
     # CRITICAL: Add ALL starters first (even if they were subbed out)

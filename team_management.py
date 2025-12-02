@@ -2427,7 +2427,8 @@ def display_menu():
     print("19. Create secondary market team (CSV-invisible)")
     print("20. List/Delete secondary teams")
     print("21. Retire player and generate regen (random nationality)")
-    print("22. Exit")
+    print("22. Add seed goalkeepers from original.sqlite")
+    print("23. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -3131,6 +3132,177 @@ def delete_colados_game(manager: TeamManager):
     except Exception as e:
         print(f"❌ Error fetching games: {e}")
 
+def add_seed_goalkeepers(manager: TeamManager):
+    """
+    Add seed_player values to goalkeepers in the current database
+    from elite goalkeepers in original.sqlite.
+    
+    Only assigns seeds to:
+    - Goalkeepers with registered_position = 0
+    - That don't already have a seed_player value
+    - That have a DIFFERENT name than the original.sqlite player with the same ID
+      (i.e., only regens/replacements get seeds, not original players)
+    
+    Seeds come from original.sqlite goalkeepers with:
+    - registered_position = 0
+    - goal_keeping > 82
+    """
+    if not manager.conn:
+        print("❌ Not connected to database")
+        return
+    
+    try:
+        cursor = manager.conn.cursor()
+        
+        # Connect to original.sqlite to check names and get elite goalkeepers
+        original_db_path = 'original.sqlite'
+        if not os.path.exists(original_db_path):
+            print(f"❌ Error: {original_db_path} not found")
+            return
+        
+        original_conn = sqlite3.connect(original_db_path)
+        original_conn.row_factory = sqlite3.Row
+        original_cursor = original_conn.cursor()
+        
+        # Get all players from original.sqlite for name comparison
+        original_cursor.execute("""
+            SELECT id, player_name
+            FROM players
+        """)
+        original_players = {row['id']: row['player_name'] for row in original_cursor.fetchall()}
+        
+        # Get goalkeepers without seeds from current database
+        cursor.execute("""
+            SELECT id, player_name, goal_keeping, overall
+            FROM players
+            WHERE registered_position = 0 
+            AND (seed_player IS NULL OR seed_player = 0)
+            ORDER BY goal_keeping DESC
+        """)
+        keepers_without_seeds = cursor.fetchall()
+        
+        if not keepers_without_seeds:
+            print("✅ All goalkeepers already have seed_player values!")
+            original_conn.close()
+            return
+        
+        print(f"\n🧤 Found {len(keepers_without_seeds)} goalkeepers without seed_player values")
+        
+        # Filter out goalkeepers whose names match the original database
+        # Only keep those with name mismatches (regens/replacements)
+        eligible_keepers = []
+        excluded_keepers = []
+        
+        for keeper in keepers_without_seeds:
+            keeper_id = keeper['id']
+            keeper_name = keeper['player_name']
+            
+            # Check if this ID exists in original.sqlite
+            if keeper_id in original_players:
+                original_name = original_players[keeper_id]
+                
+                # If names match, exclude this keeper (it's an original player)
+                if keeper_name == original_name:
+                    excluded_keepers.append(keeper)
+                    continue
+            
+            # Name mismatch or ID doesn't exist in original - eligible for seed
+            eligible_keepers.append(keeper)
+        
+        print(f"   ✅ Eligible for seeds (name mismatch): {len(eligible_keepers)}")
+        print(f"   ❌ Excluded (same name as original): {len(excluded_keepers)}")
+        
+        if excluded_keepers:
+            print(f"\n📋 Sample excluded goalkeepers (original players):")
+            for i, keeper in enumerate(excluded_keepers[:5]):
+                print(f"   {i+1}. ID {keeper['id']}: {keeper['player_name']:<25} (GK: {keeper['goal_keeping']}, OVR: {keeper['overall']})")
+        
+        if not eligible_keepers:
+            print("\n✅ No eligible goalkeepers found (all are original players)")
+            original_conn.close()
+            return
+        
+        print(f"\n   Fetching elite goalkeepers from original.sqlite...")
+        
+        # Get elite goalkeepers from original database
+        original_cursor.execute("""
+            SELECT id, player_name, goal_keeping, overall
+            FROM players
+            WHERE registered_position = 0 
+            AND goal_keeping > 82
+            ORDER BY goal_keeping DESC
+        """)
+        elite_keepers = original_cursor.fetchall()
+        original_conn.close()
+        
+        if not elite_keepers:
+            print("❌ No elite goalkeepers found in original.sqlite (goal_keeping > 82)")
+            return
+        
+        print(f"   Found {len(elite_keepers)} elite goalkeepers in original.sqlite")
+        print(f"\n📊 Sample elite goalkeepers:")
+        for i, keeper in enumerate(elite_keepers[:5]):
+            print(f"   {i+1}. {keeper['player_name']:<25} GK: {keeper['goal_keeping']}, OVR: {keeper['overall']}")
+        
+        print(f"\n📋 Sample eligible goalkeepers (will receive seeds):")
+        for i, keeper in enumerate(eligible_keepers[:5]):
+            print(f"   {i+1}. ID {keeper['id']}: {keeper['player_name']:<25} (GK: {keeper['goal_keeping']}, OVR: {keeper['overall']})")
+        
+        # Confirm before proceeding
+        print(f"\n⚠️  This will assign seed_player values to {len(eligible_keepers)} goalkeepers")
+        print(f"   (Excluding {len(excluded_keepers)} original players with matching names)")
+        confirm = input("   Continue? (y/N): ").strip().lower()
+        
+        if confirm != 'y':
+            print("❌ Operation cancelled")
+            return
+        
+        # Assign seeds randomly from elite keepers
+        updated_count = 0
+        for keeper in eligible_keepers:
+            # Randomly select an elite keeper as seed
+            seed_keeper = random.choice(elite_keepers)
+            
+            cursor.execute("""
+                UPDATE players
+                SET seed_player = ?
+                WHERE id = ?
+            """, (seed_keeper['id'], keeper['id']))
+            
+            updated_count += 1
+            
+            if updated_count % 50 == 0:
+                print(f"   ⏳ Processed {updated_count}/{len(eligible_keepers)} goalkeepers...")
+        
+        manager.conn.commit()
+        
+        print(f"\n✅ Successfully assigned seed_player to {updated_count} goalkeepers!")
+        print(f"   Seeds were randomly selected from {len(elite_keepers)} elite goalkeepers")
+        print(f"   (goal_keeping > 82 from original.sqlite)")
+        print(f"   Excluded {len(excluded_keepers)} original players (same name in both databases)")
+        
+        # Show some examples
+        cursor.execute("""
+            SELECT p.id, p.player_name, p.goal_keeping, p.overall, p.seed_player
+            FROM players p
+            WHERE p.registered_position = 0 
+            AND p.seed_player IS NOT NULL
+            AND p.seed_player > 0
+            ORDER BY RANDOM()
+            LIMIT 5
+        """)
+        examples = cursor.fetchall()
+        
+        if examples:
+            print(f"\n📋 Sample assignments:")
+            for ex in examples:
+                seed_info = f"Seed: {ex['seed_player']}" if ex['seed_player'] else "No seed"
+                print(f"   ID {ex['id']}: {ex['player_name']:<25} (GK: {ex['goal_keeping']}, OVR: {ex['overall']}) -> {seed_info}")
+        
+    except Exception as e:
+        print(f"❌ Error adding seed goalkeepers: {e}")
+        manager.conn.rollback()
+
 def main():
     """Main function"""
     print("🏆 Team Management System")
@@ -3145,7 +3317,7 @@ def main():
     try:
         while True:
             display_menu()
-            choice = input("\nEnter your choice (1-22): ").strip()
+            choice = input("\nEnter your choice (1-23): ").strip()
             
             if choice == '1':
                 list_users(manager)
@@ -3190,10 +3362,12 @@ def main():
             elif choice == '21':
                 retire_player_with_random_regen(manager)
             elif choice == '22':
+                add_seed_goalkeepers(manager)
+            elif choice == '23':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-22.")
+                print("❌ Invalid choice. Please enter 1-23.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")

@@ -234,6 +234,43 @@ def safe_refresh_database():
                 else:
                     print(f"  ℹ️  {column} column already exists")
         
+        # Add tier column to divisions table for financial calculations
+        print("\n🏆 Adding tier column to divisions table...")
+        try:
+            cursor.execute("ALTER TABLE divisions ADD COLUMN tier INTEGER DEFAULT 1")
+            print("  ✅ Added tier column to divisions (1=full values, 2=40% values)")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding tier column: {e}")
+            else:
+                print("  ℹ️  tier column already exists")
+        
+        # Add CPU League financial columns to league_games table
+        print("\n💰 Adding CPU League financial columns to league_games table...")
+        financial_columns = [
+            ('league_games', 'home_attendance_revenue', 'INTEGER DEFAULT 0'),
+            ('league_games', 'home_sponsor_premium', 'INTEGER DEFAULT 0'),
+            ('league_games', 'away_sponsor_premium', 'INTEGER DEFAULT 0'),
+            ('league_games', 'home_merchandise_revenue', 'INTEGER DEFAULT 0'),
+            ('league_games', 'away_merchandise_revenue', 'INTEGER DEFAULT 0'),
+            ('league_games', 'home_tv_rights_revenue', 'INTEGER DEFAULT 0'),
+            ('league_games', 'away_tv_rights_revenue', 'INTEGER DEFAULT 0'),
+            ('league_games', 'home_prize_bonus', 'INTEGER DEFAULT 0'),
+            ('league_games', 'away_prize_bonus', 'INTEGER DEFAULT 0'),
+            ('league_games', 'home_total_earnings', 'INTEGER DEFAULT 0'),
+            ('league_games', 'away_total_earnings', 'INTEGER DEFAULT 0'),
+        ]
+        
+        for table, column, definition in financial_columns:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                print(f"  ✅ Added {column} column to {table}")
+            except Exception as e:
+                if 'duplicate column name' not in str(e):
+                    print(f"  ❌ Error adding {column} column: {e}")
+                else:
+                    print(f"  ℹ️  {column} column already exists")
+        
         # Add international statistics columns to players table
         print("\n🌍 Adding international statistics columns to players table...")
         international_columns = [

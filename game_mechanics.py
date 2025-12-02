@@ -986,14 +986,38 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
                         # Emphasize important skills more when below target (stronger skew)
                         remaining_potential *= max(1.0, skill_weight ** 1.6)
                     else:
-                        # Already above seed target: make further growth increasingly harder
+                        # Already above seed target: apply growing penalty that competes with development
                         over_seed = -delta_to_target  # positive amount over target
-                        # Soft zone: allow small drift above seed before penalty ramps
-                        effective_over = max(0.0, over_seed - 2.0)
-                        # Penalty factor grows with over_seed; keeps tiny chance of improvement (with floor)
-                        penalty = max(0.12, 1.0 / (1.0 + 1.05 * effective_over))
-                        # Retain some room to 99 but heavily penalized above seed
-                        remaining_potential = max(0.0, (99 - current_value) * penalty)
+                        
+                        # Tolerance zone (0-3 points over): Player can maintain or slightly improve
+                        # This represents natural variance and peak performance capability
+                        if over_seed <= 3:
+                            # Small penalty that development can overcome
+                            # Penalty grows quadratically: 0.1 at +1, 0.4 at +2, 0.9 at +3
+                            penalty_factor = (over_seed / 3.0) ** 2
+                            remaining_potential = (99 - current_value) * (0.3 - (penalty_factor * 0.25))
+                            # At +1: 0.3 - 0.11 = 0.19 (can still grow with good development)
+                            # At +2: 0.3 - 0.44 = -0.14 (slight regression unless strong development)
+                            # At +3: 0.3 - 0.9 = -0.6 (regression unless exceptional development)
+                        
+                        # Warning zone (4-6 points over): Strong penalty, hard to maintain
+                        elif over_seed <= 6:
+                            # Penalty increases significantly
+                            # Development strength must be very high to maintain
+                            penalty_strength = 0.8 + ((over_seed - 3) * 0.3)  # 0.8 to 1.7
+                            importance_factor = max(0.5, skill_weight)
+                            penalty_rate = penalty_strength / importance_factor
+                            remaining_potential = -penalty_rate * 8.0
+                            # Results in -6 to -14 per season depending on importance
+                        
+                        # Critical zone (7+ points over): Very strong regression
+                        else:
+                            # Heavy penalty, almost impossible to maintain
+                            penalty_strength = 1.5 + ((over_seed - 6) * 0.2)
+                            importance_factor = max(0.5, skill_weight)
+                            penalty_rate = penalty_strength / importance_factor
+                            remaining_potential = -penalty_rate * 12.0
+                            # Results in -18 to -30+ per season
                 # Apply multiplier scaled down for realistic changes
                 # Stronger pull when seed is present (smaller divisor)
                 divisor = 24.0 if seed_targets else 45.0
@@ -1011,20 +1035,40 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
                 skill_random = random.uniform(0.7, 1.3)
             skill_change = base_change * skill_random
 
-            # Seed nudge: small push towards seed target on improvement years
-            if seed_targets and final_multiplier > 0 and skill in seed_targets and seed_targets[skill] is not None:
+            # Seed nudge: push towards seed target (with tolerance zone)
+            if seed_targets and skill in seed_targets and seed_targets[skill] is not None:
                 target = int(seed_targets[skill])
                 gap = target - current_value
                 if gap != 0:
-                    # ε scaled by importance with curvature, still bounded to avoid jumps (stronger)
-                    epsilon = 0.45  # stronger nudge per season baseline
+                    # ε scaled by importance with curvature, still bounded to avoid jumps
+                    epsilon = 0.45  # nudge strength per season baseline
                     nudge = epsilon * (max(0.5, skill_weight) ** 1.5)
-                    # Move at most nudge toward the target; don't overshoot
+                    
                     if gap > 0:
-                        skill_change += min(nudge, gap)
+                        # Below target: push up (only on improvement years)
+                        if final_multiplier > 0:
+                            skill_change += min(nudge, gap)
                     else:
-                        # If already above seed, do not apply downward nudge
-                        pass
+                        # Above target: apply downward nudge based on how far over
+                        over_amount = abs(gap)
+                        
+                        # Tolerance zone (0-3 over): minimal to no downward nudge
+                        # Let development strength determine if player maintains or regresses
+                        if over_amount <= 3:
+                            # Very light nudge that only activates if already declining
+                            if final_multiplier < 0:  # Only on decline years
+                                downward_nudge = min(nudge * 0.3, over_amount)
+                                skill_change -= downward_nudge
+                        
+                        # Warning zone (4-6 over): moderate downward nudge
+                        elif over_amount <= 6:
+                            downward_nudge = min(nudge * 0.6, over_amount)
+                            skill_change -= downward_nudge
+                        
+                        # Critical zone (7+ over): strong downward nudge
+                        else:
+                            downward_nudge = min(nudge, over_amount)
+                            skill_change -= downward_nudge
             
             # Ensure skill stays within reasonable bounds (1-99) and convert to integer with proper rounding
             new_value = max(1, min(99, round(current_value + skill_change)))
@@ -1155,7 +1199,9 @@ def check_player_retirement(player_data: Dict) -> Dict:
     
     # Players with 1+ years contract remaining are not eligible for retirement
     # (This check happens after contract years are reduced at end of season)
-    if contract_years_remaining >= 1:
+    # EXCEPTION: "No Club" players (club_id = 141 or None) ignore contract status
+    # Their "contract" represents what they're asking for, not an actual binding contract
+    if contract_years_remaining >= 1 and club_id != 141 and club_id is not None:
         return {
             'wants_to_retire': False,
             'retirement_probability': 0.0,

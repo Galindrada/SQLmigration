@@ -1393,86 +1393,154 @@ def serve_player_image_by_id(player_id):
         
         if not os.path.exists(filepath):
             app.logger.error(f"Player {player_id}: File not found at any path. Tried: {filepath}")
-            # List directory contents for debugging
-            if os.path.exists(player_images_dir):
-                try:
-                    files_in_dir = os.listdir(player_images_dir)
-                    matching_files = [f for f in files_in_dir if f.startswith(f'player_{player_id}')]
-                    app.logger.info(f"  Files in directory: {len(files_in_dir)} total")
-                    app.logger.info(f"  Files matching player_{player_id}: {matching_files}")
-                except Exception as e:
-                    app.logger.error(f"  Cannot list directory: {e}")
-            
-            response = make_response("Image file not found", 404)
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-            return response
+            # Return default image or 404
+            return '', 404
         
-        # Read the file into memory and validate it's a PNG
-        try:
-            # Check file permissions first
-            if not os.access(filepath, os.R_OK):
-                app.logger.error(f"Player {player_id}: File {filepath} is not readable")
-                response = make_response("File not readable", 403)
-                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-                return response
-            
-            with open(filepath, 'rb') as f:
-                image_data = f.read()
-            
-            if len(image_data) == 0:
-                app.logger.error(f"Player {player_id}: File {filepath} is empty")
-                response = make_response("File is empty", 400)
-                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-                return response
-            
-            app.logger.info(f"Player {player_id}: Successfully read {len(image_data)} bytes from {filepath}")
-            
-            # Verify it's a valid PNG
-            if not image_data.startswith(b'\x89PNG\r\n\x1a\n'):
-                app.logger.error(f"Player {player_id}: File {filename} is not a valid PNG. First bytes: {image_data[:8] if len(image_data) >= 8 else image_data}")
-                # Try to serve it anyway - might be a valid image format
-                # Just set content type based on file extension
-                content_type = 'image/png'  # Default to PNG since filename ends in .png
-                response = make_response(image_data)
-                response.headers['Content-Type'] = content_type
-                response.headers['Content-Length'] = str(len(image_data))
-                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
-                response.headers['Pragma'] = 'no-cache'
-                response.headers['Expires'] = '0'
-                app.logger.warning(f"Player {player_id}: Serving file even though PNG header invalid")
-                return response
-            
-            # Create response with image data
-            response = make_response(image_data)
-            response.headers['Content-Type'] = 'image/png'
-            response.headers['Content-Length'] = str(len(image_data))
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-            response.headers['ETag'] = f'"{hash(image_data) % 1000000}"'  # Simple ETag
-            response.headers['Last-Modified'] = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%a, %d %b %Y %H:%M:%S GMT')
-            app.logger.info(f"Player {player_id}: Successfully serving image")
-            return response
-            
-        except IOError as e:
-            app.logger.error(f"Player {player_id}: Cannot read file {filepath}: {e}")
-            import traceback
-            app.logger.error(traceback.format_exc())
-            response = make_response("Cannot read image file", 500)
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            return response
-            
+        return send_file(filepath, mimetype='image/png')
+        
     except Exception as e:
         app.logger.error(f"Error serving player image {player_id}: {e}")
-        import traceback
-        app.logger.error(traceback.format_exc())
-        response = make_response(f"Error: {str(e)}", 500)
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        return response
+        return '', 404
 
-@app.route('/diagnose_player_images')
+@app.route('/team_symbol/<int:team_id>')
+def serve_team_symbol(team_id):
+    """Serve team symbol/logo by team ID"""
+    team_symbols_dir = os.path.join(app.root_path, 'static', 'team_symbols')
+    filename = f'team_{team_id}.png'
+    filepath = os.path.join(team_symbols_dir, filename)
+    
+    if os.path.exists(filepath):
+        return send_file(filepath, mimetype='image/png')
+    else:
+        # Return empty response if no symbol exists
+        return '', 404
+
+@app.route('/nation_flag/<int:team_id>')
+def serve_nation_flag(team_id):
+    """Serve nation flag by international team ID"""
+    nation_flags_dir = os.path.join(app.root_path, 'static', 'nation_flags')
+    filename = f'nation_{team_id}.png'
+    filepath = os.path.join(nation_flags_dir, filename)
+    
+    if os.path.exists(filepath):
+        return send_file(filepath, mimetype='image/png')
+    else:
+        # Return empty response if no flag exists
+        return '', 404
+
+@app.route('/tools/upload_team_symbol', methods=['POST'])
+@login_required
+def upload_team_symbol():
+    """Upload a team symbol/logo"""
+    try:
+        team_id = request.form.get('team_id')
+        symbol_file = request.files.get('symbol_file')
+        
+        if not team_id or not symbol_file:
+            flash('Team and symbol file are required', 'danger')
+            return redirect(url_for('tools'))
+        
+        # Validate file type - accept common image formats
+        allowed_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']
+        if not any(symbol_file.filename.lower().endswith(ext) for ext in allowed_extensions):
+            flash('Only image files (PNG, JPG, GIF, WEBP, BMP) are allowed', 'danger')
+            return redirect(url_for('tools'))
+        
+        # Create directory if it doesn't exist
+        team_symbols_dir = os.path.join(app.root_path, 'static', 'team_symbols')
+        os.makedirs(team_symbols_dir, exist_ok=True)
+        
+        # Save with standard naming
+        filename = f'team_{team_id}.png'
+        filepath = os.path.join(team_symbols_dir, filename)
+        
+        # Save temp file first
+        temp_filepath = filepath + '.temp'
+        symbol_file.save(temp_filepath)
+        
+        # Try to resize to 250x250
+        try:
+            from PIL import Image
+            img = Image.open(temp_filepath)
+            img = img.resize((250, 250), Image.Resampling.LANCZOS)
+            img.save(filepath, 'PNG', quality=95)
+            if os.path.exists(temp_filepath):
+                os.remove(temp_filepath)
+            app.logger.info(f"Successfully saved team symbol {team_id}: {filepath}")
+            flash(f'Team symbol uploaded and resized to 250x250 successfully!', 'success')
+        except ImportError:
+            if os.path.exists(temp_filepath):
+                os.rename(temp_filepath, filepath)
+            flash('Symbol uploaded (PIL not available for resizing)', 'warning')
+        except Exception as resize_error:
+            if os.path.exists(temp_filepath):
+                os.rename(temp_filepath, filepath)
+            app.logger.warning(f"Could not resize symbol: {resize_error}")
+            flash('Symbol uploaded (resizing failed)', 'warning')
+        
+    except Exception as e:
+        flash(f'Error uploading team symbol: {str(e)}', 'danger')
+        app.logger.error(f"Error uploading team symbol: {e}")
+    
+    return redirect(url_for('tools'))
+
+@app.route('/tools/upload_nation_flag', methods=['POST'])
+@login_required
+def upload_nation_flag():
+    """Upload a nation flag"""
+    try:
+        team_id = request.form.get('team_id')
+        flag_file = request.files.get('flag_file')
+        
+        if not team_id or not flag_file:
+            flash('National team and flag file are required', 'danger')
+            return redirect(url_for('tools'))
+        
+        # Validate file type - accept common image formats
+        allowed_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']
+        if not any(flag_file.filename.lower().endswith(ext) for ext in allowed_extensions):
+            flash('Only image files (PNG, JPG, GIF, WEBP, BMP) are allowed', 'danger')
+            return redirect(url_for('tools'))
+        
+        # Create directory if it doesn't exist
+        nation_flags_dir = os.path.join(app.root_path, 'static', 'nation_flags')
+        os.makedirs(nation_flags_dir, exist_ok=True)
+        
+        # Save with standard naming
+        filename = f'nation_{team_id}.png'
+        filepath = os.path.join(nation_flags_dir, filename)
+        
+        # Save temp file first
+        temp_filepath = filepath + '.temp'
+        flag_file.save(temp_filepath)
+        
+        # Try to resize to 400x250
+        try:
+            from PIL import Image
+            img = Image.open(temp_filepath)
+            img = img.resize((400, 250), Image.Resampling.LANCZOS)
+            img.save(filepath, 'PNG', quality=95)
+            if os.path.exists(temp_filepath):
+                os.remove(temp_filepath)
+            app.logger.info(f"Successfully saved nation flag {team_id}: {filepath}")
+            flash(f'Nation flag uploaded and resized to 400x250 successfully!', 'success')
+        except ImportError:
+            if os.path.exists(temp_filepath):
+                os.rename(temp_filepath, filepath)
+            flash('Flag uploaded (PIL not available for resizing)', 'warning')
+        except Exception as resize_error:
+            if os.path.exists(temp_filepath):
+                os.rename(temp_filepath, filepath)
+            app.logger.warning(f"Could not resize flag: {resize_error}")
+            flash('Flag uploaded (resizing failed)', 'warning')
+        
+    except Exception as e:
+        flash(f'Error uploading nation flag: {str(e)}', 'danger')
+        app.logger.error(f"Error uploading nation flag: {e}")
+    
+    return redirect(url_for('tools'))
+
+# --- PES6 Routes ---
 @login_required
 def diagnose_player_images():
     """Diagnostic endpoint to check which player images exist"""
@@ -1826,12 +1894,15 @@ def tools():
     # Get distinct nationalities for retire player tool
     cur.execute("SELECT DISTINCT nationality FROM players WHERE nationality IS NOT NULL ORDER BY nationality ASC")
     nationalities = [row[0] for row in cur.fetchall()]
+    # Get national teams for flag upload tool
+    cur.execute("SELECT id, team_name, nationality FROM international_teams ORDER BY team_name ASC")
+    national_teams = [dict(row) for row in cur.fetchall()]
     cur.close()
 
     # Get season message from flash if available
     season_message = None
 
-    return render_template('tools.html', players=players, players_salary=players_salary, teams=teams, nationalities=nationalities, season_message=season_message)
+    return render_template('tools.html', players=players, players_salary=players_salary, teams=teams, nationalities=nationalities, national_teams=national_teams, season_message=season_message)
 
 @app.route('/download_updated_csv')
 @login_required # Often good to require login for tools/downloads
@@ -7396,6 +7467,7 @@ def retire_player_manual():
             bundled_ratings['goalkeeping_rating'],
             player_id
         ))
+        
 
         # Clear individual achievements for the new regen (they should start with clean records)
         cur.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (player_id,))
@@ -9558,7 +9630,7 @@ def colados_league():
         for division in divisions_data:
             # Get standings for this division
             cur.execute("""
-                SELECT ds.team_name, ds.games_played, ds.wins, ds.draws, ds.losses,
+                SELECT ds.team_id, ds.team_name, ds.games_played, ds.wins, ds.draws, ds.losses,
                        ds.goals_for, ds.goals_against, ds.goal_difference, ds.points
                 FROM division_standings ds
                 WHERE ds.division_id = ?
@@ -11706,6 +11778,7 @@ def create_cpu_division():
         league_id = request.form.get('league_id')
         division_name = request.form.get('division_name', '').strip()
         division_description = request.form.get('division_description', '').strip()
+        tier = request.form.get('tier', '1')  # Default to Tier 1
         
         # CPU leagues only support round_robin
         competition_type = 'round_robin'
@@ -11713,6 +11786,14 @@ def create_cpu_division():
         if not league_id or not division_name:
             flash('League and division name are required', 'danger')
             return redirect(url_for('cpu_leagues'))
+        
+        # Validate tier
+        try:
+            tier = int(tier)
+            if tier not in [1, 2]:
+                tier = 1
+        except:
+            tier = 1
         
         # Verify league exists and is a CPU league
         cur.execute("SELECT id, name FROM leagues WHERE id = ? AND name != 'Colados League'", (league_id,))
@@ -11728,11 +11809,11 @@ def create_cpu_division():
             flash(f'Division "{division_name}" already exists in this league', 'danger')
             return redirect(url_for('cpu_leagues'))
         
-        # Create the division
+        # Create the division with tier
         cur.execute("""
-            INSERT INTO divisions (league_id, name, description, competition_type)
-            VALUES (?, ?, ?, ?)
-        """, (league_id, division_name, division_description, competition_type))
+            INSERT INTO divisions (league_id, name, description, competition_type, tier)
+            VALUES (?, ?, ?, ?, ?)
+        """, (league_id, division_name, division_description, competition_type, tier))
         
         db_helper.commit()
         flash(f'Division "{division_name}" created successfully!', 'success')
@@ -12169,6 +12250,29 @@ def simulate_cpu_game_route(game_id):
         # Update division standings
         update_division_standings(game['division_id'], game['home_team_id'], game['away_team_id'],
                                  home_score, away_score)
+        
+        # Calculate and apply game finances
+        try:
+            from cpu_league_finances import calculate_game_finances, apply_game_finances_to_database
+            
+            finances = calculate_game_finances(
+                cur,
+                game_id,
+                game['division_id'],
+                game['division_name'],
+                game['home_team_id'],
+                game['away_team_id'],
+                game['home_team_name'],
+                game['away_team_name'],
+                home_score,
+                away_score
+            )
+            
+            apply_game_finances_to_database(cur, game_id, finances)
+            
+        except Exception as e:
+            app.logger.warning(f"Could not calculate game finances: {e}")
+            # Don't fail the game simulation if finances fail
         
         db_helper.commit()
         
@@ -13139,12 +13243,13 @@ def call_up_international_squad(international_team_id: int):
         
         called_up_players = []
         
-        # Get all available players for this nationality
+        # Get all available players for this nationality (exclude draftees)
         cur.execute("""
             SELECT p.id, p.player_name, p.overall, p.registered_position
             FROM players p
             JOIN international_team_players itp ON p.id = itp.player_id
             WHERE itp.international_team_id = ? AND p.overall IS NOT NULL
+            AND (p.draftee = 0 OR p.draftee IS NULL)
             ORDER BY p.overall DESC
         """, (international_team_id,))
         available_players = [dict(row) for row in cur.fetchall()]
@@ -13262,11 +13367,145 @@ def call_up_international_squad(international_team_id: int):
     finally:
         cur.close()
 
-def populate_international_team_players(nationality=None):
-    """Populate international team players for a specific nationality or all nationalities"""
+def update_player_international_team(player_id: int, new_nationality: str = None):
+    """
+    Update a player's international team assignment when their nationality changes.
+    Removes them from old team and adds them to new team if applicable.
+    """
     cur = db_helper.get_cursor()
     
     try:
+        # Get player's current nationality if not provided
+        if not new_nationality:
+            cur.execute("SELECT nationality FROM players WHERE id = ?", (player_id,))
+            player = cur.fetchone()
+            if not player:
+                return {'success': False, 'error': 'Player not found'}
+            new_nationality = player['nationality']
+        
+        if not new_nationality:
+            # No nationality - remove from all teams
+            cur.execute("DELETE FROM international_team_players WHERE player_id = ?", (player_id,))
+            db_helper.commit()
+            return {'success': True, 'action': 'removed', 'reason': 'no_nationality'}
+        
+        # Normalize nationality
+        normalized_nationality = normalize_nationality(new_nationality)
+        
+        # Find the correct international team
+        cur.execute("SELECT id FROM international_teams WHERE nationality = ?", (normalized_nationality,))
+        team = cur.fetchone()
+        
+        if not team:
+            # No team exists for this nationality - remove from all teams
+            cur.execute("DELETE FROM international_team_players WHERE player_id = ?", (player_id,))
+            db_helper.commit()
+            return {'success': True, 'action': 'removed', 'reason': 'no_team', 'nationality': normalized_nationality}
+        
+        new_team_id = team['id']
+        
+        # Check if player is already in the correct team
+        cur.execute("""
+            SELECT international_team_id FROM international_team_players 
+            WHERE player_id = ?
+        """, (player_id,))
+        current_assignment = cur.fetchone()
+        
+        if current_assignment and current_assignment['international_team_id'] == new_team_id:
+            # Already in correct team
+            return {'success': True, 'action': 'no_change', 'team_id': new_team_id}
+        
+        # Remove from all teams first
+        cur.execute("DELETE FROM international_team_players WHERE player_id = ?", (player_id,))
+        
+        # Check if player should be added (not a draftee, has club_id)
+        cur.execute("""
+            SELECT club_id, draftee FROM players 
+            WHERE id = ? AND club_id IS NOT NULL AND (draftee = 0 OR draftee IS NULL)
+        """, (player_id,))
+        player_check = cur.fetchone()
+        
+        if player_check:
+            # Add to new team
+            cur.execute("""
+                INSERT OR IGNORE INTO international_team_players (international_team_id, player_id)
+                VALUES (?, ?)
+            """, (new_team_id, player_id))
+            db_helper.commit()
+            return {'success': True, 'action': 'moved', 'old_team_id': current_assignment['international_team_id'] if current_assignment else None, 'new_team_id': new_team_id}
+        else:
+            # Player is draftee or has no club - don't add
+            db_helper.commit()
+            return {'success': True, 'action': 'removed', 'reason': 'draftee_or_no_club'}
+    
+    except Exception as e:
+        app.logger.error(f"Error updating player international team: {e}")
+        db_helper.get_connection().rollback()
+        return {'success': False, 'error': str(e)}
+    finally:
+        cur.close()
+
+def populate_international_team_players(nationality=None):
+    """Populate international team players for a specific nationality or all nationalities.
+    Also checks for players in wrong squads and moves them to correct teams."""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # First, check for players in wrong squads and fix them
+        # Get all players in international teams with their current nationality
+        cur.execute("""
+            SELECT itp.player_id, itp.international_team_id, p.nationality, it.nationality as team_nationality
+            FROM international_team_players itp
+            JOIN players p ON itp.player_id = p.id
+            JOIN international_teams it ON itp.international_team_id = it.id
+            WHERE p.club_id IS NOT NULL AND (p.draftee = 0 OR p.draftee IS NULL)
+        """)
+        all_assignments = cur.fetchall()
+        
+        moved_count = 0
+        for assignment in all_assignments:
+            player_id = assignment['player_id']
+            current_team_id = assignment['international_team_id']
+            player_nationality = assignment['nationality']
+            team_nationality = assignment['team_nationality']
+            
+            if not player_nationality:
+                # No nationality - remove from team
+                cur.execute("DELETE FROM international_team_players WHERE player_id = ?", (player_id,))
+                moved_count += 1
+                continue
+            
+            # Normalize both nationalities for comparison
+            normalized_player_nat = normalize_nationality(player_nationality)
+            normalized_team_nat = normalize_nationality(team_nationality)
+            
+            # Check if player is in wrong team
+            if normalized_player_nat != normalized_team_nat:
+                # Also check for USA/United States variations
+                is_wrong = True
+                if (normalized_player_nat == 'USA' and normalized_team_nat == 'USA'):
+                    is_wrong = False
+                elif (player_nationality == 'United States' and team_nationality == 'USA'):
+                    is_wrong = False
+                elif (player_nationality == 'USA' and team_nationality == 'United States'):
+                    is_wrong = False
+                
+                if is_wrong:
+                    # Find correct team for this player
+                    cur.execute("SELECT id FROM international_teams WHERE nationality = ?", (normalized_player_nat,))
+                    correct_team = cur.fetchone()
+                    
+                    if correct_team:
+                        # Remove from wrong team
+                        cur.execute("DELETE FROM international_team_players WHERE player_id = ? AND international_team_id = ?", 
+                                  (player_id, current_team_id))
+                        # Add to correct team
+                        cur.execute("""
+                            INSERT OR IGNORE INTO international_team_players (international_team_id, player_id)
+                            VALUES (?, ?)
+                        """, (correct_team['id'], player_id))
+                        moved_count += 1
+        
         if nationality:
             # Populate for specific nationality
             normalized_nationality = normalize_nationality(nationality)
@@ -13278,9 +13517,12 @@ def populate_international_team_players(nationality=None):
             team_id = team['id']
             
             # Get all players with this nationality (try both original and normalized)
+            # Include No Club players (club_id = 141) for international games
+            # Exclude draftees (draftee = 1)
             cur.execute("""
                 SELECT id FROM players
-                WHERE (nationality = ? OR nationality = ?) AND club_id IS NOT NULL AND club_id != 141
+                WHERE (nationality = ? OR nationality = ?) AND club_id IS NOT NULL
+                AND (draftee = 0 OR draftee IS NULL)
             """, (nationality, normalized_nationality))
             players = cur.fetchall()
             
@@ -13298,7 +13540,7 @@ def populate_international_team_players(nationality=None):
                     continue
             
             db_helper.commit()
-            return {'success': True, 'nationality': normalized_nationality, 'added': added_count}
+            return {'success': True, 'nationality': normalized_nationality, 'added': added_count, 'moved': moved_count}
         else:
             # Populate for all nationalities
             cur.execute("SELECT id, nationality FROM international_teams")
@@ -13311,12 +13553,15 @@ def populate_international_team_players(nationality=None):
                 
                 # Get all players with this nationality (try both original and normalized)
                 # Also check for common variations
+                # Include No Club players (club_id = 141) for international games
+                # Exclude draftees (draftee = 1)
                 cur.execute("""
                     SELECT DISTINCT id FROM players
                     WHERE (nationality = ? OR nationality = ? OR 
                            (nationality = 'United States' AND ? = 'USA') OR
                            (nationality = 'USA' AND ? = 'United States'))
-                    AND club_id IS NOT NULL AND club_id != 141
+                    AND club_id IS NOT NULL
+                    AND (draftee = 0 OR draftee IS NULL)
                 """, (team_nationality, normalize_nationality(team_nationality), team_nationality, team_nationality))
                 players = cur.fetchall()
                 
@@ -13333,7 +13578,7 @@ def populate_international_team_players(nationality=None):
                         continue
             
             db_helper.commit()
-            return {'success': True, 'added': total_added, 'teams_processed': len(teams)}
+            return {'success': True, 'added': total_added, 'moved': moved_count, 'teams_processed': len(teams)}
     
     except Exception as e:
         app.logger.error(f"Error populating international team players: {e}")
@@ -13533,6 +13778,118 @@ def international():
                                        round_stats['played'] == round_stats['total'] and
                                        teams_in_next_round > 1)  # More than 1 team means not final
         
+        # Calculate standings for round-robin competitions
+        standings = []
+        competition_goalscorers = []
+        competition_assists = []
+        
+        if competition['competition_type'] == 'round_robin' and has_schedule:
+            # Get all teams in this competition
+            cur.execute("""
+                SELECT DISTINCT it.id, it.team_name, it.nationality
+                FROM international_competition_teams ict
+                JOIN international_teams it ON ict.international_team_id = it.id
+                WHERE ict.competition_id = ?
+            """, (competition_id,))
+            competition_teams = {row['id']: row for row in cur.fetchall()}
+            
+            # Initialize standings for each team
+            team_stats = {}
+            for team_id, team_data in competition_teams.items():
+                team_stats[team_id] = {
+                    'team_id': team_id,
+                    'team_name': team_data['team_name'],
+                    'nationality': team_data['nationality'],
+                    'played': 0,
+                    'won': 0,
+                    'drawn': 0,
+                    'lost': 0,
+                    'goals_for': 0,
+                    'goals_against': 0,
+                    'points': 0
+                }
+            
+            # Calculate stats from played games
+            cur.execute("""
+                SELECT home_team_id, away_team_id, home_team_name, away_team_name,
+                       home_score, away_score
+                FROM international_games
+                WHERE competition_id = ? AND is_played = 1
+            """, (competition_id,))
+            games = [dict(row) for row in cur.fetchall()]
+            
+            for game in games:
+                home_id = game.get('home_team_id')
+                away_id = game.get('away_team_id')
+                home_name = game.get('home_team_name', '')
+                away_name = game.get('away_team_name', '')
+                home_score = game.get('home_score') or 0
+                away_score = game.get('away_score') or 0
+                
+                # Skip BYE games
+                if home_name == 'BYE' or away_name == 'BYE':
+                    continue
+                
+                # Update home team stats
+                if home_id and home_id in team_stats:
+                    team_stats[home_id]['played'] += 1
+                    team_stats[home_id]['goals_for'] += home_score
+                    team_stats[home_id]['goals_against'] += away_score
+                    if home_score > away_score:
+                        team_stats[home_id]['won'] += 1
+                        team_stats[home_id]['points'] += 3
+                    elif home_score == away_score:
+                        team_stats[home_id]['drawn'] += 1
+                        team_stats[home_id]['points'] += 1
+                    else:
+                        team_stats[home_id]['lost'] += 1
+                
+                # Update away team stats
+                if away_id and away_id in team_stats:
+                    team_stats[away_id]['played'] += 1
+                    team_stats[away_id]['goals_for'] += away_score
+                    team_stats[away_id]['goals_against'] += home_score
+                    if away_score > home_score:
+                        team_stats[away_id]['won'] += 1
+                        team_stats[away_id]['points'] += 3
+                    elif away_score == home_score:
+                        team_stats[away_id]['drawn'] += 1
+                        team_stats[away_id]['points'] += 1
+                    else:
+                        team_stats[away_id]['lost'] += 1
+            
+            # Convert to list and sort by points, goal difference, goals for
+            standings = list(team_stats.values())
+            standings.sort(key=lambda x: (-x['points'], -(x['goals_for'] - x['goals_against']), -x['goals_for']))
+            
+            # Get top goalscorers for this competition
+            cur.execute("""
+                SELECT p.player_name, it.team_name, SUM(ipgs.goals) as total_goals
+                FROM international_player_game_stats ipgs
+                JOIN players p ON ipgs.player_id = p.id
+                JOIN international_games ig ON ipgs.game_id = ig.id
+                JOIN international_teams it ON ipgs.team_id = it.id
+                WHERE ig.competition_id = ? AND ipgs.goals > 0
+                GROUP BY ipgs.player_id, p.player_name, it.team_name
+                ORDER BY total_goals DESC
+                LIMIT 10
+            """, (competition_id,))
+            competition_goalscorers = [dict(row) for row in cur.fetchall()]
+            
+            # Get top assists for this competition
+            cur.execute("""
+                SELECT p.player_name, it.team_name, SUM(ipgs.assists) as total_assists
+                FROM international_player_game_stats ipgs
+                JOIN players p ON ipgs.player_id = p.id
+                JOIN international_games ig ON ipgs.game_id = ig.id
+                JOIN international_teams it ON ipgs.team_id = it.id
+                WHERE ig.competition_id = ? AND ipgs.assists > 0
+                GROUP BY ipgs.player_id, p.player_name, it.team_name
+                ORDER BY total_assists DESC
+                LIMIT 10
+            """, (competition_id,))
+            competition_assists = [dict(row) for row in cur.fetchall()]
+        
         return render_template('international.html',
                              competition=competition,
                              all_competitions=all_competitions,
@@ -13544,6 +13901,9 @@ def international():
                              can_advance_knockout=can_advance_knockout,
                              selected_teams_count=selected_teams_count,
                              knockout_teams=knockout_teams,
+                             standings=standings,
+                             competition_goalscorers=competition_goalscorers,
+                             competition_assists=competition_assists,
                              current_season=get_current_season())
     
     except Exception as e:
@@ -13772,6 +14132,61 @@ def create_international_competition():
         app.logger.error(f"Error creating international competition: {e}")
         db_helper.get_connection().rollback()
         flash(f'Error creating competition: {str(e)}', 'danger')
+        return redirect(url_for('international'))
+    finally:
+        cur.close()
+
+@app.route('/international/delete_competition/<int:competition_id>', methods=['POST'])
+@login_required
+def delete_international_competition(competition_id):
+    """Delete an international competition and all its related data, but preserve player stats"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get competition name for flash message
+        cur.execute("SELECT name FROM international_competitions WHERE id = ?", (competition_id,))
+        competition = cur.fetchone()
+        
+        if not competition:
+            flash('Competition not found', 'danger')
+            return redirect(url_for('international'))
+        
+        competition_name = competition['name'] if hasattr(competition, 'keys') else competition[0]
+        
+        # Get counts for flash message
+        cur.execute("SELECT COUNT(*) FROM international_games WHERE competition_id = ?", (competition_id,))
+        games_count = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM international_player_game_stats ipgs JOIN international_games ig ON ipgs.game_id = ig.id WHERE ig.competition_id = ?", (competition_id,))
+        stats_count = cur.fetchone()[0]
+        
+        # Delete in correct order to avoid foreign key constraints
+        # 1. Delete player game stats (references games)
+        cur.execute("""
+            DELETE FROM international_player_game_stats
+            WHERE game_id IN (SELECT id FROM international_games WHERE competition_id = ?)
+        """, (competition_id,))
+        
+        # 2. Delete knockout teams (references competition)
+        cur.execute("DELETE FROM international_knockout_teams WHERE competition_id = ?", (competition_id,))
+        
+        # 3. Delete competition teams (references competition)
+        cur.execute("DELETE FROM international_competition_teams WHERE competition_id = ?", (competition_id,))
+        
+        # 4. Delete games (references competition)
+        cur.execute("DELETE FROM international_games WHERE competition_id = ?", (competition_id,))
+        
+        # 5. Delete the competition itself
+        cur.execute("DELETE FROM international_competitions WHERE id = ?", (competition_id,))
+        
+        db_helper.commit()
+        flash(f'Competition "{competition_name}" deleted successfully! ({games_count} games, {stats_count} player stats removed. Player international stats preserved.)', 'success')
+        return redirect(url_for('international'))
+    
+    except Exception as e:
+        app.logger.error(f"Error deleting international competition: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error deleting competition: {str(e)}', 'danger')
         return redirect(url_for('international'))
     finally:
         cur.close()
@@ -14681,6 +15096,9 @@ def simulate_international_game(game_id):
                             VALUES (?, ?, ?)
                         """, (competition_id_val, winner_id, next_round))
                     app.logger.info(f"Added winner {winner_id} to round {next_round} in knockout competition")
+        
+        # Clear existing game stats to prevent accumulation if game is re-simulated
+        cur.execute("DELETE FROM international_player_game_stats WHERE game_id = ?", (game_id,))
         
         # Insert player game stats into international_player_game_stats (only for real players)
         for stat in player_stats:

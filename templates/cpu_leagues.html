@@ -129,6 +129,14 @@
                             <textarea class="form-control" id="divisionDescription" name="division_description" rows="3"></textarea>
                         </div>
                         <div class="form-group">
+                            <label for="divisionTier">Financial Tier:</label>
+                            <select class="form-control" id="divisionTier" name="tier" required>
+                                <option value="1">Tier 1 (Full Financial Values - €250M-€800M per season)</option>
+                                <option value="2">Tier 2 (40% of Tier 1 - €75M-€300M per season)</option>
+                            </select>
+                            <small class="form-text text-muted">Tier affects match-day revenues (attendance, sponsor, merchandise, TV rights, prizes)</small>
+                        </div>
+                        <div class="form-group">
                             <label for="divisionCompetitionType">Competition Type:</label>
                             <input type="hidden" name="competition_type" value="round_robin">
                             <input type="text" class="form-control" value="Round Robin" readonly style="background-color: #f0f0f0;">

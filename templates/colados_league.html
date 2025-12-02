@@ -188,7 +188,15 @@
                                 {% for team in division.standings %}
                                 <tr>
                                     <td>{{ loop.index }}</td>
-                                    <td>{{ team.team_name }}</td>
+                                    <td>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <img src="{{ url_for('serve_team_symbol', team_id=team.team_id) }}" 
+                                                 alt="{{ team.team_name }}"
+                                                 style="width: 30px; height: 30px; object-fit: contain; border-radius: 5px; background: white; padding: 3px;"
+                                                 onerror="this.style.display='none';">
+                                            <span>{{ team.team_name }}</span>
+                                        </div>
+                                    </td>
                                     <td>{{ team.games_played }}</td>
                                     <td>{{ team.wins }}</td>
                                     <td>{{ team.draws }}</td>

@@ -616,4 +616,48 @@
             color: #000000 !important;
         }
     </style>
+    
+    {# --- Upload Team Symbols Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>🛡️ Upload Team Symbol/Logo</h3>
+        <p>Upload a team symbol (auto-resized to 250x250px). Formats: PNG, JPG, GIF, WEBP, BMP. Naming: team_ID.png</p>
+        <form method="post" action="{{ url_for('upload_team_symbol') }}" enctype="multipart/form-data">
+            <div style="margin-bottom: 15px;">
+                <label for="symbol_team_id">Select Team:</label>
+                <select name="team_id" id="symbol_team_id" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
+                    <option value="" disabled selected>Select team</option>
+                    {% for team in teams %}
+                        <option value="{{ team[0] }}">{{ team[1] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label for="team_symbol_file">Symbol Image (PNG, JPG, GIF, WEBP, BMP):</label>
+                <input type="file" name="symbol_file" id="team_symbol_file" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,image/*" required style="margin-left: 10px;">
+            </div>
+            <button type="submit" class="button">Upload Team Symbol</button>
+        </form>
+    </div>
+    
+    {# --- Upload Nation Flags Tool --- #}
+    <div class="tool-section" style="margin-bottom: 30px;">
+        <h3>🏳️ Upload Nation Flag</h3>
+        <p>Upload a nation flag (auto-resized to 400x250px). Formats: PNG, JPG, GIF, WEBP, BMP. Naming: nation_ID.png</p>
+        <form method="post" action="{{ url_for('upload_nation_flag') }}" enctype="multipart/form-data">
+            <div style="margin-bottom: 15px;">
+                <label for="flag_team_id">Select National Team:</label>
+                <select name="team_id" id="flag_team_id" required style="margin-left: 10px; padding: 5px; min-width: 200px;">
+                    <option value="" disabled selected>Select national team</option>
+                    {% for nat_team in national_teams %}
+                        <option value="{{ nat_team.id }}">{{ nat_team.team_name }} ({{ nat_team.nationality }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label for="nation_flag_file">Flag Image (PNG, JPG, GIF, WEBP, BMP):</label>
+                <input type="file" name="flag_file" id="nation_flag_file" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,image/*" required style="margin-left: 10px;">
+            </div>
+            <button type="submit" class="button">Upload Nation Flag</button>
+        </form>
+    </div>
 {% endblock %}

@@ -2527,34 +2527,41 @@ def simulate_cpu_game(home_team_id, away_team_id, cur):
                     break
             if scorer:
                 get_stat(scorer['id'], scorer['player_name'], home_team_id)['goals'] += 1
-                # Assign assist (only if there are other players available)
-                assist_candidates = [p for p in non_gk_home if p['id'] != scorer['id']]
-                if assist_candidates:
-                    assist_weights = [(p, assist_prob(get_pos_int(p)) * p['overall'] / 100) for p in assist_candidates]
-                    total_assist = sum(w for _, w in assist_weights)
-                    if total_assist > 0:
-                        rand = random.random() * total_assist
-                        cum = 0
-                        for p, w in assist_weights:
-                            cum += w
-                            if rand <= cum:
-                                get_stat(p['id'], p['player_name'], home_team_id)['assists'] += 1
-                                break
-                # If no assist candidates, assist is not assigned (this is fine for incomplete teams)
+                # Assign assist (60% of goals have assists, exclude the scorer to prevent self-assists)
+                if random.random() < 0.60:
+                    assist_candidates = [p for p in non_gk_home if p['id'] != scorer['id']]
+                    if assist_candidates:
+                        assist_weights = [(p, assist_prob(get_pos_int(p)) * p['overall'] / 100) for p in assist_candidates]
+                        total_assist = sum(w for _, w in assist_weights)
+                        if total_assist > 0:
+                            rand = random.random() * total_assist
+                            cum = 0
+                            for p, w in assist_weights:
+                                cum += w
+                                if rand <= cum:
+                                    get_stat(p['id'], p['player_name'], home_team_id)['assists'] += 1
+                                    break
+                    # If no assist candidates or random check fails, assist is not assigned (realistic)
     
     # Distribute away goals - use final lineup after substitutions
-    # Probability per player remains constant regardless of team size
-    # Not all goals need to be assigned if team is incomplete
+    # Favor higher-rated players and reduce sub scoring likelihood
     non_gk_away = [p for p in away_lineup_final if get_pos_int(p) != 0]
     for _ in range(away_score):
         if not non_gk_away:
-            # Team incomplete - goal not assigned (this is fine)
             continue
-        # Calculate weights based on position probability and overall (normalized per player)
-        weights = [(p, score_prob(get_pos_int(p)) * p['overall'] / 100) for p in non_gk_away]
+        
+        # Calculate weights with minutes factor and squared overall
+        weights = []
+        for p in non_gk_away:
+            player_id = p.get('id')
+            minutes = away_minutes.get(player_id, 90)
+            minutes_factor = minutes / 90.0
+            overall_squared = (p['overall'] ** 2) / 10000
+            weight = score_prob(get_pos_int(p)) * overall_squared * minutes_factor
+            weights.append((p, weight))
+        
         total = sum(w for _, w in weights)
         if total > 0:
-            # Use weighted random selection - probability per player is constant
             rand = random.random() * total
             cum = 0
             scorer = None
@@ -2563,22 +2570,33 @@ def simulate_cpu_game(home_team_id, away_team_id, cur):
                 if rand <= cum:
                     scorer = p
                     break
+            
             if scorer:
                 get_stat(scorer['id'], scorer['player_name'], away_team_id)['goals'] += 1
-                # Assign assist (only if there are other players available)
-                assist_candidates = [p for p in non_gk_away if p['id'] != scorer['id']]
-                if assist_candidates:
-                    assist_weights = [(p, assist_prob(get_pos_int(p)) * p['overall'] / 100) for p in assist_candidates]
-                    total_assist = sum(w for _, w in assist_weights)
-                    if total_assist > 0:
-                        rand = random.random() * total_assist
-                        cum = 0
-                        for p, w in assist_weights:
-                            cum += w
-                            if rand <= cum:
-                                get_stat(p['id'], p['player_name'], away_team_id)['assists'] += 1
-                                break
-                # If no assist candidates, assist is not assigned (this is fine for incomplete teams)
+                # Assign assist (60% of goals have assists, exclude the scorer to prevent self-assists)
+                if random.random() < 0.60:
+                    assist_candidates = [p for p in non_gk_away if p['id'] != scorer['id']]
+                    if assist_candidates:
+                        # Same weighting for assists
+                        assist_weights = []
+                        for p in assist_candidates:
+                            player_id = p.get('id')
+                            minutes = away_minutes.get(player_id, 90)
+                            minutes_factor = minutes / 90.0
+                            overall_squared = (p['overall'] ** 2) / 10000
+                            weight = assist_prob(get_pos_int(p)) * overall_squared * minutes_factor
+                            assist_weights.append((p, weight))
+                        
+                        total_assist = sum(w for _, w in assist_weights)
+                        if total_assist > 0:
+                            rand = random.random() * total_assist
+                            cum = 0
+                            for p, w in assist_weights:
+                                cum += w
+                                if rand <= cum:
+                                    get_stat(p['id'], p['player_name'], away_team_id)['assists'] += 1
+                                    break
+                    # If no assist candidates or random check fails, assist is not assigned (realistic)
     
     # CRITICAL: Final validation RIGHT BEFORE adding to stats - ensure exactly 1 GK per team
     def filter_to_one_gk(lineup):
