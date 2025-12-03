@@ -22,7 +22,7 @@ from config import Config
 import db_helper  # New helper module for SQLite access
 
 # Market Bazaar Activity Toggle
-MARKET_BAZAAR_ENABLED = False  # Set to False to disable automatic market activity
+MARKET_BAZAAR_ENABLED = True  # Set to False to disable automatic market activity
 
 def get_next_market_activity_time():
     """Get the next market activity time (3 hours from now)"""
@@ -14001,12 +14001,16 @@ def view_international_team_squad(team_id):
             flash('International team not found', 'danger')
             return redirect(url_for('international'))
         
-        # Get called-up squad
+        # Get called-up squad with club information
         cur.execute("""
             SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, 
-                   isc.position_group, isc.is_fake_player
+                   isc.position_group, isc.is_fake_player,
+                   t.club_name,
+                   CASE WHEN lt.id IS NOT NULL THEN 1 ELSE 0 END as is_user_team
             FROM players p
             JOIN international_squad_callups isc ON p.id = isc.player_id
+            LEFT JOIN teams t ON p.club_id = t.id
+            LEFT JOIN league_teams lt ON t.club_name = lt.team_name
             WHERE isc.international_team_id = ?
             ORDER BY 
                 CASE isc.position_group
@@ -15264,12 +15268,16 @@ def international_game_management(game_id):
                 mvp_player_name = mvp_result['player_name'] if hasattr(mvp_result, 'keys') else mvp_result[0]
         
         if game['is_played']:
-            # Get home team player stats
+            # Get home team player stats with club information
             cur.execute("""
                 SELECT ipgs.player_id, ipgs.player_name, ipgs.goals, ipgs.assists, 
-                       ipgs.minutes_played, ipgs.is_starter, p.registered_position
+                       ipgs.minutes_played, ipgs.is_starter, p.registered_position,
+                       t.club_name,
+                       CASE WHEN lt.id IS NOT NULL THEN 1 ELSE 0 END as is_user_team
                 FROM international_player_game_stats ipgs
                 JOIN players p ON ipgs.player_id = p.id
+                LEFT JOIN teams t ON p.club_id = t.id
+                LEFT JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE ipgs.game_id = ? AND ipgs.team_id = ?
                 ORDER BY 
                     CASE p.registered_position
@@ -15292,12 +15300,16 @@ def international_game_management(game_id):
             """, (game_id, game['home_team_id']))
             home_player_stats = [dict(row) for row in cur.fetchall()]
             
-            # Get away team player stats
+            # Get away team player stats with club information
             cur.execute("""
                 SELECT ipgs.player_id, ipgs.player_name, ipgs.goals, ipgs.assists, 
-                       ipgs.minutes_played, ipgs.is_starter, p.registered_position
+                       ipgs.minutes_played, ipgs.is_starter, p.registered_position,
+                       t.club_name,
+                       CASE WHEN lt.id IS NOT NULL THEN 1 ELSE 0 END as is_user_team
                 FROM international_player_game_stats ipgs
                 JOIN players p ON ipgs.player_id = p.id
+                LEFT JOIN teams t ON p.club_id = t.id
+                LEFT JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE ipgs.game_id = ? AND ipgs.team_id = ?
                 ORDER BY 
                     CASE p.registered_position
@@ -15317,23 +15329,31 @@ def international_game_management(game_id):
                     END,
                     p.registered_position,
                     ipgs.goals DESC, ipgs.assists DESC
-            """, (game_id, game['away_team_id']))
+""", (game_id, game['away_team_id']))
             away_player_stats = [dict(row) for row in cur.fetchall()]
         else:
-            # Get called-up squads for pending games
+            # Get called-up squads for pending games with club information
             cur.execute("""
-                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, isc.position_group, isc.is_fake_player
+                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, isc.position_group, isc.is_fake_player,
+                       t.club_name,
+                       CASE WHEN lt.id IS NOT NULL THEN 1 ELSE 0 END as is_user_team
                 FROM players p
                 JOIN international_squad_callups isc ON p.id = isc.player_id
+                LEFT JOIN teams t ON p.club_id = t.id
+                LEFT JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE isc.international_team_id = ?
                 ORDER BY isc.position_group, p.overall DESC
             """, (game['home_team_id'],))
             home_squad = [dict(row) for row in cur.fetchall()]
             
             cur.execute("""
-                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, isc.position_group, isc.is_fake_player
+                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, isc.position_group, isc.is_fake_player,
+                       t.club_name,
+                       CASE WHEN lt.id IS NOT NULL THEN 1 ELSE 0 END as is_user_team
                 FROM players p
                 JOIN international_squad_callups isc ON p.id = isc.player_id
+                LEFT JOIN teams t ON p.club_id = t.id
+                LEFT JOIN league_teams lt ON t.club_name = lt.team_name
                 WHERE isc.international_team_id = ?
                 ORDER BY isc.position_group, p.overall DESC
             """, (game['away_team_id'],))
