@@ -172,8 +172,8 @@
     <!-- Player Statistics -->
     <div class="player-stats-section">
         <h3>📊 Player Statistics</h3>
-        <div class="row">
-            <div class="col-md-6">
+        <div class="row" style="margin-left: -10px; margin-right: -10px;">
+            <div class="col-lg-6 col-md-12" style="padding-left: 10px; padding-right: 10px;">
                 <h4>{{ game.home_team_name }}</h4>
                 <table class="table table-striped">
                     <thead>
@@ -191,18 +191,17 @@
                         {% for player in home_player_stats %}
                         <tr {% if player.player_id == mvp_player_id %}style="background-color: #ffd700; color: #000;"{% endif %}>
                             <td>
-                                <a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}"
-                                   {% if player.is_user_team == 1 and player.player_id != mvp_player_id %}style="font-weight: bold; color: #00ff00;"{% endif %}>
+                                <a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}">
                                     {{ player.player_name }}
                                 </a>
                             </td>
                             <td>
                                 {% if player.club_name %}
-                                    <span {% if player.is_user_team == 1 %}style="font-weight: bold; {% if player.player_id != mvp_player_id %}color: #00ff00;{% endif %}"{% else %}style="color: {% if player.player_id == mvp_player_id %}#000;{% else %}#bdc3c7;{% endif %}"{% endif %}>
+                                    <span style="color: {% if player.player_id == mvp_player_id %}#000{% else %}#e0e0e0{% endif %}; font-size: 0.85em;">
                                         {{ player.club_name }}
                                     </span>
                                 {% else %}
-                                    <span style="color: #7f8c8d; font-style: italic;">No Club</span>
+                                    <span style="color: #7f8c8d; font-style: italic; font-size: 0.85em;">No Club</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -245,7 +244,7 @@
                     </tbody>
                 </table>
             </div>
-            <div class="col-md-6">
+            <div class="col-lg-6 col-md-12" style="padding-left: 10px; padding-right: 10px;">
                 <h4>{{ game.away_team_name }}</h4>
                 <table class="table table-striped">
                     <thead>
@@ -263,18 +262,17 @@
                         {% for player in away_player_stats %}
                         <tr {% if player.player_id == mvp_player_id %}style="background-color: #ffd700; color: #000;"{% endif %}>
                             <td>
-                                <a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}"
-                                   {% if player.is_user_team == 1 and player.player_id != mvp_player_id %}style="font-weight: bold; color: #00ff00;"{% endif %}>
+                                <a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}">
                                     {{ player.player_name }}
                                 </a>
                             </td>
                             <td>
                                 {% if player.club_name %}
-                                    <span {% if player.is_user_team == 1 %}style="font-weight: bold; {% if player.player_id != mvp_player_id %}color: #00ff00;{% endif %}"{% else %}style="color: {% if player.player_id == mvp_player_id %}#000;{% else %}#bdc3c7;{% endif %}"{% endif %}>
+                                    <span style="color: {% if player.player_id == mvp_player_id %}#000{% else %}#e0e0e0{% endif %}; font-size: 0.85em;">
                                         {{ player.club_name }}
                                     </span>
                                 {% else %}
-                                    <span style="color: #7f8c8d; font-style: italic;">No Club</span>
+                                    <span style="color: #7f8c8d; font-style: italic; font-size: 0.85em;">No Club</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -321,6 +319,34 @@
     </div>
     {% endif %}
 </div>
+
+<style>
+/* Compact tables for player stats */
+.player-stats-section .table {
+    font-size: 0.85em;
+}
+
+.player-stats-section .table th,
+.player-stats-section .table td {
+    padding: 6px 4px;
+    white-space: nowrap;
+}
+
+.player-stats-section .table th {
+    font-size: 0.9em;
+}
+
+.player-stats-section .badge {
+    font-size: 0.75em;
+    padding: 2px 6px;
+}
+
+/* Responsive stacking on medium screens */
+@media (max-width: 1400px) {
+    .player-stats-section .col-lg-6 {
+        margin-bottom: 20px;
+    }
+}
 
 <style>
 .game-info-section {

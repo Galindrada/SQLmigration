@@ -43,16 +43,13 @@
                     {% if player.position_group == pos_group %}
                     <tr>
                         <td>
-                            <a href="{{ url_for('pes6_player_details', player_id=player.id) }}" 
-                               {% if player.is_user_team == 1 %}style="font-weight: bold; color: #00ff00;"{% endif %}>
+                            <a href="{{ url_for('pes6_player_details', player_id=player.id) }}">
                                 {{ player.player_name }}
                             </a>
                         </td>
                         <td>
                             {% if player.club_name %}
-                                <span {% if player.is_user_team == 1 %}style="font-weight: bold; color: #00ff00;"{% else %}style="color: #bdc3c7;"{% endif %}>
-                                    {{ player.club_name }}
-                                </span>
+                                <span style="color: #ffd700;">{{ player.club_name }}</span>
                             {% else %}
                                 <span style="color: #7f8c8d; font-style: italic;">No Club</span>
                             {% endif %}
