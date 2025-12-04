@@ -2401,6 +2401,160 @@ class TeamManager:
         except Exception as e:
             print(f"❌ Error refreshing standings: {e}")
 
+def estimate_contract_renewal(manager: TeamManager):
+    """Estimate contract renewal demands for a specific player"""
+    try:
+        from contract_renewal import ContractRenewalManager
+        
+        print("\n" + "="*80)
+        print("💰 CONTRACT RENEWAL ESTIMATION")
+        print("="*80)
+        
+        # Get player ID from user
+        player_id_input = input("\nEnter Player ID (or 'cancel' to go back): ").strip()
+        
+        if player_id_input.lower() == 'cancel':
+            print("❌ Operation cancelled")
+            return
+        
+        try:
+            player_id = int(player_id_input)
+        except ValueError:
+            print("❌ Invalid player ID. Please enter a number.")
+            return
+        
+        # Get player data from database
+        cursor = manager.conn.cursor()
+        cursor.execute("""
+            SELECT p.*, t.club_name
+            FROM players p
+            LEFT JOIN teams t ON p.club_id = t.id
+            WHERE p.id = ?
+        """, (player_id,))
+        
+        player = cursor.fetchone()
+        
+        if not player:
+            print(f"❌ Player with ID {player_id} not found")
+            return
+        
+        player_data = dict(player)
+        
+        # Display player info
+        print(f"\n{'='*80}")
+        print(f"📋 PLAYER INFORMATION")
+        print(f"{'='*80}")
+        print(f"Name:              {player_data['player_name']}")
+        print(f"Age:               {player_data['age']} years old")
+        print(f"Overall:           {player_data['overall']}")
+        print(f"Position:          {get_position_name(player_data['registered_position'])}")
+        print(f"Current Club:      {player_data['club_name'] if player_data['club_name'] else 'Free Agent'}")
+        print(f"Current Salary:    €{player_data['salary']:,}/year")
+        print(f"Market Value:      €{player_data['market_value']:,}")
+        print(f"Contract Remaining: {player_data['contract_years_remaining']} year(s)")
+        
+        # Calculate renewal terms
+        print(f"\n{'='*80}")
+        print(f"💼 CALCULATING CONTRACT RENEWAL DEMANDS...")
+        print(f"{'='*80}")
+        
+        renewal_manager = ContractRenewalManager(manager.db_path)
+        renewal_manager.connect()
+        
+        # Calculate for both CPU and User scenarios
+        cpu_terms = renewal_manager.calculate_new_contract_terms(player_data, is_cpu=True)
+        user_terms = renewal_manager.calculate_new_contract_terms(player_data, is_cpu=False)
+        
+        renewal_manager.disconnect()
+        
+        # Display CPU terms
+        print(f"\n🤖 IF PLAYING FOR CPU TEAM:")
+        print(f"{'─'*80}")
+        print(f"Contract Length:    {cpu_terms['contract_years']} year(s)")
+        print(f"Salary Demand:      €{cpu_terms['salary_demand']:,}/year")
+        print(f"Yearly Wage Rise:   {cpu_terms['yearly_wage_rise']*100:.1f}%")
+        print(f"Signing Bonus:      €{cpu_terms['signing_bonus']:,}")
+        print(f"")
+        print(f"Total Cost (Year 1): €{cpu_terms['salary_demand'] + cpu_terms['signing_bonus']:,}")
+        
+        # Calculate total contract value for CPU
+        cpu_total_value = cpu_terms['signing_bonus']
+        current_salary = cpu_terms['salary_demand']
+        for year in range(cpu_terms['contract_years']):
+            cpu_total_value += current_salary
+            current_salary = int(current_salary * (1 + cpu_terms['yearly_wage_rise']))
+        
+        print(f"Total Contract Value: €{cpu_total_value:,} over {cpu_terms['contract_years']} year(s)")
+        
+        # Display User terms
+        print(f"\n👤 IF PLAYING FOR USER TEAM:")
+        print(f"{'─'*80}")
+        print(f"Contract Length:    {user_terms['contract_years']} year(s)")
+        print(f"Salary Demand:      €{user_terms['salary_demand']:,}/year")
+        print(f"Yearly Wage Rise:   {user_terms['yearly_wage_rise']*100:.1f}%")
+        print(f"Signing Bonus:      €{user_terms['signing_bonus']:,}")
+        print(f"")
+        print(f"Total Cost (Year 1): €{user_terms['salary_demand'] + user_terms['signing_bonus']:,}")
+        
+        # Calculate total contract value for User
+        user_total_value = user_terms['signing_bonus']
+        current_salary = user_terms['salary_demand']
+        for year in range(user_terms['contract_years']):
+            user_total_value += current_salary
+            current_salary = int(current_salary * (1 + user_terms['yearly_wage_rise']))
+        
+        print(f"Total Contract Value: €{user_total_value:,} over {user_terms['contract_years']} year(s)")
+        
+        # Comparison
+        salary_diff = user_terms['salary_demand'] - cpu_terms['salary_demand']
+        salary_diff_pct = ((user_terms['salary_demand'] / cpu_terms['salary_demand']) - 1) * 100 if cpu_terms['salary_demand'] > 0 else 0
+        
+        print(f"\n{'='*80}")
+        print(f"📊 COMPARISON")
+        print(f"{'='*80}")
+        print(f"Current Salary:     €{player_data['salary']:,}/year")
+        print(f"CPU Demand:         €{cpu_terms['salary_demand']:,}/year")
+        print(f"User Demand:        €{user_terms['salary_demand']:,}/year")
+        print(f"Difference:         €{salary_diff:,}/year ({salary_diff_pct:+.1f}%)")
+        print(f"")
+        print(f"💡 User teams typically pay {salary_diff_pct:.0f}% more than CPU teams")
+        
+        # Year-by-year breakdown
+        print(f"\n{'='*80}")
+        print(f"📅 YEAR-BY-YEAR SALARY PROJECTION (User Team)")
+        print(f"{'='*80}")
+        current_salary = user_terms['salary_demand']
+        for year in range(1, user_terms['contract_years'] + 1):
+            print(f"Year {year}: €{current_salary:,}/year")
+            current_salary = int(current_salary * (1 + user_terms['yearly_wage_rise']))
+        
+        print(f"\n{'='*80}")
+        
+    except ImportError:
+        print("❌ Error: contract_renewal module not found")
+    except Exception as e:
+        print(f"❌ Error estimating contract renewal: {e}")
+        import traceback
+        traceback.print_exc()
+
+def get_position_name(position_code: int) -> str:
+    """Convert position code to readable name"""
+    positions = {
+        0: "Goalkeeper (GK)",
+        2: "Centre Back (CB)",
+        3: "Defensive Midfielder (DMF)",
+        4: "Full Back (FB)",
+        5: "Centre Midfielder (CMF)",
+        6: "Side Midfielder (SMF)",
+        7: "Attacking Midfielder (AMF)",
+        8: "Side Midfielder (SMF)",
+        9: "Wing Forward (WF)",
+        10: "Centre Forward (CF)",
+        11: "Second Striker (SS)",
+        12: "Centre Forward (CF)"
+    }
+    return positions.get(position_code, f"Unknown ({position_code})")
+
 def display_menu():
     """Display the main menu"""
     print("\n" + "="*60)
@@ -2428,7 +2582,8 @@ def display_menu():
     print("20. List/Delete secondary teams")
     print("21. Retire player and generate regen (random nationality)")
     print("22. Add seed goalkeepers from original.sqlite")
-    print("23. Exit")
+    print("23. Estimate contract renewal demands (by Player ID)")
+    print("24. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -3364,10 +3519,12 @@ def main():
             elif choice == '22':
                 add_seed_goalkeepers(manager)
             elif choice == '23':
+                estimate_contract_renewal(manager)
+            elif choice == '24':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-23.")
+                print("❌ Invalid choice. Please enter 1-24.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")
