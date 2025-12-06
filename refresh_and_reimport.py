@@ -415,6 +415,17 @@ def safe_refresh_database():
             else:
                 print("  ℹ️  csv_visible column already exists")
         
+        # Add last_action_time column for CPU AI performance optimization
+        print("\n⏰ Adding CPU AI performance optimization column...")
+        try:
+            cursor.execute("ALTER TABLE teams ADD COLUMN last_action_time TEXT")
+            print("  ✅ Added last_action_time column (for smart AI action frequency)")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding last_action_time column: {e}")
+            else:
+                print("  ℹ️  last_action_time column already exists")
+        
         # Create CPU leagues tables
         print("\n🏟️ Creating CPU leagues tables...")
         

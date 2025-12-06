@@ -2583,7 +2583,11 @@ def display_menu():
     print("21. Retire player and generate regen (random nationality)")
     print("22. Add seed goalkeepers from original.sqlite")
     print("23. Estimate contract renewal demands (by Player ID)")
-    print("24. Exit")
+    print("24. Populate CPU team stances based on division position")
+    print("25. Populate AMF player stats (games, goals, assists) for CPU teams")
+    print("26. Analyze CPU team selling/loaning thresholds")
+    print("27. Recalculate market values for CPU team players only")
+    print("28. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -3458,8 +3462,1202 @@ def add_seed_goalkeepers(manager: TeamManager):
         print(f"❌ Error adding seed goalkeepers: {e}")
         manager.conn.rollback()
 
+def populate_cpu_team_stances(manager: TeamManager):
+    """
+    Populate CPU team stances based on their position in division standings.
+    
+    Stance distribution:
+    - Top 25%: Powerdog
+    - Next 25%: Contender
+    - Next 25%: Tinkering
+    - Bottom 25%: Rebuilder
+    
+    Only assigns stances to CPU teams (user_id = 1 or NULL in league_teams).
+    
+    Option to randomly assign stances to all CPU teams instead of based on position.
+    """
+    if not manager.conn:
+        print("❌ Not connected to database")
+        return False
+    
+    try:
+        cursor = manager.conn.cursor()
+        
+        print("\n" + "="*80)
+        print("🏆 POPULATING CPU TEAM STANCES")
+        print("="*80)
+        print("Choose assignment method:")
+        print("  1. Based on division position (Top 25% = Powerdog, etc.)")
+        print("  2. Random assignment to all CPU teams")
+        print()
+        
+        choice = input("Enter choice (1 or 2, default: 1): ").strip()
+        if not choice:
+            choice = '1'
+        
+        if choice == '2':
+            # Random assignment mode
+            return _randomly_assign_stances(manager, cursor)
+        else:
+            # Division-based assignment mode
+            return _division_based_assign_stances(manager, cursor)
+    
+    except Exception as e:
+        print(f"❌ Error populating CPU team stances: {e}")
+        import traceback
+        traceback.print_exc()
+        if manager.conn:
+            manager.conn.rollback()
+        return False
+
+def _randomly_assign_stances(manager: TeamManager, cursor) -> bool:
+    """Randomly assign stances to all CPU teams"""
+    print("\n🎲 RANDOM STANCE ASSIGNMENT MODE")
+    print("="*80)
+    print("Randomly assigning stances to all CPU teams:")
+    print("  • Powerdog")
+    print("  • Contender")
+    print("  • Tinkering")
+    print("  • Rebuilder")
+    print()
+    
+    # Get all CPU teams
+    cursor.execute("""
+        SELECT t.id, t.club_name
+        FROM teams t
+        LEFT JOIN league_teams lt ON t.club_name = lt.team_name
+        WHERE (lt.user_id = 1 OR lt.user_id IS NULL)
+        AND t.id != 141  -- Exclude "No Club"
+        ORDER BY t.club_name
+    """)
+    
+    cpu_teams = cursor.fetchall()
+    
+    if not cpu_teams:
+        print("❌ No CPU teams found")
+        return False
+    
+    print(f"📊 Found {len(cpu_teams)} CPU team(s)")
+    
+    # Stance options
+    stances = ['Powerdog', 'Contender', 'Tinkering', 'Rebuilder']
+    
+    # Counters
+    stance_counts = {'Powerdog': 0, 'Contender': 0, 'Tinkering': 0, 'Rebuilder': 0}
+    
+    # Randomly assign stances
+    updated_count = 0
+    for team in cpu_teams:
+        team_id = team['id']
+        team_name = team['club_name']
+        
+        # Randomly select a stance
+        stance = random.choice(stances)
+        stance_counts[stance] += 1
+        
+        # Update team stance
+        cursor.execute("""
+            UPDATE teams
+            SET stance = ?
+            WHERE id = ?
+        """, (stance, team_id))
+        
+        updated_count += 1
+        
+        if updated_count <= 10 or updated_count >= len(cpu_teams) - 9:  # Show first 10 and last 10
+            print(f"   {team_name:<30} → {stance}")
+    
+    if updated_count > 20:
+        print(f"   ... ({updated_count - 20} more teams)")
+    
+    # Commit changes
+    manager.conn.commit()
+    
+    # Print summary
+    print("\n" + "="*80)
+    print("✅ RANDOM STANCE ASSIGNMENT COMPLETE")
+    print("="*80)
+    print(f"📊 Total CPU teams updated: {updated_count}")
+    print()
+    print("📈 Stance Distribution:")
+    print("-" * 40)
+    for stance in stances:
+        count = stance_counts[stance]
+        percentage = (count / updated_count * 100) if updated_count > 0 else 0
+        print(f"  {stance:<15}: {count:>3} teams ({percentage:>5.1f}%)")
+    
+    return True
+
+def _division_based_assign_stances(manager: TeamManager, cursor) -> bool:
+    """Assign stances based on division position"""
+    print("\n📊 DIVISION-BASED STANCE ASSIGNMENT MODE")
+    print("="*80)
+    print("Assigning stances based on division position:")
+    print("  • Top 25%: Powerdog")
+    print("  • Next 25%: Contender")
+    print("  • Next 25%: Tinkering")
+    print("  • Bottom 25%: Rebuilder")
+    print()
+    
+    # Get all CPU League divisions (exclude Colados League)
+    cursor.execute("""
+        SELECT d.id, d.name, d.league_id, l.name as league_name
+        FROM divisions d
+        LEFT JOIN leagues l ON d.league_id = l.id
+        WHERE l.name != 'Colados League' OR l.name IS NULL
+        ORDER BY d.id
+    """)
+    divisions = cursor.fetchall()
+    
+    if not divisions:
+        print("❌ No CPU League divisions found in database")
+        return False
+    
+    print(f"📊 Found {len(divisions)} CPU League division(s)")
+    
+    total_updated = 0
+    division_summaries = []
+    
+    for division in divisions:
+        division_id = division['id']
+        division_name = division['name']
+        league_name = division['league_name'] if division['league_name'] else 'Unknown League'
+        
+        print(f"\n📋 Processing Division: {division_name} (ID: {division_id}) - {league_name}")
+        print("-" * 80)
+        
+        # Get standings for this division
+        # Use division_standings if available, otherwise calculate from league_games
+        cursor.execute("""
+            SELECT ds.team_id, ds.team_name, ds.points, ds.goal_difference, ds.goals_for
+            FROM division_standings ds
+            WHERE ds.division_id = ?
+            ORDER BY ds.points DESC, ds.goal_difference DESC, ds.goals_for DESC
+        """, (division_id,))
+        
+        standings = cursor.fetchall()
+        
+        # If no standings in division_standings, calculate from league_games
+        if not standings:
+            print("   ⚠️  No standings found in division_standings, calculating from league_games...")
+            
+            # Get all teams in this division
+            cursor.execute("""
+                SELECT dt.team_id, t.club_name as team_name
+                FROM division_teams dt
+                JOIN teams t ON dt.team_id = t.id
+                WHERE dt.division_id = ? AND dt.is_active = 1
+            """, (division_id,))
+            
+            teams = cursor.fetchall()
+            
+            # Calculate standings from games
+            standings = []
+            for team in teams:
+                team_id = team['team_id']
+                team_name = team['team_name']
+                
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as games_played,
+                        SUM(CASE WHEN (home_team_id = ? AND home_score > away_score) OR 
+                                     (away_team_id = ? AND away_score > home_score) THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN home_score = away_score THEN 1 ELSE 0 END) as draws,
+                        SUM(CASE WHEN (home_team_id = ? AND home_score < away_score) OR 
+                                     (away_team_id = ? AND away_score < home_score) THEN 1 ELSE 0 END) as losses,
+                        SUM(CASE WHEN home_team_id = ? THEN home_score ELSE away_score END) as goals_for,
+                        SUM(CASE WHEN home_team_id = ? THEN away_score ELSE home_score END) as goals_against
+                    FROM league_games
+                    WHERE (home_team_id = ? OR away_team_id = ?) AND is_played = 1 AND division_id = ?
+                """, (team_id, team_id, team_id, team_id, team_id, team_id, team_id, team_id, division_id))
+                
+                stats = cursor.fetchone()
+                games_played = stats['games_played'] or 0
+                wins = stats['wins'] or 0
+                draws = stats['draws'] or 0
+                goals_for = stats['goals_for'] or 0
+                goals_against = stats['goals_against'] or 0
+                goal_difference = goals_for - goals_against
+                points = wins * 3 + draws
+                
+                standings.append({
+                    'team_id': team_id,
+                    'team_name': team_name,
+                    'points': points,
+                    'goal_difference': goal_difference,
+                    'goals_for': goals_for
+                })
+            
+            # Sort standings
+            standings.sort(key=lambda x: (x['points'], x['goal_difference'], x['goals_for']), reverse=True)
+        
+        if not standings:
+            print(f"   ⚠️  No teams found in division {division_name}")
+            continue
+        
+        # Filter to only CPU teams
+        cpu_standings = []
+        for standing in standings:
+            team_id = standing['team_id'] if isinstance(standing, dict) else standing[0]
+            
+            # Check if team is CPU (user_id = 1 or NULL)
+            cursor.execute("""
+                SELECT lt.user_id
+                FROM league_teams lt
+                JOIN teams t ON lt.team_name = t.club_name
+                WHERE t.id = ?
+            """, (team_id,))
+            
+            team_owner = cursor.fetchone()
+            if team_owner and team_owner['user_id'] in (1, None):
+                # It's a CPU team
+                if isinstance(standing, dict):
+                    cpu_standings.append(standing)
+                else:
+                    # Convert Row to dict
+                    cpu_standings.append({
+                        'team_id': standing[0],
+                        'team_name': standing[1],
+                        'points': standing[2],
+                        'goal_difference': standing[3],
+                        'goals_for': standing[4]
+                    })
+        
+        if not cpu_standings:
+            print(f"   ℹ️  No CPU teams found in division {division_name}")
+            continue
+        
+        total_teams = len(cpu_standings)
+        print(f"   📊 Found {total_teams} CPU team(s) in division")
+        
+        # Calculate quartile boundaries
+        q1_boundary = max(1, int(total_teams * 0.25))  # Top 25%
+        q2_boundary = max(1, int(total_teams * 0.50))  # Top 50%
+        q3_boundary = max(1, int(total_teams * 0.75))  # Top 75%
+        
+        # Assign stances based on position
+        powerdog_count = 0
+        contender_count = 0
+        tinkering_count = 0
+        rebuilder_count = 0
+        
+        for position, standing in enumerate(cpu_standings, 1):
+            team_id = standing['team_id']
+            team_name = standing['team_name']
+            points = standing['points']
+            
+            # Determine stance based on quartile
+            if position <= q1_boundary:
+                stance = 'Powerdog'
+                powerdog_count += 1
+            elif position <= q2_boundary:
+                stance = 'Contender'
+                contender_count += 1
+            elif position <= q3_boundary:
+                stance = 'Tinkering'
+                tinkering_count += 1
+            else:
+                stance = 'Rebuilder'
+                rebuilder_count += 1
+            
+            # Update team stance
+            cursor.execute("""
+                UPDATE teams
+                SET stance = ?
+                WHERE id = ?
+            """, (stance, team_id))
+            
+            if position <= 5 or position >= total_teams - 4:  # Show first 5 and last 4
+                print(f"   {position:>2}. {team_name:<30} {points:>3} pts → {stance}")
+        
+        division_summaries.append({
+            'division_name': division_name,
+            'total_teams': total_teams,
+            'powerdog': powerdog_count,
+            'contender': contender_count,
+            'tinkering': tinkering_count,
+            'rebuilder': rebuilder_count
+        })
+        
+        total_updated += total_teams
+        
+        print(f"   ✅ Updated {total_teams} teams:")
+        print(f"      Powerdog: {powerdog_count}, Contender: {contender_count}, Tinkering: {tinkering_count}, Rebuilder: {rebuilder_count}")
+    
+    # Commit all changes
+    manager.conn.commit()
+    
+    # Print summary
+    print("\n" + "="*80)
+    print("✅ STANCE POPULATION COMPLETE")
+    print("="*80)
+    print(f"📊 Total CPU teams updated: {total_updated}")
+    print(f"📋 Divisions processed: {len(division_summaries)}")
+    print()
+    print("📈 Summary by Division:")
+    print("-" * 80)
+    print(f"{'Division':<30} {'Total':<6} {'Powerdog':<8} {'Contender':<9} {'Tinkering':<9} {'Rebuilder':<9}")
+    print("-" * 80)
+    
+    total_powerdog = 0
+    total_contender = 0
+    total_tinkering = 0
+    total_rebuilder = 0
+    
+    for summary in division_summaries:
+        print(f"{summary['division_name']:<30} {summary['total_teams']:<6} "
+              f"{summary['powerdog']:<8} {summary['contender']:<9} "
+              f"{summary['tinkering']:<9} {summary['rebuilder']:<9}")
+        total_powerdog += summary['powerdog']
+        total_contender += summary['contender']
+        total_tinkering += summary['tinkering']
+        total_rebuilder += summary['rebuilder']
+    
+    print("-" * 80)
+    print(f"{'TOTAL':<30} {total_updated:<6} "
+          f"{total_powerdog:<8} {total_contender:<9} "
+          f"{total_tinkering:<9} {total_rebuilder:<9}")
+    
+    return True
+
+def populate_amf_player_stats(manager: TeamManager):
+    """
+    Populate games_played, goals, and assists for AMF players (registered_position = '9')
+    on CPU teams only.
+    
+    Stats distribution:
+    - Games: 1-11 (better overall = more games)
+    - Goals: 0-5 (better overall = more goals)
+    - Assists: 0-5 (better overall = more assists)
+    
+    Only affects CPU teams (user_id = 1 or NULL in league_teams).
+    """
+    if not manager.conn:
+        print("❌ Not connected to database")
+        return False
+    
+    try:
+        cursor = manager.conn.cursor()
+        
+        print("\n" + "="*80)
+        print("⚽ POPULATE AMF PLAYER STATS FOR CPU TEAMS")
+        print("="*80)
+        print("This will update games_played, goals, and assists for AMF players")
+        print("(registered_position = '9') on CPU teams only.")
+        print()
+        print("Stats ranges:")
+        print("  • Games: 1-11 (better overall = more games)")
+        print("  • Goals: 0-5 (better overall = more goals)")
+        print("  • Assists: 0-5 (better overall = more assists)")
+        print()
+        
+        # Get all AMF players from CPU teams
+        cursor.execute("""
+            SELECT p.id, p.player_name, p.overall, p.games_played, p.goals, p.assists, t.club_name
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            LEFT JOIN league_teams lt ON t.club_name = lt.team_name
+            WHERE p.registered_position = '9'
+            AND (lt.user_id = 1 OR lt.user_id IS NULL)
+            AND t.id != 141  -- Exclude "No Club"
+            ORDER BY p.overall DESC
+        """)
+        
+        amf_players = cursor.fetchall()
+        
+        if not amf_players:
+            print("❌ No AMF players found on CPU teams")
+            return False
+        
+        print(f"📊 Found {len(amf_players)} AMF player(s) on CPU teams")
+        print()
+        print("Sample players (top 10 by overall):")
+        print("-" * 80)
+        print(f"{'Name':<25} {'Overall':<8} {'Current Games':<12} {'Current Goals':<12} {'Current Assists':<12}")
+        print("-" * 80)
+        
+        for i, player in enumerate(amf_players[:10]):
+            games = player['games_played'] or 0
+            goals = player['goals'] or 0
+            assists = player['assists'] or 0
+            print(f"{player['player_name']:<25} {player['overall'] or 0:<8} {games:<12} {goals:<12} {assists:<12}")
+        
+        if len(amf_players) > 10:
+            print(f"   ... and {len(amf_players) - 10} more players")
+        
+        # Confirm update
+        print()
+        confirm = input(f"⚠️  Update stats for all {len(amf_players)} AMF players? (y/N): ").strip().lower()
+        if confirm != 'y':
+            print("❌ Operation cancelled")
+            return False
+        
+        # Calculate stats based on overall
+        # Sort by overall (already sorted, but ensure it)
+        sorted_players = sorted(amf_players, key=lambda p: p['overall'] or 0, reverse=True)
+        
+        updated_count = 0
+        
+        for i, player in enumerate(sorted_players):
+            player_id = player['id']
+            player_name = player['player_name']
+            overall = player['overall'] or 0
+            
+            # Calculate position in sorted list (0.0 to 1.0)
+            position_ratio = i / len(sorted_players) if len(sorted_players) > 1 else 0.5
+            
+            # Better players (lower position_ratio) get more games/goals/assists
+            # Games: 1-11 (best players get 11, worst get 1)
+            games = max(1, int(11 - (position_ratio * 10)))
+            
+            # Goals: 0-5 (best players get 5, worst get 0)
+            # Use a more aggressive curve for goals (better players score more)
+            goals_chance = 1.0 - (position_ratio ** 1.5)  # More aggressive curve
+            goals = max(0, min(5, int(goals_chance * 5.5)))  # 0-5 range
+            
+            # Assists: 0-5 (best players get 5, worst get 0)
+            # Similar curve for assists
+            assists_chance = 1.0 - (position_ratio ** 1.5)
+            assists = max(0, min(5, int(assists_chance * 5.5)))  # 0-5 range
+            
+            # Add some randomness (±1) to make it more realistic
+            import random
+            games = max(1, min(11, games + random.randint(-1, 1)))
+            goals = max(0, min(4, goals + random.randint(-1, 1)))
+            assists = max(0, min(3, assists + random.randint(-1, 1)))
+            
+            # Update player stats
+            cursor.execute("""
+                UPDATE players
+                SET games_played = ?, goals = ?, assists = ?
+                WHERE id = ?
+            """, (games, goals, assists, player_id))
+            
+            updated_count += 1
+            
+            # Show first 10 and last 10 updates
+            if updated_count <= 10 or updated_count >= len(sorted_players) - 9:
+                old_games = player['games_played'] or 0
+                old_goals = player['goals'] or 0
+                old_assists = player['assists'] or 0
+                print(f"   ✅ {player_name:<25} (OVR: {overall:>3}): Games {old_games:>2}→{games:>2}, Goals {old_goals:>2}→{goals:>2}, Assists {old_assists:>2}→{assists:>2}")
+        
+        if updated_count > 20:
+            print(f"   ... ({updated_count - 20} more players updated)")
+        
+        # Commit changes
+        manager.conn.commit()
+        
+        # Print summary
+        print("\n" + "="*80)
+        print("✅ AMF PLAYER STATS POPULATION COMPLETE")
+        print("="*80)
+        print(f"📊 Total AMF players updated: {updated_count}")
+        
+        # Show stats distribution
+        cursor.execute("""
+            SELECT 
+                AVG(games_played) as avg_games,
+                AVG(goals) as avg_goals,
+                AVG(assists) as avg_assists,
+                MAX(games_played) as max_games,
+                MAX(goals) as max_goals,
+                MAX(assists) as max_assists,
+                MIN(games_played) as min_games,
+                MIN(goals) as min_goals,
+                MIN(assists) as min_assists
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            LEFT JOIN league_teams lt ON t.club_name = lt.team_name
+            WHERE p.registered_position = '9'
+            AND (lt.user_id = 1 OR lt.user_id IS NULL)
+            AND t.id != 141
+        """)
+        
+        stats_summary = cursor.fetchone()
+        
+        if stats_summary:
+            print()
+            print("📈 Stats Summary:")
+            print("-" * 80)
+            print(f"  Games:   Avg {stats_summary['avg_games']:.1f}, Range {stats_summary['min_games']}-{stats_summary['max_games']}")
+            print(f"  Goals:   Avg {stats_summary['avg_goals']:.1f}, Range {stats_summary['min_goals']}-{stats_summary['max_goals']}")
+            print(f"  Assists: Avg {stats_summary['avg_assists']:.1f}, Range {stats_summary['min_assists']}-{stats_summary['max_assists']}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error populating AMF player stats: {e}")
+        import traceback
+        traceback.print_exc()
+        if manager.conn:
+            manager.conn.rollback()
+        return False
+
+def recalculate_cpu_team_market_values(manager: TeamManager):
+    """
+    Recalculate market values for players on CPU teams only.
+    
+    This routine:
+    - Only affects players on CPU teams (user_id = 1 or NULL in league_teams)
+    - Excludes players on user teams
+    - Excludes No Club players (club_id = 141)
+    - Uses the same calculation logic as the main recalculate function
+    - Salaries remain unchanged
+    """
+    if not manager.conn:
+        print("❌ Not connected to database")
+        return False
+    
+    try:
+        # Import game mechanics functions
+        try:
+            from game_mechanics import calculate_player_market_value_only
+        except ImportError:
+            print("❌ Could not import calculate_player_market_value_only from game_mechanics.py")
+            return False
+        
+        cursor = manager.conn.cursor()
+        
+        print("\n" + "="*80)
+        print("💰 RECALCULATE CPU TEAM MARKET VALUES")
+        print("="*80)
+        print("This will recalculate market values for players on CPU teams only.")
+        print("Players on user teams and No Club will NOT be affected.")
+        print()
+        
+        # Get all players on CPU teams (excluding No Club)
+        cursor.execute("""
+            SELECT p.*, t.club_name
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            LEFT JOIN league_teams lt ON t.club_name = lt.team_name
+            WHERE p.club_id != 141  -- Exclude No Club
+            AND (lt.user_id = 1 OR lt.user_id IS NULL)  -- Only CPU teams
+            ORDER BY p.overall DESC
+        """)
+        
+        cpu_players = cursor.fetchall()
+        
+        if not cpu_players:
+            print("❌ No players found on CPU teams (excluding No Club)")
+            return False
+        
+        # Get column names
+        columns = [description[0] for description in cursor.description]
+        
+        print(f"📊 Found {len(cpu_players)} player(s) on CPU teams")
+        print()
+        print("Sample players (top 10 by overall):")
+        print("-" * 80)
+        print(f"{'Name':<25} {'Team':<25} {'Current MV':<15} {'Overall':<8}")
+        print("-" * 80)
+        
+        for i, player_row in enumerate(cpu_players[:10]):
+            player_data = dict(zip(columns, player_row))
+            current_mv = player_data.get('market_value', 0) or 0
+            overall = player_data.get('overall', 0) or 0
+            print(f"{player_data['player_name']:<25} {player_data['club_name']:<25} €{current_mv:>12,} {overall:<8}")
+        
+        if len(cpu_players) > 10:
+            print(f"   ... and {len(cpu_players) - 10} more players")
+        
+        # Confirm update
+        print()
+        confirm = input(f"⚠️  Recalculate market values for all {len(cpu_players)} CPU team players? (y/N): ").strip().lower()
+        if confirm != 'y':
+            print("❌ Operation cancelled")
+            return False
+        
+        # Process each player
+        updated_count = 0
+        errors = 0
+        position_top_players = {}  # Track top 5 players per position
+        
+        print()
+        print("🔄 Recalculating market values...")
+        
+        for player_row in cpu_players:
+            try:
+                # Convert to dictionary
+                player_data = dict(zip(columns, player_row))
+                player_id = player_data['id']
+                player_name = player_data['player_name']
+                old_market_value = player_data.get('market_value', 0) or 0
+                
+                # Calculate new market value
+                new_market_value = calculate_player_market_value_only(player_data)
+                
+                # Update only market value in database
+                cursor.execute("""
+                    UPDATE players 
+                    SET market_value = ?
+                    WHERE id = ?
+                """, (new_market_value, player_id))
+                
+                # Track for top players by position
+                position = player_data.get('registered_position', 'Unknown')
+                position_str = str(position) if position is not None else 'Unknown'
+                if position_str not in position_top_players:
+                    position_top_players[position_str] = []
+                
+                position_top_players[position_str].append({
+                    'name': player_name,
+                    'market_value': new_market_value,
+                    'club_name': player_data.get('club_name', 'Unknown')
+                })
+                
+                updated_count += 1
+                
+                # Show first 10 and last 10 updates
+                if updated_count <= 10 or updated_count >= len(cpu_players) - 9:
+                    print(f"   ✅ {player_name:<25} (Team: {player_data['club_name']:<20}): €{old_market_value:>12,} → €{new_market_value:>12,}")
+                
+            except Exception as e:
+                print(f"   ❌ Error updating player {player_data.get('id', 'unknown')} ({player_data.get('player_name', 'Unknown')}): {e}")
+                errors += 1
+                continue
+        
+        if updated_count > 20:
+            print(f"   ... ({updated_count - 20} more players updated)")
+        
+        # Sort top players by position and get top 5
+        top_players_by_position = {}
+        for position, players_list in position_top_players.items():
+            sorted_players = sorted(players_list, key=lambda x: x['market_value'], reverse=True)
+            top_players_by_position[position] = sorted_players[:5]
+        
+        # Commit changes
+        manager.conn.commit()
+        
+        # Print summary
+        print("\n" + "="*80)
+        print("✅ CPU TEAM MARKET VALUE RECALCULATION COMPLETE")
+        print("="*80)
+        print(f"📊 Total CPU team players updated: {updated_count}")
+        print(f"❌ Errors: {errors}")
+        print()
+        
+        # Show top players by position
+        if top_players_by_position:
+            print("🏆 Top 5 Most Valuable CPU Team Players by Position:")
+            print("-" * 80)
+            
+            position_names = {
+                '0': 'Goalkeeper', '2': 'Sweeper', '3': 'Centre-Back', '4': 'Side-Back',
+                '5': 'Defensive Midfielder', '6': 'Wing-Back', '7': 'Central Midfielder',
+                '8': 'Side Midfielder', '9': 'Attacking Midfielder', '10': 'Winger',
+                '11': 'Shadow Striker', '12': 'Striker'
+            }
+            
+            for position, players_list in sorted(top_players_by_position.items()):
+                if players_list:
+                    pos_name = position_names.get(position, f'Position {position}')
+                    print(f"\n{pos_name}:")
+                    for i, player in enumerate(players_list, 1):
+                        print(f"  {i}. {player['name']:<25} ({player['club_name']:<20}): €{player['market_value']:>12,}")
+        
+        print()
+        print("📈 Summary:")
+        print("  • Market values recalculated based on current skills and age")
+        print("  • Salaries remain unchanged")
+        print("  • Only CPU team players were affected")
+        print("  • User team players and No Club players were NOT affected")
+        print()
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error recalculating CPU team market values: {e}")
+        import traceback
+        traceback.print_exc()
+        if manager.conn:
+            manager.conn.rollback()
+        return False
+
+def analyze_cpu_team_selling_thresholds(manager: TeamManager):
+    """
+    Analyze CPU team selling and loaning thresholds.
+    
+    For each player on a selected CPU team, calculates:
+    - Listing price on market bazaar
+    - Threshold to sell in negotiate_with_cpu
+    - Threshold to loan in negotiate_with_cpu
+    """
+    if not manager.conn:
+        print("❌ Not connected to database")
+        return False
+    
+    try:
+        # Import CPUAI
+        from cpu_ai import CPUAI
+        import random
+        
+        cursor = manager.conn.cursor()
+        
+        print("\n" + "="*80)
+        print("📊 CPU TEAM SELLING/LOANING THRESHOLDS ANALYZER")
+        print("="*80)
+        print("This tool analyzes what prices/thresholds the CPU would use for:")
+        print("  • Market Bazaar listing price")
+        print("  • Negotiate with CPU - Sell threshold")
+        print("  • Negotiate with CPU - Loan threshold")
+        print()
+        
+        # Get all CPU teams
+        cursor.execute("""
+            SELECT t.id, t.club_name, t.budget, t.stance
+            FROM teams t
+            LEFT JOIN league_teams lt ON t.club_name = lt.team_name
+            WHERE (lt.user_id = 1 OR lt.user_id IS NULL)
+            AND t.id != 141
+            ORDER BY t.club_name
+        """)
+        
+        cpu_teams = cursor.fetchall()
+        
+        if not cpu_teams:
+            print("❌ No CPU teams found")
+            return False
+        
+        # Display teams
+        print("Available CPU Teams:")
+        print("-" * 80)
+        print(f"{'#':<4} {'Team Name':<30} {'Budget':<15} {'Stance':<15}")
+        print("-" * 80)
+        
+        for i, team in enumerate(cpu_teams, 1):
+            budget = team['budget'] or 0
+            stance = team['stance'] or 'N/A'
+            print(f"{i:<4} {team['club_name']:<30} €{budget:>12,} {stance:<15}")
+        
+        print()
+        team_choice = input("Enter team number to analyze (or 'q' to quit): ").strip()
+        
+        if team_choice.lower() == 'q':
+            print("❌ Operation cancelled")
+            return False
+        
+        try:
+            team_index = int(team_choice) - 1
+            if team_index < 0 or team_index >= len(cpu_teams):
+                print("❌ Invalid team number")
+                return False
+        except ValueError:
+            print("❌ Invalid input")
+            return False
+        
+        selected_team = cpu_teams[team_index]
+        team_id = selected_team['id']
+        team_name = selected_team['club_name']
+        team_stance = selected_team['stance'] or 'N/A'
+        
+        print(f"\n📊 Analyzing: {team_name} (Stance: {team_stance})")
+        print("="*80)
+        
+        # Initialize CPUAI
+        cpu_ai = CPUAI(manager.db_path)
+        
+        # Get team analysis
+        analysis = cpu_ai.analyze_team_composition(team_id)
+        if not analysis:
+            print(f"❌ Could not analyze team {team_name}")
+            return False
+        
+        budget = analysis['needs'].budget_available
+        
+        # Verify stance retrieval
+        retrieved_stance = cpu_ai.get_team_stance(team_id)
+        if retrieved_stance != team_stance and team_stance != 'N/A':
+            print(f"⚠️  Warning: Stance mismatch. DB has '{team_stance}', CPUAI retrieved '{retrieved_stance}'")
+        
+        # Get all players from this team
+        cursor.execute("""
+            SELECT p.id, p.player_name, p.registered_position, p.overall, 
+                   p.market_value, p.salary, p.contract_years_remaining, p.age
+            FROM players p
+            WHERE p.club_id = ?
+            ORDER BY p.overall DESC, p.player_name
+        """, (team_id,))
+        
+        players = cursor.fetchall()
+        
+        if not players:
+            print(f"❌ No players found for {team_name}")
+            return False
+        
+        print(f"Found {len(players)} player(s)")
+        print()
+        print("Calculating thresholds for each player...")
+        print()
+        
+        # Get team stance
+        stance = cpu_ai.get_team_stance(team_id)
+        
+        # Determine protection rules based on stance
+        players_per_position_to_protect = 2 if stance == 'Powerdog' else 1
+        
+        # Get protected players per position
+        protected_players_by_position = {}
+        cursor.execute("""
+            SELECT registered_position, MAX(overall) as best_overall
+            FROM players
+            WHERE club_id = ?
+            GROUP BY registered_position
+        """, (team_id,))
+        
+        position_bests = cursor.fetchall()
+        for pos_data in position_bests:
+            position = pos_data['registered_position']
+            best_overall = pos_data['best_overall']
+            
+            # Get top N players in this position
+            cursor.execute("""
+                SELECT id, overall FROM players 
+                WHERE club_id = ? AND registered_position = ? 
+                ORDER BY overall DESC
+                LIMIT ?
+            """, (team_id, position, players_per_position_to_protect))
+            
+            protected_players_by_position[position] = [row['id'] for row in cursor.fetchall()]
+        
+        # Get position counts for surplus check
+        cursor.execute("""
+            SELECT registered_position, COUNT(*) as count
+            FROM players
+            WHERE club_id = ?
+            GROUP BY registered_position
+        """, (team_id,))
+        
+        position_counts = {row['registered_position']: row['count'] for row in cursor.fetchall()}
+        
+        # Calculate position groups
+        gk_count = position_counts.get('0', 0)
+        def_count = position_counts.get('2', 0) + position_counts.get('3', 0)
+        fb_count = position_counts.get('4', 0) + position_counts.get('6', 0)
+        mid_count = position_counts.get('5', 0) + position_counts.get('7', 0) + position_counts.get('9', 0)
+        wing_count = position_counts.get('8', 0) + position_counts.get('10', 0)
+        fwd_count = position_counts.get('11', 0) + position_counts.get('12', 0)
+        
+        # Determine positions with surplus
+        positions_with_surplus = set()
+        if gk_count > cpu_ai.ideal_composition.goalkeepers:
+            positions_with_surplus.add('0')
+        if def_count > cpu_ai.ideal_composition.defenders:
+            positions_with_surplus.update(['2', '3'])
+        if fb_count > cpu_ai.ideal_composition.fullbacks:
+            positions_with_surplus.update(['4', '6'])
+        if mid_count > cpu_ai.ideal_composition.midfielders:
+            positions_with_surplus.update(['5', '7', '9'])
+        if wing_count > cpu_ai.ideal_composition.wingers:
+            positions_with_surplus.update(['8', '10'])
+        if fwd_count > cpu_ai.ideal_composition.forwards:
+            positions_with_surplus.update(['11', '12'])
+        
+        # Calculate thresholds for each player
+        results = []
+        
+        for player in players:
+            player_id = player['id']
+            player_name = player['player_name']
+            position = str(player['registered_position'])
+            overall = player['overall'] or 0
+            market_value = player['market_value'] or 1000000
+            salary = player['salary'] or 0
+            contract_years = player['contract_years_remaining'] or 1
+            age = player['age'] or 25
+            
+            # Convert player to dict for CPUAI methods
+            player_dict = dict(player)
+            
+            # Calculate fair salary and check if toxic (needed for listable check)
+            fair_salary = cpu_ai.calculate_fair_salary(player_dict)
+            is_toxic = salary > fair_salary * 1.5
+            
+            # Check if player would be listable (considering protection)
+            is_protected = player_id in protected_players_by_position.get(position, [])
+            rebuilder_override = (stance == 'Rebuilder' and age > 27)
+            is_listable = False
+            listable_reason = ""
+            
+            # Check if position has surplus
+            position_has_surplus = position in positions_with_surplus
+            
+            # Check if player would be listable
+            if is_protected and not rebuilder_override:
+                # Protected and not Rebuilder >27 override
+                is_listable = False
+                listable_reason = "PROTECTED"
+            elif position == '0' and gk_count <= 2 and budget >= 0:
+                # Goalkeeper protection (always keep at least 2)
+                is_listable = False
+                listable_reason = "GK PROTECTED"
+            elif not position_has_surplus and budget >= 0 and not rebuilder_override:
+                # No surplus in position and not in debt/Rebuilder override
+                is_listable = False
+                listable_reason = "NO SURPLUS"
+            else:
+                # Would be listable
+                is_listable = True
+                if rebuilder_override:
+                    listable_reason = "REBUILDER >27"
+                elif budget < 0:
+                    listable_reason = "DEBT"
+                elif is_toxic:
+                    listable_reason = "TOXIC CONTRACT"
+                else:
+                    listable_reason = "SURPLUS"
+            
+            # 1. Calculate listing price (from list_cpu_player_for_sale logic)
+            # Note: Listing price uses random, so we'll show the range
+            
+            if stance == 'Rebuilder' and age > 27:
+                # Rebuilder: Players >27 years old sell for 70-90% of market value
+                listing_price_min = int(market_value * 0.70)
+                listing_price_max = int(market_value * 0.90)
+                listing_price = int(market_value * random.uniform(0.70, 0.90))
+                listing_price_display = f"€{listing_price:,} (range: €{listing_price_min:,}-€{listing_price_max:,})"
+            elif stance in ['Contender', 'Tinkering']:
+                # Contender/Tinkering: Normal price + 30% bump
+                if is_toxic or budget < 0:
+                    base_min = int(market_value * 0.8)
+                    base_max = int(market_value * 0.95)
+                    listing_price_min = int(base_min * 1.30)
+                    listing_price_max = int(base_max * 1.30)
+                    listing_price = int(market_value * random.uniform(0.8, 0.95) * 1.30)
+                else:
+                    base_min = int(market_value * 0.95)
+                    base_max = int(market_value * 1.35)
+                    listing_price_min = int(base_min * 1.30)
+                    listing_price_max = int(base_max * 1.30)
+                    listing_price = int(market_value * random.uniform(0.95, 1.35) * 1.30)
+                listing_price_display = f"€{listing_price:,} (range: €{listing_price_min:,}-€{listing_price_max:,})"
+            elif is_toxic or budget < 0:
+                # Sell below market value for toxic contracts or debt
+                listing_price_min = int(market_value * 0.8)
+                listing_price_max = int(market_value * 0.95)
+                listing_price = int(market_value * random.uniform(0.8, 0.95))
+                listing_price_display = f"€{listing_price:,} (range: €{listing_price_min:,}-€{listing_price_max:,})"
+            else:
+                # Normal asking price
+                listing_price_min = int(market_value * 0.95)
+                listing_price_max = int(market_value * 1.35)
+                listing_price = int(market_value * random.uniform(0.95, 1.35))
+                listing_price_display = f"€{listing_price:,} (range: €{listing_price_min:,}-€{listing_price_max:,})"
+            
+            # Mark if not listable
+            if not is_listable:
+                listing_price_display = f"NOT LISTABLE ({listable_reason})"
+            
+            # 2. Calculate sell threshold (from process_user_offers logic)
+            base_min = market_value
+            adjusted_min = base_min
+            
+            # Age adjustment
+            age_bonus = 0
+            if age < 25:
+                if age <= 20:
+                    age_bonus = market_value * 0.3
+                elif age <= 22:
+                    age_bonus = market_value * 0.2
+                else:
+                    age_bonus = market_value * 0.1
+            elif age > 30:
+                if age > 35:
+                    age_penalty = market_value * 0.2
+                else:
+                    age_penalty = market_value * 0.1
+                adjusted_min -= age_penalty
+            
+            adjusted_min += age_bonus
+            
+            # Contract adjustment
+            salary_difference = salary - fair_salary
+            total_overpayment = salary_difference * contract_years
+            
+            if salary_difference > 0:
+                # Overpaid player - reduce minimum
+                contract_penalty = min(total_overpayment * 0.1, market_value * 0.2)
+                adjusted_min -= contract_penalty
+                
+                if total_overpayment > market_value * 3:
+                    compensation_required = min(total_overpayment * 0.1, market_value * 0.2)
+                    adjusted_min = -compensation_required
+            else:
+                # Underpaid player - increase minimum
+                contract_bonus = abs(total_overpayment) * 0.2
+                adjusted_min += contract_bonus
+            
+            # Player quality relative to team's best in position
+            cursor.execute("""
+                SELECT MAX(overall) as best_overall
+                FROM players
+                WHERE club_id = ? AND registered_position = ?
+            """, (team_id, position))
+            
+            best_result = cursor.fetchone()
+            current_best_overall = best_result['best_overall'] if best_result and best_result['best_overall'] else 0
+            
+            if current_best_overall > 0:
+                if current_best_overall == overall:
+                    # Player IS the best - demand premium
+                    adjusted_min *= 1.3
+                elif current_best_overall > overall + 5:
+                    # CPU has significantly better player
+                    premium_multiplier = 1.2 + (current_best_overall - overall - 5) * 0.05
+                    adjusted_min *= premium_multiplier
+                elif current_best_overall > overall:
+                    # CPU has better player
+                    premium_multiplier = 1.1 + (current_best_overall - overall) * 0.02
+                    adjusted_min *= premium_multiplier
+                elif current_best_overall >= overall - 3:
+                    # Close in quality - no adjustment
+                    pass
+                else:
+                    # CPU player is worse - discount
+                    discount_multiplier = 0.95 + (overall - current_best_overall - 3) * 0.01
+                    adjusted_min *= discount_multiplier
+            
+            sell_threshold = int(adjusted_min)
+            
+            # Powerdog: Boost sell threshold by 30% for protected players
+            if stance == 'Powerdog' and is_protected:
+                sell_threshold = int(sell_threshold * 1.30)
+            
+            # 3. Calculate loan threshold (from process_loan_proposals logic - STANCE-BASED VERSION)
+            # Get team stance
+            stance = cpu_ai.get_team_stance(team_id)
+            
+            # Convert position to int for comparison (same as CPU AI)
+            position_int = int(position) if position.isdigit() else -1
+            
+            # Get position stats
+            cursor.execute("""
+                SELECT MAX(overall) as best_overall, AVG(overall) as avg_overall, COUNT(*) as position_count
+                FROM players
+                WHERE club_id = ? AND registered_position = ?
+            """, (team_id, position))
+            
+            position_stats = cursor.fetchone()
+            best_in_position = position_stats['best_overall'] if position_stats and position_stats['best_overall'] else 0
+            avg_in_position = position_stats['avg_overall'] if position_stats and position_stats['avg_overall'] else 0
+            position_count = position_stats['position_count'] if position_stats else 0
+            
+            # Determine player importance (same logic as actual CPU AI)
+            is_key_player = False
+            is_useful_player = False
+            
+            if overall >= 85:
+                is_key_player = True
+            elif overall >= 80:
+                is_key_player = True
+            elif best_in_position > 0 and overall >= best_in_position - 2:
+                is_key_player = True
+            elif avg_in_position > 0 and overall >= avg_in_position + 5:
+                is_useful_player = True
+            elif overall >= 75:
+                is_useful_player = True
+            
+            # Check if player is surplus (not key/useful)
+            is_surplus_player = not is_key_player and not is_useful_player
+            
+            # STANCE-BASED LOAN ACCEPTANCE CRITERIA
+            if stance in ['Powerdog', 'Contender']:
+                # Powerdog/Contender: Key/useful players essentially unavailable
+                if is_key_player or is_useful_player:
+                    # Key/useful players: 100% wage + 100% of market value as fee (essentially impossible)
+                    required_wage_coverage = 1.0  # 100%
+                    required_loan_fee = market_value  # 100% of market value
+                    loan_threshold_note = f"100% wage + €{required_loan_fee:,} (100% MV) - Essentially unavailable"
+                else:
+                    # Surplus players: Easy to loan (0-10% wage + €500k fee, both required)
+                    required_wage_coverage = 0.0  # Minimum 0%, but can be up to 10%
+                    required_loan_fee = 500000  # €500k fee (required)
+                    loan_threshold_note = f"0-10% wage + €{required_loan_fee:,}"
+            
+            elif stance in ['Tinkering', 'Rebuilder']:
+                # Tinkering/Rebuilder: More willing to loan
+                if age > 27:
+                    # Players over 27: 50% wage + 10% of market value as fee
+                    required_wage_coverage = 0.50  # 50%
+                    required_loan_fee = int(market_value * 0.10)  # 10% of market value
+                    loan_threshold_note = f"{required_wage_coverage*100:.0f}% wage + €{required_loan_fee:,} (10% MV)"
+                elif is_surplus_player:
+                    # Surplus players: 50% wage, no fee
+                    required_wage_coverage = 0.50  # 50%
+                    required_loan_fee = 0  # No fee
+                    loan_threshold_note = f"{required_wage_coverage*100:.0f}% wage (no fee)"
+                else:
+                    # Key/useful players under 27: 50-90% wage + 15-35% of market value as fee
+                    wage_min = 0.50
+                    wage_max = 0.90
+                    fee_min = int(market_value * 0.15)
+                    fee_max = int(market_value * 0.35)
+                    loan_threshold_note = f"{wage_min*100:.0f}-{wage_max*100:.0f}% wage + €{fee_min:,}-€{fee_max:,} (15-35% MV)"
+            else:
+                # Default stance (shouldn't happen, but fallback)
+                if is_key_player:
+                    required_wage_coverage = 0.90
+                    required_loan_fee = 2000000
+                    loan_threshold_note = f"{required_wage_coverage*100:.0f}% wage + €{required_loan_fee:,}"
+                elif is_useful_player:
+                    required_wage_coverage = 0.70
+                    required_loan_fee = 500000
+                    loan_threshold_note = f"{required_wage_coverage*100:.0f}% wage + €{required_loan_fee:,}"
+                else:
+                    required_wage_coverage = 0.50
+                    required_loan_fee = 1000000
+                    loan_threshold_note = f"{required_wage_coverage*100:.0f}% wage OR €{required_loan_fee:,} fee"
+            
+            results.append({
+                'player_id': player_id,
+                'player_name': player_name,
+                'position': position,
+                'overall': overall,
+                'age': age,
+                'market_value': market_value,
+                'listing_price': listing_price if is_listable else 0,
+                'listing_price_display': listing_price_display,
+                'is_listable': is_listable,
+                'listable_reason': listable_reason,
+                'sell_threshold': sell_threshold,
+                'loan_threshold': loan_threshold_note
+            })
+        
+        # Display results
+        print("\n" + "="*140)
+        print(f"📊 THRESHOLDS FOR {team_name.upper()} (Stance: {stance})")
+        print("="*140)
+        print(f"{'Player Name':<25} {'Pos':<4} {'OVR':<4} {'Age':<4} {'MV':<12} {'Listing Price':<40} {'Sell Threshold':<15} {'Loan Threshold':<35}")
+        print("-"*140)
+        
+        for result in results:
+            print(f"{result['player_name']:<25} {result['position']:<4} {result['overall']:<4} {result['age']:<4} "
+                  f"€{result['market_value']:>10,} {result['listing_price_display']:<40} "
+                  f"€{result['sell_threshold']:>13,} {result['loan_threshold']:<35}")
+        
+        print("-"*140)
+        print(f"Total players analyzed: {len(results)}")
+        print()
+        
+        # Summary statistics
+        avg_listing = sum(r['listing_price'] for r in results) / len(results) if results else 0
+        avg_sell = sum(r['sell_threshold'] for r in results) / len(results) if results else 0
+        
+        print("Summary:")
+        print(f"  Average Listing Price: €{avg_listing:,.0f}")
+        print(f"  Average Sell Threshold: €{avg_sell:,.0f}")
+        print()
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error analyzing CPU team thresholds: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def main():
-    """Main function"""
     print("🏆 Team Management System")
     print("Direct database access for team ownership management")
     
@@ -3472,7 +4670,7 @@ def main():
     try:
         while True:
             display_menu()
-            choice = input("\nEnter your choice (1-23): ").strip()
+            choice = input("\nEnter your choice (1-28): ").strip()
             
             if choice == '1':
                 list_users(manager)
@@ -3521,10 +4719,18 @@ def main():
             elif choice == '23':
                 estimate_contract_renewal(manager)
             elif choice == '24':
+                populate_cpu_team_stances(manager)
+            elif choice == '25':
+                populate_amf_player_stats(manager)
+            elif choice == '26':
+                analyze_cpu_team_selling_thresholds(manager)
+            elif choice == '27':
+                recalculate_cpu_team_market_values(manager)
+            elif choice == '28':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-24.")
+                print("❌ Invalid choice. Please enter 1-28.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")

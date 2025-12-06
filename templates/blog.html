@@ -175,6 +175,73 @@
         clear: both;
     }
     
+    .player-images-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin: 20px 0;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    
+    .player-images-container.single-with-text {
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 20px;
+    }
+    
+    .player-image-item {
+        text-align: center;
+        flex: 0 0 auto;
+    }
+    
+    .player-image-item img {
+        width: 120px;
+        height: 120px;
+        object-fit: cover;
+        border-radius: 8px;
+        border: 3px solid #667eea;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        transition: transform 0.3s ease;
+    }
+    
+    .player-image-item img:hover {
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    
+    .player-image-item .player-name {
+        margin-top: 8px;
+        font-size: 0.85rem;
+        color: #495057;
+        font-weight: 500;
+    }
+    
+    .player-joining-text {
+        text-align: center;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #2c3e50;
+        margin: 15px 0;
+        padding: 10px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 8px;
+    }
+    
+    /* Style for joining text when positioned next to image */
+    .player-joining-text.side-by-side {
+        text-align: left;
+        margin: 0;
+        padding: 15px 20px;
+        flex: 1;
+        align-self: center;
+        min-height: 120px;
+        display: flex;
+        align-items: center;
+    }
+    
     @media (max-width: 768px) {
         .blog-header h2 {
             font-size: 2rem;
@@ -241,7 +308,23 @@
                             </div>
                         {% endif %}
                         
-                        <div class="post-excerpt clearfix">
+                        {# Display player images if player_ids are present #}
+                        {% if post.get('player_ids') and post['player_ids'] %}
+                            {% set is_single_player = post['player_ids'] | length == 1 %}
+                            <div class="player-images-container{% if is_single_player %} single-with-text{% endif %}">
+                                {% for player_id in post['player_ids'] %}
+                                    <div class="player-image-item">
+                                        <a href="{{ url_for('pes6_player_details', player_id=player_id) }}">
+                                            <img src="{{ url_for('serve_player_image_by_id', player_id=player_id) }}" 
+                                                 alt="Player image"
+                                                 onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                        </a>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        
+                        <div class="post-excerpt clearfix{% if post.get('player_ids') and post['player_ids'] | length == 1 %} has-single-player{% endif %}">
                             {{ post['content'][:300] | safe }}
                             {% if post['content'] | length > 300 %}...{% endif %}
                         </div>
@@ -268,4 +351,29 @@
 
 <!-- Include Font Awesome for icons -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<script>
+// Move player-joining-text next to single player image
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.player-images-container.single-with-text').forEach(function(container) {
+        var postContent = container.closest('.post-content');
+        if (!postContent) return;
+        
+        var postExcerpt = postContent.querySelector('.post-excerpt');
+        if (!postExcerpt) return;
+        
+        var joiningText = postExcerpt.querySelector('.player-joining-text');
+        if (joiningText) {
+            // Remove from excerpt
+            joiningText.remove();
+            // Add to image container with side-by-side class
+            joiningText.classList.add('side-by-side');
+            container.appendChild(joiningText);
+            // Make container flex with nowrap
+            container.style.flexWrap = 'nowrap';
+            container.style.alignItems = 'center';
+        }
+    });
+});
+</script>
 {% endblock %}

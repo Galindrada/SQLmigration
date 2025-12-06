@@ -3,7 +3,7 @@
 {% block title %}International Game - {{ game.home_team_name }} vs {{ game.away_team_name }}{% endblock %}
 
 {% block content %}
-<div class="container" style="max-width: 95%; width: 95%;">
+<div class="container">
     <!-- Flash Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -172,14 +172,13 @@
     <!-- Player Statistics -->
     <div class="player-stats-section">
         <h3>📊 Player Statistics</h3>
-        <div class="row" style="margin-left: -10px; margin-right: -10px;">
-            <div class="col-lg-6 col-md-12" style="padding-left: 10px; padding-right: 10px;">
+        <div class="row">
+            <div class="col-md-6">
                 <h4>{{ game.home_team_name }}</h4>
                 <table class="table table-striped">
                     <thead>
                         <tr>
                             <th>Player</th>
-                            <th>Club</th>
                             <th>Position</th>
                             <th>Goals</th>
                             <th>Assists</th>
@@ -190,20 +189,7 @@
                     <tbody>
                         {% for player in home_player_stats %}
                         <tr {% if player.player_id == mvp_player_id %}style="background-color: #ffd700; color: #000;"{% endif %}>
-                            <td>
-                                <a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}">
-                                    {{ player.player_name }}
-                                </a>
-                            </td>
-                            <td>
-                                {% if player.club_name %}
-                                    <span style="color: {% if player.player_id == mvp_player_id %}#000{% else %}#e0e0e0{% endif %}; font-size: 0.85em;">
-                                        {{ player.club_name }}
-                                    </span>
-                                {% else %}
-                                    <span style="color: #7f8c8d; font-style: italic; font-size: 0.85em;">No Club</span>
-                                {% endif %}
-                            </td>
+                            <td><a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}">{{ player.player_name }}</a></td>
                             <td>
                                 {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
                                 {% if pos == 0 %}GK
@@ -238,19 +224,18 @@
                         {% endfor %}
                         {% if not home_player_stats %}
                         <tr>
-                            <td colspan="7" class="text-center text-muted">No player statistics available</td>
+                            <td colspan="6" class="text-center text-muted">No player statistics available</td>
                         </tr>
                         {% endif %}
                     </tbody>
                 </table>
             </div>
-            <div class="col-lg-6 col-md-12" style="padding-left: 10px; padding-right: 10px;">
+            <div class="col-md-6">
                 <h4>{{ game.away_team_name }}</h4>
                 <table class="table table-striped">
                     <thead>
                         <tr>
                             <th>Player</th>
-                            <th>Club</th>
                             <th>Position</th>
                             <th>Goals</th>
                             <th>Assists</th>
@@ -261,20 +246,7 @@
                     <tbody>
                         {% for player in away_player_stats %}
                         <tr {% if player.player_id == mvp_player_id %}style="background-color: #ffd700; color: #000;"{% endif %}>
-                            <td>
-                                <a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}">
-                                    {{ player.player_name }}
-                                </a>
-                            </td>
-                            <td>
-                                {% if player.club_name %}
-                                    <span style="color: {% if player.player_id == mvp_player_id %}#000{% else %}#e0e0e0{% endif %}; font-size: 0.85em;">
-                                        {{ player.club_name }}
-                                    </span>
-                                {% else %}
-                                    <span style="color: #7f8c8d; font-style: italic; font-size: 0.85em;">No Club</span>
-                                {% endif %}
-                            </td>
+                            <td><a href="{{ url_for('pes6_player_details', player_id=player.player_id) }}">{{ player.player_name }}</a></td>
                             <td>
                                 {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
                                 {% if pos == 0 %}GK
@@ -309,7 +281,7 @@
                         {% endfor %}
                         {% if not away_player_stats %}
                         <tr>
-                            <td colspan="7" class="text-center text-muted">No player statistics available</td>
+                            <td colspan="6" class="text-center text-muted">No player statistics available</td>
                         </tr>
                         {% endif %}
                     </tbody>
@@ -319,34 +291,6 @@
     </div>
     {% endif %}
 </div>
-
-<style>
-/* Compact tables for player stats */
-.player-stats-section .table {
-    font-size: 0.85em;
-}
-
-.player-stats-section .table th,
-.player-stats-section .table td {
-    padding: 6px 4px;
-    white-space: nowrap;
-}
-
-.player-stats-section .table th {
-    font-size: 0.9em;
-}
-
-.player-stats-section .badge {
-    font-size: 0.75em;
-    padding: 2px 6px;
-}
-
-/* Responsive stacking on medium screens */
-@media (max-width: 1400px) {
-    .player-stats-section .col-lg-6 {
-        margin-bottom: 20px;
-    }
-}
 
 <style>
 .game-info-section {

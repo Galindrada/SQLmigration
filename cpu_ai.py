@@ -12,6 +12,19 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
+# Import performance optimizations
+try:
+    from cpu_ai_performance import (
+        batch_analyze_teams_composition,
+        should_team_act_optimized,
+        update_team_last_action_time,
+        get_teams_by_action_priority
+    )
+    PERFORMANCE_OPTIMIZATIONS_AVAILABLE = True
+except ImportError:
+    PERFORMANCE_OPTIMIZATIONS_AVAILABLE = False
+    print("⚠️  Performance optimizations not available, using standard processing")
+
 # Free agency timer in minutes
 fa_timer = 660
 
@@ -165,13 +178,19 @@ class CPUAI:
         try:
             from game_mechanics import calculate_player_financials
             
-            # Use the existing game mechanics function to calculate fair salary
-            financials = calculate_player_financials(player_data, self.db_path)
-            return financials['salary']
+            # Check if player_data has all required fields for calculate_player_financials
+            # The function requires 'registered_position' and other skill fields
+            required_fields = ['registered_position', 'market_value', 'overall', 'age']
+            if all(field in player_data for field in required_fields):
+                # Use the existing game mechanics function to calculate fair salary
+                financials = calculate_player_financials(player_data, self.db_path)
+                return financials['salary']
+            else:
+                # Missing required fields, use fallback
+                raise KeyError("Missing required fields for calculate_player_financials")
             
-        except Exception as e:
-            print(f"Error calculating fair salary using game mechanics: {e}")
-            # Fallback to simplified calculation
+        except Exception:
+            # Fallback to simplified calculation (silent - this is expected behavior)
             try:
                 market_value = player_data.get('market_value', 1000000)
                 overall = player_data.get('overall', 50)
@@ -186,6 +205,7 @@ class CPUAI:
                 return max(min_salary, min(base_salary, max_salary))
                 
             except Exception as e2:
+                # Only print error if even the fallback fails
                 print(f"Error in fallback salary calculation: {e2}")
                 return player_data.get('salary', 1000000)  # Final fallback
     
@@ -2938,18 +2958,23 @@ class CPUAI:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             
-            # Get all CPU teams
+            # Get all CPU teams with player counts and last action time
+            # PERFORMANCE OPTIMIZATION: Single query instead of N queries
             cur.execute("""
-                SELECT t.id, t.club_name
+                SELECT t.id, t.club_name, t.last_action_time,
+                       COUNT(p.id) as player_count
                 FROM teams t
+                LEFT JOIN players p ON p.club_id = t.id
                 WHERE t.id != 141 
                 AND t.club_name IN (
                     SELECT lt.team_name FROM league_teams lt WHERE lt.user_id = 1
                 )
+                GROUP BY t.id, t.club_name, t.last_action_time
             """)
             
             cpu_teams = cur.fetchall()
             actions_taken = []
+            current_time = datetime.now()
             
             # First, process user offers to CPU teams
             user_offers_processed = self.process_user_offers()
@@ -2968,16 +2993,24 @@ class CPUAI:
             for team in cpu_teams:
                 team_id = team['id']
                 team_name = team['club_name']
+                player_count = team['player_count']
+                last_action_time = team['last_action_time']
                 
-                # Get team's current roster size
-                cur.execute("SELECT COUNT(*) as player_count FROM players WHERE club_id = ?", (team_id,))
-                player_count = cur.fetchone()['player_count']
-                
-                # Teams with < 16 players ALWAYS act (need players urgently)
-                # Other teams have 40% chance to act
-                should_act = (player_count < 16) or (random.random() < 0.4)
+                # PERFORMANCE OPTIMIZATION: Smart action frequency based on last action time
+                # Teams with < 16 players ALWAYS act (critical priority)
+                # Other teams use tiered probability based on time since last action
+                if PERFORMANCE_OPTIMIZATIONS_AVAILABLE:
+                    should_act = should_team_act_optimized(
+                        team_id, player_count, last_action_time, current_time
+                    )
+                else:
+                    # Fallback to original logic if optimizations not available
+                    should_act = (player_count < 16) or (random.random() < 0.4)
                 
                 if should_act:
+                    # Track if team took any action (for last_action_time update)
+                    action_taken_this_cycle = False
+                    
                     # CPU actions: prioritize buying/loaning existing listings, then make offers
                     action_choice = random.random()
                     if action_choice < 0.4:  # 40% chance to buy existing listings
@@ -2988,6 +3021,7 @@ class CPUAI:
                                 'action': 'buy_player',
                                 'details': buy_result['details']
                             })
+                            action_taken_this_cycle = True
                     elif action_choice < 0.65:  # 25% chance to loan existing loan listings
                         loan_result = self.make_cpu_loan_offer(team_id)
                         if loan_result:
@@ -2996,6 +3030,7 @@ class CPUAI:
                                 'action': 'loan_player',
                                 'details': loan_result['details']
                             })
+                            action_taken_this_cycle = True
                     elif action_choice < 0.7:  # 5% chance for free agency activity (combined)
                         # TWO-PHASE FREE AGENCY APPROACH
                         # Phase 1: Try to raise existing offers (prioritized)
@@ -3007,6 +3042,7 @@ class CPUAI:
                                 'action': 'raise_free_agency_offer',
                                 'details': raise_offer_result['details']
                             })
+                            action_taken_this_cycle = True
                         
                         # PHASE 2: Also make new offers (both raises and new offers can happen)
                         # This allows teams to raise existing offers AND make new offers for different players
@@ -3019,6 +3055,7 @@ class CPUAI:
                                     'action': 'free_agency_offer',
                                     'details': free_agency_result['details']
                                 })
+                                action_taken_this_cycle = True
                     elif action_choice < 0.85:  # 15% chance to make market bazaar offers
                         market_offer_result = self.make_cpu_market_bazaar_offer(team_id)
                         if market_offer_result:
@@ -3027,6 +3064,7 @@ class CPUAI:
                                 'action': market_offer_result['action'],
                                 'details': market_offer_result['details']
                             })
+                            action_taken_this_cycle = True
                     else:  # 15% chance to make offer for USER players
                         offer_result = self.make_cpu_offer_for_user_player(team_id)
                         if offer_result:
@@ -3035,30 +3073,41 @@ class CPUAI:
                                 'action': 'make_user_offer',
                                 'details': offer_result['details']
                             })
+                            action_taken_this_cycle = True
                     # Note: Listing actions removed from main loop - will be done separately
+                    
+                    # PERFORMANCE OPTIMIZATION: Update last_action_time if team took action
+                    if action_taken_this_cycle and PERFORMANCE_OPTIMIZATIONS_AVAILABLE:
+                        try:
+                            cur.execute("""
+                                UPDATE teams 
+                                SET last_action_time = ? 
+                                WHERE id = ?
+                            """, (current_time.isoformat(), team_id))
+                            conn.commit()
+                        except Exception as e:
+                            print(f"Warning: Could not update last_action_time for team {team_id}: {e}")
             
             # Second phase: Create new listings (after all buying is done)
             print("Phase 2: Creating new listings...")
             for team in cpu_teams:
                 team_id = team['id']
                 team_name = team['club_name']
-                
-                # Get team's current roster size
-                cur.execute("SELECT COUNT(*) as player_count FROM players WHERE club_id = ?", (team_id,))
-                player_count = cur.fetchone()['player_count']
+                player_count = team['player_count']  # Already fetched in main query
                 
                 # Teams with > 25 players more likely to list (need to trim roster)
                 # Teams with < 16 players skip listing (need to acquire, not sell)
                 if player_count < 16:
                     continue  # Small teams don't list players
                 elif player_count > 30:
-                    should_list = random.random() < 0.50 # 30% chance for large rosters (reduced from 55%)
+                    should_list = random.random() < 0.50 # 50% chance for large rosters
                 else:
-                    should_list = random.random() < 0.15  # 8% chance for normal rosters (reduced from 15%)
+                    should_list = random.random() < 0.15  # 15% chance for normal rosters
                 
                 if should_list:
+                    action_taken_this_cycle = False
                     action_choice = random.random()
-                    if action_choice < 0.9:  # 70% chance to list for sale (reduced from 90%)
+                    if action_choice < 0.9:  # 90% chance to list for sale
                         list_result = self.list_cpu_player_for_sale(team_id)
                         if list_result:
                             actions_taken.append({
@@ -3066,7 +3115,8 @@ class CPUAI:
                                 'action': 'list_player_for_sale',
                                 'details': list_result['details']
                             })
-                    else:  # 10% chance to list for loan (much lower)
+                            action_taken_this_cycle = True
+                    else:  # 10% chance to list for loan
                         list_result = self.list_cpu_player_for_loan(team_id)
                         if list_result:
                             actions_taken.append({
@@ -3074,6 +3124,19 @@ class CPUAI:
                                 'action': 'list_player_for_loan',
                                 'details': list_result['details']
                             })
+                            action_taken_this_cycle = True
+                    
+                    # PERFORMANCE OPTIMIZATION: Update last_action_time for listing actions too
+                    if action_taken_this_cycle and PERFORMANCE_OPTIMIZATIONS_AVAILABLE:
+                        try:
+                            cur.execute("""
+                                UPDATE teams 
+                                SET last_action_time = ? 
+                                WHERE id = ?
+                            """, (current_time.isoformat(), team_id))
+                            conn.commit()
+                        except Exception as e:
+                            print(f"Warning: Could not update last_action_time for team {team_id}: {e}")
             
             conn.close()
 
