@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import time
 
 # Free agency timer in minutes
-fa_timer = 20
+fa_timer = 720
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, send_from_directory, session, Response, make_response
 from io import StringIO
 import csv
@@ -22,11 +22,15 @@ from config import Config
 import db_helper  # New helper module for SQLite access
 
 # Market Bazaar Activity Toggle
-MARKET_BAZAAR_ENABLED = True  # Set to False to disable automatic market activity
+MARKET_BAZAAR_ENABLED = False  # Set to False to disable automatic market activity
+
+# Loan Money Transfer Divisor
+# Set to 1 for full amount, 2 to halve the money transferred on loan completion
+LOAN_MONEY_DIVISOR = 2
 
 def get_next_market_activity_time():
     """Get the next market activity time (3 hours from now)"""
-    return (datetime.now() + timedelta(minutes=15)).isoformat()
+    return (datetime.now() + timedelta(minutes=4000)).isoformat()
 
 def update_market_activity_timer():
     """Update the market activity timer in the database"""
@@ -597,7 +601,7 @@ def finances():
     total_salaries = salary_result['total_salaries'] if salary_result else 0
 
     # Calculate available cap
-    available_cap = current_budget - int(total_salaries) # UPDATE HERE BY THE END OF SEASON TO FULL SALARY
+    available_cap = current_budget - int(total_salaries/LOAN_MONEY_DIVISOR) # UPDATE HERE BY THE END OF SEASON TO FULL SALARY
 
     # Get transaction movements
     cur.execute("""
@@ -649,19 +653,39 @@ def finances():
 @app.route('/blog')
 def blog():
     cur = db_helper.get_cursor()
+    
+    # Auto-create player_ids column if it doesn't exist
+    try:
+        cur.execute("ALTER TABLE posts ADD COLUMN player_ids TEXT")
+        db_helper.commit()
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e).lower():
+            pass  # Column already exists or other error
+    
     cur.execute("""
-        SELECT p.id, p.title, p.content, u.username, p.created_at, p.media_type, p.media_path
+        SELECT p.id, p.title, p.content, u.username, p.created_at, p.media_type, p.media_path, p.player_ids
         FROM posts p
         JOIN users u ON p.user_id = u.id
         ORDER BY p.created_at DESC
+        LIMIT 50
     """)
     posts = [dict(row) for row in cur.fetchall()]
 
-    # Convert datetime strings to datetime objects
+    # Convert datetime strings to datetime objects and parse player_ids
     from datetime import datetime
+    import json
     for post in posts:
         if post['created_at']:
             post['created_at'] = datetime.fromisoformat(post['created_at'].replace('Z', '+00:00'))
+        
+        # Parse player_ids JSON string to list
+        if post.get('player_ids'):
+            try:
+                post['player_ids'] = json.loads(post['player_ids'])
+            except (json.JSONDecodeError, TypeError):
+                post['player_ids'] = []
+        else:
+            post['player_ids'] = []
 
     cur.close()
     return render_template('blog.html', posts=posts)
@@ -709,19 +733,29 @@ def create_post():
 def view_post(post_id):
     cur = db_helper.get_cursor()
     cur.execute("""
-        SELECT p.id, p.title, p.content, u.username, p.created_at, p.media_type, p.media_path
+        SELECT p.id, p.title, p.content, u.username, p.created_at, p.media_type, p.media_path, p.player_ids
         FROM posts p
         JOIN users u ON p.user_id = u.id
         WHERE p.id = ?
     """, (post_id,))
     post = cur.fetchone()
-
+    
     if not post:
         flash('Post not found.', 'danger')
         return redirect(url_for('blog'))
 
     # Convert post to dict and handle datetime
     post = dict(post)
+    
+    # Parse player_ids if present
+    import json
+    if post.get('player_ids'):
+        try:
+            post['player_ids'] = json.loads(post['player_ids'])
+        except (json.JSONDecodeError, TypeError):
+            post['player_ids'] = []
+    else:
+        post['player_ids'] = []
     if post['created_at']:
         from datetime import datetime
         post['created_at'] = datetime.fromisoformat(post['created_at'].replace('Z', '+00:00'))
@@ -1344,6 +1378,338 @@ def pes6_player_details(player_id):
                            profile_image=profile_image,
                            cache_timestamp=int(time.time()))  # Add timestamp for cache busting (updates on each page load)
 
+@app.route('/scouting')
+@login_required
+def scouting():
+    """Scouting page showing user's favourite players"""
+    cur = db_helper.get_cursor()
+    try:
+        # Fetch all favourite players for the current user with the same data as pes6_team_details
+        cur.execute("""
+            SELECT p.id, p.player_name, p.registered_position, p.age, p.height, p.strong_foot, p.attack,
+                   p.attack_rating, p.defense_rating, p.physical_rating, p.power_rating, p.technique_rating, p.goalkeeping_rating,
+                   p.game_position, p.salary, p.contract_years_remaining, p.market_value, p.championships_won, p.cups_won,
+                   p.games_played, p.goals, p.assists,
+                   t.club_name
+            FROM user_favourites uf
+            JOIN players p ON uf.player_id = p.id
+            LEFT JOIN teams t ON p.club_id = t.id
+            WHERE uf.user_id = ?
+            ORDER BY
+                CASE p.game_position
+                    WHEN 'Goal-Keeper' THEN 1
+                    WHEN 'Sweeper' THEN 2
+                    WHEN 'Centre-Back' THEN 3
+                    WHEN 'Side-Back' THEN 4
+                    WHEN 'Wing-Back' THEN 5
+                    WHEN 'Defensive Midfielder' THEN 6
+                    WHEN 'Center-Midfielder' THEN 7
+                    WHEN 'Side-Midfielder' THEN 8
+                    WHEN 'Attacking Midfielder' THEN 9
+                    WHEN 'Winger' THEN 10
+                    WHEN 'Shadow Striker' THEN 11
+                    WHEN 'Striker' THEN 12
+                    ELSE 13
+                END ASC
+        """, (current_user.id,))
+        favourites = cur.fetchall()
+        
+        # Convert to list of dicts for easier template access
+        favourites_list = []
+        for row in favourites:
+            favourites_list.append({
+                'id': row['id'],
+                'player_name': row['player_name'],
+                'registered_position': row['registered_position'],
+                'age': row['age'],
+                'height': row['height'],
+                'strong_foot': row['strong_foot'],
+                'attack': row['attack'],
+                'attack_rating': row['attack_rating'],
+                'defense_rating': row['defense_rating'],
+                'physical_rating': row['physical_rating'],
+                'power_rating': row['power_rating'],
+                'technique_rating': row['technique_rating'],
+                'goalkeeping_rating': row['goalkeeping_rating'],
+                'game_position': row['game_position'],
+                'salary': row['salary'],
+                'contract_years_remaining': row['contract_years_remaining'],
+                'market_value': row['market_value'],
+                'championships_won': row['championships_won'],
+                'cups_won': row['cups_won'],
+                'games_played': row['games_played'],
+                'goals': row['goals'],
+                'assists': row['assists'],
+                'club_name': row['club_name']
+            })
+        
+        return render_template('scouting.html', favourites=favourites_list, search_params=None)
+    except Exception as e:
+        app.logger.error(f"Error in scouting: {e}")
+        flash('Error loading favourite players', 'danger')
+        return redirect(url_for('team_management'))
+    finally:
+        cur.close()
+
+@app.route('/add_to_favourites/<int:player_id>', methods=['POST'])
+@login_required
+def add_to_favourites(player_id):
+    """Add a player to the user's favourite list"""
+    cur = db_helper.get_cursor()
+    try:
+        # Check if player exists
+        cur.execute("SELECT id FROM players WHERE id = ?", (player_id,))
+        if not cur.fetchone():
+            flash('Player not found', 'danger')
+            return redirect(url_for('pes6_game_teams'))
+        
+        # Check if already in favourites
+        cur.execute("SELECT id FROM user_favourites WHERE user_id = ? AND player_id = ?", (current_user.id, player_id))
+        if cur.fetchone():
+            flash('Player is already in your favourites list', 'info')
+            # Check if we should return to search
+            if request.form.get('return_to_search'):
+                return redirect(url_for('player_search') + '?' + request.form.get('search_params', ''))
+            return redirect(url_for('pes6_player_details', player_id=player_id))
+        
+        # Add to favourites
+        cur.execute("INSERT INTO user_favourites (user_id, player_id) VALUES (?, ?)", (current_user.id, player_id))
+        db_helper.commit()
+        flash('Player added to favourites', 'success')
+        
+        # Check if we should return to search page instead of player details
+        if request.form.get('return_to_search'):
+            return redirect(url_for('player_search') + '?' + request.form.get('search_params', ''))
+        
+        return redirect(url_for('pes6_player_details', player_id=player_id))
+    except Exception as e:
+        app.logger.error(f"Error adding to favourites: {e}")
+        db_helper.rollback()
+        flash('Error adding player to favourites', 'danger')
+        # Check if we should return to search
+        if request.form.get('return_to_search'):
+            return redirect(url_for('player_search') + '?' + request.form.get('search_params', ''))
+        return redirect(url_for('pes6_player_details', player_id=player_id))
+    finally:
+        cur.close()
+
+@app.route('/remove_from_favourites/<int:player_id>', methods=['POST'])
+@login_required
+def remove_from_favourites(player_id):
+    """Remove a player from the user's favourite list"""
+    cur = db_helper.get_cursor()
+    try:
+        # Remove from favourites
+        cur.execute("DELETE FROM user_favourites WHERE user_id = ? AND player_id = ?", (current_user.id, player_id))
+        db_helper.commit()
+        
+        if cur.rowcount > 0:
+            flash('Player removed from favourites', 'success')
+        else:
+            flash('Player was not in your favourites list', 'info')
+        
+        return redirect(url_for('scouting'))
+    except Exception as e:
+        app.logger.error(f"Error removing from favourites: {e}")
+        db_helper.rollback()
+        flash('Error removing player from favourites', 'danger')
+        return redirect(url_for('scouting'))
+    finally:
+        cur.close()
+
+@app.route('/player_search')
+@login_required
+def player_search():
+    """Player search/filter functionality"""
+    cur = db_helper.get_cursor()
+    try:
+        # Get filter parameters
+        position = request.args.get('position', '').strip()
+        age_min = request.args.get('age_min', type=int)
+        age_max = request.args.get('age_max', type=int)
+        salary_max = request.args.get('salary_max', type=int)
+        market_value_max = request.args.get('market_value_max', type=int)
+        overall_min = request.args.get('overall_min', type=int)
+        attack_min = request.args.get('attack_min', type=int)
+        defense_min = request.args.get('defense_min', type=int)
+        physical_min = request.args.get('physical_min', type=int)
+        power_min = request.args.get('power_min', type=int)
+        technique_min = request.args.get('technique_min', type=int)
+        goalkeeping_min = request.args.get('goalkeeping_min', type=int)
+        
+        # Build query
+        query = """
+            SELECT p.id, p.player_name, p.registered_position, p.age, p.height, p.strong_foot, p.attack,
+                   p.attack_rating, p.defense_rating, p.physical_rating, p.power_rating, p.technique_rating, p.goalkeeping_rating,
+                   p.game_position, p.salary, p.contract_years_remaining, p.market_value, p.championships_won, p.cups_won,
+                   p.games_played, p.goals, p.assists, p.overall,
+                   t.club_name
+            FROM players p
+            LEFT JOIN teams t ON p.club_id = t.id
+            WHERE 1=1
+        """
+        params = []
+        
+        # Apply filters
+        if position:
+            query += " AND p.game_position = ?"
+            params.append(position)
+        
+        if age_min is not None:
+            query += " AND p.age >= ?"
+            params.append(age_min)
+        
+        if age_max is not None:
+            query += " AND p.age <= ?"
+            params.append(age_max)
+        
+        if salary_max is not None:
+            query += " AND p.salary <= ?"
+            params.append(salary_max)
+        
+        if market_value_max is not None:
+            query += " AND p.market_value <= ?"
+            params.append(market_value_max)
+        
+        if overall_min is not None:
+            query += " AND (p.overall IS NULL OR p.overall >= ?)"
+            params.append(overall_min)
+        
+        if attack_min is not None:
+            query += " AND (p.attack_rating IS NULL OR p.attack_rating >= ?)"
+            params.append(attack_min)
+        
+        if defense_min is not None:
+            query += " AND (p.defense_rating IS NULL OR p.defense_rating >= ?)"
+            params.append(defense_min)
+        
+        if physical_min is not None:
+            query += " AND (p.physical_rating IS NULL OR p.physical_rating >= ?)"
+            params.append(physical_min)
+        
+        if power_min is not None:
+            query += " AND (p.power_rating IS NULL OR p.power_rating >= ?)"
+            params.append(power_min)
+        
+        if technique_min is not None:
+            query += " AND (p.technique_rating IS NULL OR p.technique_rating >= ?)"
+            params.append(technique_min)
+        
+        if goalkeeping_min is not None:
+            query += " AND (p.goalkeeping_rating IS NULL OR p.goalkeeping_rating >= ?)"
+            params.append(goalkeeping_min)
+        
+        # Order by overall descending (NULL values will appear last in SQLite)
+        query += """
+            ORDER BY
+                CASE WHEN p.overall IS NULL THEN 1 ELSE 0 END,
+                p.overall DESC
+            LIMIT 500
+        """
+        
+        cur.execute(query, params)
+        search_results_raw = cur.fetchall()
+        
+        # Convert to list of dicts
+        search_results = []
+        for row in search_results_raw:
+            search_results.append({
+                'id': row['id'],
+                'player_name': row['player_name'],
+                'registered_position': row['registered_position'],
+                'age': row['age'],
+                'height': row['height'],
+                'strong_foot': row['strong_foot'],
+                'attack': row['attack'],
+                'attack_rating': row['attack_rating'],
+                'defense_rating': row['defense_rating'],
+                'physical_rating': row['physical_rating'],
+                'power_rating': row['power_rating'],
+                'technique_rating': row['technique_rating'],
+                'goalkeeping_rating': row['goalkeeping_rating'],
+                'game_position': row['game_position'],
+                'salary': row['salary'],
+                'contract_years_remaining': row['contract_years_remaining'],
+                'market_value': row['market_value'],
+                'championships_won': row['championships_won'],
+                'cups_won': row['cups_won'],
+                'games_played': row['games_played'],
+                'goals': row['goals'],
+                'assists': row['assists'],
+                'overall': row['overall'],
+                'club_name': row['club_name']
+            })
+        
+        # Get favourites for the same user (for the favourites list)
+        cur.execute("""
+            SELECT p.id, p.player_name, p.registered_position, p.age, p.height, p.strong_foot, p.attack,
+                   p.attack_rating, p.defense_rating, p.physical_rating, p.power_rating, p.technique_rating, p.goalkeeping_rating,
+                   p.game_position, p.salary, p.contract_years_remaining, p.market_value, p.championships_won, p.cups_won,
+                   p.games_played, p.goals, p.assists,
+                   t.club_name
+            FROM user_favourites uf
+            JOIN players p ON uf.player_id = p.id
+            LEFT JOIN teams t ON p.club_id = t.id
+            WHERE uf.user_id = ?
+            ORDER BY
+                CASE p.game_position
+                    WHEN 'Goal-Keeper' THEN 1
+                    WHEN 'Sweeper' THEN 2
+                    WHEN 'Centre-Back' THEN 3
+                    WHEN 'Side-Back' THEN 4
+                    WHEN 'Wing-Back' THEN 5
+                    WHEN 'Defensive Midfielder' THEN 6
+                    WHEN 'Center-Midfielder' THEN 7
+                    WHEN 'Side-Midfielder' THEN 8
+                    WHEN 'Attacking Midfielder' THEN 9
+                    WHEN 'Winger' THEN 10
+                    WHEN 'Shadow Striker' THEN 11
+                    WHEN 'Striker' THEN 12
+                    ELSE 13
+                END ASC
+        """, (current_user.id,))
+        favourites_raw = cur.fetchall()
+        
+        # Convert favourites to list of dicts
+        favourites_list = []
+        for row in favourites_raw:
+            favourites_list.append({
+                'id': row['id'],
+                'player_name': row['player_name'],
+                'registered_position': row['registered_position'],
+                'age': row['age'],
+                'height': row['height'],
+                'strong_foot': row['strong_foot'],
+                'attack': row['attack'],
+                'attack_rating': row['attack_rating'],
+                'defense_rating': row['defense_rating'],
+                'physical_rating': row['physical_rating'],
+                'power_rating': row['power_rating'],
+                'technique_rating': row['technique_rating'],
+                'goalkeeping_rating': row['goalkeeping_rating'],
+                'game_position': row['game_position'],
+                'salary': row['salary'],
+                'contract_years_remaining': row['contract_years_remaining'],
+                'market_value': row['market_value'],
+                'championships_won': row['championships_won'],
+                'cups_won': row['cups_won'],
+                'games_played': row['games_played'],
+                'goals': row['goals'],
+                'assists': row['assists'],
+                'club_name': row['club_name']
+            })
+        
+        return render_template('scouting.html', 
+                             favourites=favourites_list,
+                             search_results=search_results,
+                             search_params=request.args)
+    except Exception as e:
+        app.logger.error(f"Error in player_search: {e}")
+        flash('Error searching players', 'danger')
+        return redirect(url_for('scouting'))
+    finally:
+        cur.close()
+
 @app.route('/player_image/<int:player_id>')
 def serve_player_image_by_id(player_id):
     """Serve player image directly by player ID (bypasses static file serving)"""
@@ -1541,6 +1907,7 @@ def upload_nation_flag():
     return redirect(url_for('tools'))
 
 # --- PES6 Routes ---
+@app.route('/diagnose_player_images')
 @login_required
 def diagnose_player_images():
     """Diagnostic endpoint to check which player images exist"""
@@ -1891,9 +2258,10 @@ def tools():
     players_salary = cur.fetchall()
     cur.execute("SELECT id, club_name FROM teams ORDER BY club_name ASC")
     teams = cur.fetchall()
-    # Get distinct nationalities for retire player tool
-    cur.execute("SELECT DISTINCT nationality FROM players WHERE nationality IS NOT NULL ORDER BY nationality ASC")
-    nationalities = [row[0] for row in cur.fetchall()]
+    # Get nationalities from NATIONALITY_DATA (includes all available nationalities like Liberia)
+    # This ensures all nationalities are available even if no players have that nationality yet
+    from game_mechanics import NATIONALITY_DATA
+    nationalities = sorted(list(NATIONALITY_DATA.keys()))
     # Get national teams for flag upload tool
     cur.execute("SELECT id, team_name, nationality FROM international_teams ORDER BY team_name ASC")
     national_teams = [dict(row) for row in cur.fetchall()]
@@ -2145,9 +2513,12 @@ def download_updated_csv():
                                 # If value is NaN or empty, default to 0
                                 if pd.isna(value) or value == '':
                                     value = 0
+                                # If value is 0, use fallback of 3
+                                if value == 0:
+                                    value = 3
                                 weak_foot_values.append(int(value))
                             else:
-                                weak_foot_values.append(0)
+                                weak_foot_values.append(3)  # Default to 3 instead of 0
                         df_output[col] = weak_foot_values
                     else:
                         # For other missing columns, use original data
@@ -3330,6 +3701,9 @@ def negotiate_with_cpu(player_id):
 
             # Blacklist player
             add_to_blacklist(current_user.id, player_id)
+            
+            # Immediately void any offers for this blacklisted player (including swap offers)
+            void_offers_for_blacklisted_players()
 
             # Create blog post about the buy now purchase
             blog_title = f"Breaking: {current_user.username} Signs {player_name}"
@@ -3375,7 +3749,7 @@ def negotiate_with_cpu(player_id):
             if leak_chance < 0.3:  # 30% chance: Reveal player and team
                 blog_title = f"Transfer Rumors: {player_name}"
                 blog_content = f"{current_user.username} is reportedly interested in signing {player_name} from {club_name}."
-                post_transfer_news(blog_title, blog_content)
+                post_transfer_news(blog_title, blog_content, player_ids=[player_id])
             elif leak_chance < 0.6:  # 30% chance: Reveal only team
                 blog_title = f"Transfer Rumors: {club_name}"
                 blog_content = f"{current_user.username} is reportedly interested in signing a player from {club_name}."
@@ -3395,6 +3769,74 @@ def negotiate_with_cpu(player_id):
             else:
                 flash(f'Offer of €{offer_amount:,} submitted for {player_name}. The CPU will consider it during their next market activity.', 'success')
                 return redirect(url_for('team_management'))
+
+        elif action == 'propose_loan':
+            # PHASE 2: Loan proposal option
+            try:
+                from swap_and_loan_features import create_direct_loan_proposal
+                
+                # Loan duration is fixed to 1 season (until end of season)
+                loan_duration = 1
+                wage_coverage = float(request.form.get('wage_coverage', 50)) / 100.0  # Convert to decimal
+                loan_fee = int(request.form.get('loan_fee', 0))  # Single loan fee instead of monthly
+                
+                # Get user's team ID
+                cur.execute("SELECT t.id FROM teams t JOIN league_teams lt ON t.club_name = lt.team_name WHERE lt.user_id = ? LIMIT 1", (current_user.id,))
+                user_team = cur.fetchone()
+                if not user_team:
+                    cur.close()
+                    return jsonify({'error': 'You do not manage a team.'}), 400
+                
+                borrowing_team_id = user_team['id']
+                
+                # Get database path from db_helper
+                from db_helper import DATABASE
+                db_path = DATABASE
+                
+                # Create loan proposal (loan_fee passed as monthly_fee parameter for compatibility, but represents total fee)
+                proposal_id = create_direct_loan_proposal(
+                    db_path,
+                    player_id,
+                    selling_club_id,  # loaning team
+                    borrowing_team_id,  # borrowing team (user)
+                    loan_duration,
+                    wage_coverage,
+                    loan_fee,  # Total loan fee (not monthly)
+                    False,  # option_to_buy - removed
+                    0  # option_price - removed
+                )
+                
+                if proposal_id:
+                    # Create blog post about loan proposal with 3-tier disclosure system (same as buying option)
+                    import random
+                    leak_chance = random.random()
+                    
+                    if leak_chance < 0.3:  # 30% chance: Reveal player and team
+                        blog_title = f"Loan Proposal: {player_name}"
+                        blog_content = f"{current_user.username} has proposed a loan deal for {player_name} from {club_name}."
+                        post_transfer_news(blog_title, blog_content)
+                    elif leak_chance < 0.6:  # 30% chance: Reveal only team
+                        blog_title = f"Loan Proposal: {club_name}"
+                        blog_content = f"{current_user.username} is reportedly interested in loaning a player from {club_name}."
+                        post_transfer_news(blog_title, blog_content)
+                    # 40% chance: No leak (no blog post)
+                    
+                    db_helper.commit()
+                    cur.close()
+                    
+                    flash(f'Loan proposal submitted for {player_name}! The CPU will consider it during their next market activity.', 'success')
+                    return redirect(url_for('team_management'))
+                else:
+                    cur.close()
+                    return jsonify({'error': 'Failed to create loan proposal'}), 500
+                    
+            except ImportError:
+                cur.close()
+                return jsonify({'error': 'Loan features not available'}), 500
+            except Exception as e:
+                app.logger.error(f"Error creating loan proposal: {e}")
+                cur.close()
+                return jsonify({'error': f'Error creating loan proposal: {str(e)}'}), 500
 
         else:
             # Initial negotiation - return player info and options
@@ -4867,15 +5309,31 @@ def send_inbox_message(receiver_id, subject, content, sender_id=1):
 
 
 
-def post_transfer_news(title, content, user_id=1):
+def post_transfer_news(title, content, user_id=1, player_ids=None):
     """
     Post transfer news to the blog.
     user_id=1 is the CPU user, used for system-generated news.
+    player_ids: Optional list of player IDs to display images for (e.g., [123, 456])
     """
     cur = db_helper.get_cursor()
     try:
-        cur.execute("INSERT INTO posts (user_id, title, content, media_type, media_path, created_at) VALUES (?, ?, ?, 'none', NULL, ?)",
-                    (user_id, title, content, datetime.now().isoformat()))
+        # Auto-create player_ids column if it doesn't exist
+        try:
+            cur.execute("ALTER TABLE posts ADD COLUMN player_ids TEXT")
+            db_helper.commit()
+            app.logger.info("Added player_ids column to posts table")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+        
+        # Convert player_ids list to JSON string for storage
+        player_ids_json = None
+        if player_ids:
+            import json
+            player_ids_json = json.dumps(player_ids)
+        
+        cur.execute("INSERT INTO posts (user_id, title, content, media_type, media_path, player_ids, created_at) VALUES (?, ?, ?, 'none', NULL, ?, ?)",
+                    (user_id, title, content, player_ids_json, datetime.now().isoformat()))
         db_helper.commit()
         app.logger.info(f"Transfer news posted: {title}")
         print(f"✅ Blog post created: {title}")  # Debug line
@@ -5125,8 +5583,83 @@ def raise_free_agent_offer(offer_id):
 
     return redirect(url_for('free_agency'))
 
+def void_offers_for_blacklisted_players():
+    """Void/disable offers for players that have been blacklisted"""
+    try:
+        cur = db_helper.get_cursor()
+        
+        # Void market_bazaar_offers for blacklisted players (target player)
+        cur.execute("""
+            UPDATE market_bazaar_offers
+            SET status = 'expired'
+            WHERE status IN ('active', 'pending')
+            AND listing_id IN (
+                SELECT mbl.id
+                FROM market_bazaar_listings mbl
+                JOIN players p ON mbl.player_id = p.id
+                WHERE p.id IN (
+                    SELECT player_id FROM blacklist WHERE user_id = 1
+                )
+            )
+        """)
+        market_offers_voided = cur.rowcount
+        
+        # Also void swap offers where the swap player is blacklisted
+        cur.execute("""
+            UPDATE market_bazaar_offers
+            SET status = 'expired'
+            WHERE status IN ('active', 'pending')
+            AND swap_player_id IS NOT NULL
+            AND swap_player_id IN (
+                SELECT player_id FROM blacklist WHERE user_id = 1
+            )
+        """)
+        swap_offers_voided = cur.rowcount
+        market_offers_voided += swap_offers_voided
+        
+        # Also void swap offers where additional swap players are blacklisted
+        cur.execute("""
+            UPDATE market_bazaar_offers
+            SET status = 'expired'
+            WHERE status IN ('active', 'pending')
+            AND id IN (
+                SELECT DISTINCT sop.offer_id
+                FROM swap_offer_players sop
+                WHERE sop.player_id IN (
+                    SELECT player_id FROM blacklist WHERE user_id = 1
+                )
+            )
+        """)
+        additional_swap_offers_voided = cur.rowcount
+        market_offers_voided += additional_swap_offers_voided
+        
+        # Void user_cpu_offers for blacklisted players
+        cur.execute("""
+            UPDATE user_cpu_offers
+            SET status = 'cancelled'
+            WHERE status = 'pending'
+            AND player_id IN (
+                SELECT player_id FROM blacklist WHERE user_id = 1
+            )
+        """)
+        cpu_offers_voided = cur.rowcount
+        
+        db_helper.commit()
+        cur.close()
+        
+        if market_offers_voided > 0 or cpu_offers_voided > 0:
+            app.logger.info(f"Voided {market_offers_voided} market offers (including swap offers) and {cpu_offers_voided} CPU offers for blacklisted players")
+        
+        return {'success': True, 'market_offers_voided': market_offers_voided, 'cpu_offers_voided': cpu_offers_voided}
+    except Exception as e:
+        app.logger.error(f"Error voiding offers for blacklisted players: {e}")
+        return {'success': False, 'error': str(e)}
+
 def check_expired_offers():
     """Helper function to check and process expired offers"""
+    # First, void offers for blacklisted players
+    void_offers_for_blacklisted_players()
+    
     cur = db_helper.get_cursor()
 
     # Get expired offers using proper datetime comparison
@@ -5323,6 +5856,10 @@ def check_expired_offers():
                     app.logger.info(f"Processed expired offer: {offer['player_name']} -> {offer['username']}")
         except Exception as e:
             app.logger.error(f"Error processing expired offer {offer['id']}: {e}")
+
+    # After processing all free agency offers, void any remaining offers for blacklisted players
+    # This ensures swap offers and other offers for signed players are immediately removed
+    void_offers_for_blacklisted_players()
 
     db_helper.commit()
     cur.close()
@@ -5592,7 +6129,31 @@ def market_bazaar():
     # This was causing performance issues. Cleanup now happens via scheduled tasks only.
 
     try:
+        # Ensure swap columns exist in market_bazaar_offers table (auto-create if missing)
+        try:
+            cur.execute("PRAGMA table_info(market_bazaar_offers)")
+            columns = [row[1] for row in cur.fetchall()]
+            
+            if 'swap_player_id' not in columns:
+                cur.execute("ALTER TABLE market_bazaar_offers ADD COLUMN swap_player_id INTEGER")
+            if 'swap_type' not in columns:
+                cur.execute("ALTER TABLE market_bazaar_offers ADD COLUMN swap_type TEXT")
+            if 'swap_valuation' not in columns:
+                cur.execute("ALTER TABLE market_bazaar_offers ADD COLUMN swap_valuation INTEGER DEFAULT 0")
+            if 'cash_compensation' not in columns:
+                cur.execute("ALTER TABLE market_bazaar_offers ADD COLUMN cash_compensation INTEGER DEFAULT 0")
+            if 'swap_player_ids' not in columns:
+                cur.execute("ALTER TABLE market_bazaar_offers ADD COLUMN swap_player_ids TEXT")
+            
+            db_helper.commit()
+        except Exception as e:
+            # Columns might already exist or table might not exist yet
+            app.logger.warning(f"Could not ensure swap columns exist: {e}")
+        
         # Table 1: All transfer listed players (both user and CPU) - "Transfer List"
+        # Only show non-expired listings
+        from datetime import datetime
+        current_time = datetime.now().isoformat()
         cur.execute("""
             SELECT p.*, t.club_name, mbl.asking_price, mbl.expires_at, mbl.id as listing_id,
                    mbl.listing_type, mbl.team_id, mbl.salary_support_percentage,
@@ -5607,35 +6168,81 @@ def market_bazaar():
             JOIN players p ON mbl.player_id = p.id
             JOIN teams t ON p.club_id = t.id
             WHERE mbl.status = 'active'
+            AND mbl.expires_at > ?  -- Only show non-expired listings
             AND mbl.listing_type IN ('user_sale', 'cpu_sale', 'user_loan', 'cpu_loan')
             AND p.loaned_by IS NULL  -- Exclude loaned players from transfer listings
             ORDER BY p.registered_position, p.market_value DESC
-        """, (current_user.id, current_user.id))
+        """, (current_user.id, current_user.id, current_time))
 
         transfer_listed_players = cur.fetchall()
 
         # Table 2: CPU offers for user UNLISTED players only (cpu_user_offer type)
+        # PHASE 2: Include swap offer data and additional swap players
         cur.execute("""
             SELECT mbo.*, p.id as player_id, p.player_name, p.registered_position, p.age, p.market_value,
                    cpu_t.club_name as buyer_team_name, mbl.asking_price,
-                   'unlisted' as offer_type
+                   'unlisted' as offer_type,
+                   mbo.swap_player_id, mbo.swap_type, mbo.swap_valuation, mbo.cash_compensation,
+                   swap_p.player_name as swap_player_name, swap_p.market_value as swap_player_value,
+                   swap_p.overall as swap_player_overall, swap_p.age as swap_player_age,
+                   swap_p.registered_position as swap_player_position
             FROM market_bazaar_offers mbo
             JOIN market_bazaar_listings mbl ON mbo.listing_id = mbl.id
             JOIN players p ON mbl.player_id = p.id
             JOIN teams cpu_t ON mbo.buyer_team_id = cpu_t.id
             JOIN league_teams cpu_lt ON cpu_t.id = cpu_lt.id
-            WHERE mbo.status = 'active'
+            LEFT JOIN players swap_p ON mbo.swap_player_id = swap_p.id
+            WHERE mbo.status IN ('active', 'pending')  -- Include both active and pending (swap offers use 'pending')
             AND mbl.listing_type = 'cpu_user_offer'  -- Only unlisted player offers (exclude user_sale to avoid errors)
             AND mbl.team_id IN (
                 SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = ?
             )
             AND cpu_lt.user_id = 1  -- Only CPU teams as buyers
             AND p.loaned_by IS NULL  -- Exclude loaned players from negotiations
+            AND p.id NOT IN (
+                SELECT player_id FROM blacklist WHERE user_id = 1
+            )  -- Exclude blacklisted players (void offers if player was sold/blacklisted)
         """, (current_user.id,))
 
         cpu_offers_for_user_listed = cur.fetchall()
+        
+        # Convert sqlite3.Row objects to dictionaries to allow modification
+        cpu_offers_for_user_listed = [dict(offer) for offer in cpu_offers_for_user_listed]
+        
+        # Fetch additional swap players for each offer
+        # Ensure swap_offer_players table exists (auto-create if missing)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS swap_offer_players (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                offer_id INTEGER NOT NULL,
+                player_id INTEGER NOT NULL,
+                market_value INTEGER NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (offer_id) REFERENCES market_bazaar_offers(id) ON DELETE CASCADE,
+                FOREIGN KEY (player_id) REFERENCES players(id),
+                UNIQUE(offer_id, player_id)
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_swap_offer_players_offer 
+            ON swap_offer_players(offer_id)
+        """)
+        
+        for offer in cpu_offers_for_user_listed:
+            if offer['swap_type'] in ['multi_swap', 'cash+multi_swap']:
+                cur.execute("""
+                    SELECT sop.player_id, p.player_name, p.market_value, p.overall, p.age, p.registered_position
+                    FROM swap_offer_players sop
+                    JOIN players p ON sop.player_id = p.id
+                    WHERE sop.offer_id = ?
+                    ORDER BY sop.id
+                """, (offer['id'],))
+                offer['additional_swap_players'] = [dict(row) for row in cur.fetchall()]
+            else:
+                offer['additional_swap_players'] = []
 
         # Table 3: User offers to CPU players
+        # Filter out offers where the player has been blacklisted (void offers if player was sold/blacklisted)
         cur.execute("""
             SELECT uco.*, p.player_name, p.registered_position, p.age, p.market_value,
                    cpu_t.club_name as seller_team_name, uco.created_at as offer_date
@@ -5645,6 +6252,10 @@ def market_bazaar():
             WHERE uco.buyer_team_id IN (
                 SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = ?
             )
+            AND uco.status = 'pending'
+            AND p.id NOT IN (
+                SELECT player_id FROM blacklist WHERE user_id = 1
+            )  -- Exclude blacklisted players (void offers if player was sold/blacklisted)
             ORDER BY uco.created_at DESC
         """, (current_user.id,))
 
@@ -5953,7 +6564,7 @@ def mendes_sell():
 """
         
         # Post to blog using correct function
-        post_transfer_news(blog_title, blog_content, user_id=current_user.id)
+        post_transfer_news(blog_title, blog_content, user_id=current_user.id, player_ids=[player['id']])
 
         db_helper.commit()
 
@@ -6042,6 +6653,10 @@ def process_cpu_offers():
             except Exception as e:
                 app.logger.error(f"Error auto-completing CPU offer {offer['id']}: {e}")
 
+        # After processing all offers, void any remaining offers for blacklisted players
+        # This ensures swap offers and other offers for sold players are immediately removed
+        void_offers_for_blacklisted_players()
+
         db_helper.commit()
         cur.close()
 
@@ -6111,15 +6726,37 @@ def list_player_for_sale():
         if player['loaned_by']:
             return jsonify({'error': 'Cannot list loaned players for sale/loan'}), 403
 
-        # Check if player is already listed
+        # Check if player is already listed (only check non-expired listings)
+        # Also auto-expire any expired listings for this player
+        from datetime import datetime
+        current_time = datetime.now().isoformat()
+        
+        # First, expire any old listings for this player that have passed their expiration date
+        # Also handle NULL expires_at (treat as expired if status is active)
         cur.execute("""
-            SELECT id FROM market_bazaar_listings
-            WHERE player_id = ? AND status = 'active'
-        """, (player_id,))
+            UPDATE market_bazaar_listings
+            SET status = 'expired'
+            WHERE player_id = ? 
+            AND status = 'active' 
+            AND (expires_at IS NULL OR expires_at <= ?)
+        """, (player_id, current_time))
+        
+        expired_count = cur.rowcount
+        if expired_count > 0:
+            db_helper.commit()  # Commit the expiration update
+            app.logger.info(f"Auto-expired {expired_count} expired listing(s) for player {player_id}")
+        
+        # Check if player has any non-expired active listings - if so, update it instead of creating new
+        cur.execute("""
+            SELECT id, status, expires_at, listing_type FROM market_bazaar_listings
+            WHERE player_id = ? 
+            AND status = 'active' 
+            AND expires_at IS NOT NULL 
+            AND expires_at > ?
+        """, (player_id, current_time))
 
-        if cur.fetchone():
-            return jsonify({'error': 'Player is already listed'}), 400
-
+        existing_listing = cur.fetchone()
+        
         # For loans: Calculate subsidy amount (negative asking_price)
         # The asking_price will be negative to represent the subsidy
         if listing_type == 'user_loan' and salary_support_percentage > 0:
@@ -6132,14 +6769,24 @@ def list_player_for_sale():
             asking_price = asking_price
             salary_support_percentage = 0.0
 
-        # Create listing
+        # Create or update listing
         from datetime import datetime, timedelta
         expires_at = datetime.now() + timedelta(days=14)  # 2 weeks
 
-        cur.execute("""
-            INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type, salary_support_percentage)
-            VALUES (?, ?, ?, ?, 'active', ?, ?)
-        """, (player_id, player['club_id'], asking_price, expires_at.isoformat(), listing_type, salary_support_percentage))
+        if existing_listing:
+            # Update existing listing
+            app.logger.info(f"Updating existing listing {existing_listing['id']} for player {player_id}")
+            cur.execute("""
+                UPDATE market_bazaar_listings 
+                SET asking_price = ?, expires_at = ?, status = 'active', listing_type = ?, salary_support_percentage = ?
+                WHERE id = ?
+            """, (asking_price, expires_at.isoformat(), listing_type, salary_support_percentage, existing_listing['id']))
+        else:
+            # Create new listing
+            cur.execute("""
+                INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type, salary_support_percentage)
+                VALUES (?, ?, ?, ?, 'active', ?, ?)
+            """, (player_id, player['club_id'], asking_price, expires_at.isoformat(), listing_type, salary_support_percentage))
 
         db_helper.commit()
         cur.close()
@@ -6410,7 +7057,7 @@ def accept_cpu_offer_direct():
 
         blog_title = f"Transfer News: {buyer_team_name} Signs {player['player_name']} from {user_team_name}"
         blog_content = f"💰 <strong>{buyer_team_name}</strong> has completed the signing of <strong>{player['player_name']}</strong> from <strong>{user_team_name}</strong> for <strong>€{offered_price:,}</strong>!<br><br>The deal sees {user_team_name} receive a significant fee for their star player, while {buyer_team_name} adds quality to their squad."
-        post_transfer_news(blog_title, blog_content, current_user.id)
+        post_transfer_news(blog_title, blog_content, current_user.id, player_ids=[player['id']])
 
         # Mark all offers for this player as completed
         cur.execute("""
@@ -6431,6 +7078,9 @@ def accept_cpu_offer_direct():
 
         # Add player to blacklist
         add_to_blacklist(current_user.id, player_id)
+        
+        # Immediately void any offers for this blacklisted player (including swap offers)
+        void_offers_for_blacklisted_players()
 
         db_helper.commit()
 
@@ -6587,7 +7237,7 @@ def loan_player(listing_id):
 
         if fee_or_subsidy < 0:
             # Subsidy: lender pays user
-            subsidy_amount = abs(fee_or_subsidy)
+            subsidy_amount = abs(fee_or_subsidy) // LOAN_MONEY_DIVISOR
 
             if lender_user_id and lender_user_id != 1:
                 # Lender is a user: debit unified budget
@@ -6611,7 +7261,7 @@ def loan_player(listing_id):
 
         elif fee_or_subsidy > 0:
             # Loan fee: user pays lender
-            fee = fee_or_subsidy
+            fee = fee_or_subsidy // LOAN_MONEY_DIVISOR
 
             # Borrower is current user: debit unified budget
             add_user_movement(
@@ -6649,7 +7299,7 @@ def loan_player(listing_id):
 
         blog_title = f"Loan News: {user_team_name} Loans {listing['player_name']}"
         blog_content = f"🔄 <strong>{user_team_name}</strong> has secured the loan of <strong>{listing['player_name']}</strong> from <strong>{listing['seller_team_name']}</strong>!<br><br>The loan deal allows {user_team_name} to strengthen their squad without a permanent transfer fee. {listing['player_name']} will return to {listing['seller_team_name']} at the end of the season."
-        post_transfer_news(blog_title, blog_content, current_user.id)
+        post_transfer_news(blog_title, blog_content, current_user.id, player_ids=[listing['player_id']])
 
         # Add player to blacklist
         add_to_blacklist(current_user.id, listing['player_id'])
@@ -6698,11 +7348,20 @@ def buy_player_from_transfer_list(listing_id):
         # Allow negative budget - no budget check needed
 
         # Transfer player
-        cur.execute("UPDATE players SET club_id = (SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = ? LIMIT 1) WHERE id = ?",
-                   (current_user.id, listing['player_id']))
+        # IMPORTANT: Get team_name from league_teams, then get teams.id from club_name
+        # This ensures we use the correct PES6 team ID (not league_teams.id)
+        cur.execute("""
+            UPDATE players SET club_id = (
+                SELECT t.id FROM teams t
+                WHERE t.club_name = (SELECT team_name FROM league_teams WHERE user_id = ? LIMIT 1)
+            ) WHERE id = ?
+        """, (current_user.id, listing['player_id']))
 
         # Add player to blacklist after transfer
         add_to_blacklist(current_user.id, listing['player_id'])
+        
+        # Immediately void any offers for this blacklisted player (including swap offers)
+        void_offers_for_blacklisted_players()
 
         # Check if seller is a user team and update their unified budget
         cur.execute("SELECT user_id FROM league_teams WHERE id = ?", (listing['seller_team_id'],))
@@ -6734,7 +7393,7 @@ def buy_player_from_transfer_list(listing_id):
 
         blog_title = f"Transfer News: {user_team_name} Signs {listing['player_name']}"
         blog_content = f"🎉 <strong>{user_team_name}</strong> has completed the signing of <strong>{listing['player_name']}</strong> from <strong>{listing['seller_team_name']}</strong> for <strong>€{listing['asking_price']:,}</strong>!<br><br>The {listing['player_name']} deal represents a significant investment for {user_team_name} as they continue to strengthen their squad."
-        post_transfer_news(blog_title, blog_content, current_user.id)
+        post_transfer_news(blog_title, blog_content, current_user.id, player_ids=[listing['player_id']])
 
         db_helper.commit()
         cur.close()
@@ -6753,16 +7412,22 @@ def buy_player_from_transfer_list(listing_id):
 @app.route('/market_bazaar/accept_offer/<int:offer_id>', methods=['POST'])
 @login_required
 def accept_market_offer(offer_id):
-    """Accept a market bazaar offer"""
+    """Accept a market bazaar offer (including swap offers - Phase 2)"""
     try:
         cur = db_helper.get_cursor()
 
         # Get offer details with additional validation
+        # PHASE 2: Include swap offer data
         cur.execute("""
-            SELECT mbo.*, mbl.player_id, mbl.team_id, mbl.asking_price, p.player_name, mbl.status as listing_status
+            SELECT mbo.*, mbl.player_id, mbl.team_id, mbl.asking_price, p.player_name, mbl.status as listing_status,
+                   mbo.swap_player_id, mbo.swap_type, mbo.swap_valuation, mbo.cash_compensation,
+                   swap_p.player_name as swap_player_name,
+                   buyer_t.club_name as buyer_team_name
             FROM market_bazaar_offers mbo
             JOIN market_bazaar_listings mbl ON mbo.listing_id = mbl.id
             JOIN players p ON mbl.player_id = p.id
+            LEFT JOIN players swap_p ON mbo.swap_player_id = swap_p.id
+            LEFT JOIN teams buyer_t ON mbo.buyer_team_id = buyer_t.id
             WHERE mbo.id = ? AND mbo.status = 'active' AND mbl.status = 'active'
         """, (int(offer_id),))
 
@@ -6772,12 +7437,23 @@ def accept_market_offer(offer_id):
 
         # Convert Row to dict for easier access
         offer = dict(offer)
+        
+        # Check if this is a swap offer (including multi-player swaps)
+        is_swap_offer = offer.get('swap_type') in ['swap', 'cash+swap', 'multi_swap', 'cash+multi_swap']
 
         # Additional validation: check if player is still on the listing team
         cur.execute("SELECT club_id FROM players WHERE id = ?", (offer['player_id'],))
         player_team = cur.fetchone()
         if not player_team or player_team['club_id'] != offer['team_id']:
             return jsonify({'error': 'Player is no longer available'}), 404
+        
+        # Check if player is blacklisted (void offer if player was sold/blacklisted)
+        cur.execute("SELECT 1 FROM blacklist WHERE player_id = ? AND user_id = 1", (offer['player_id'],))
+        if cur.fetchone():
+            # Void the offer by marking it as expired
+            cur.execute("UPDATE market_bazaar_offers SET status = 'expired' WHERE id = ?", (offer_id,))
+            db_helper.commit()
+            return jsonify({'error': 'This player has been blacklisted and the offer is no longer valid'}), 403
 
         # Check if player is already transfer-listed (allow acceptance but expire the listing)
         cur.execute("""
@@ -6818,6 +7494,132 @@ def accept_market_offer(offer_id):
             commission = 0
             net_amount = offer['offered_price']
 
+        # PHASE 2: Handle swap offers
+        if is_swap_offer:
+            # Import swap completion function
+            try:
+                from swap_and_loan_features import complete_swap_offer
+                
+                # Get user's team ID for swap completion
+                # Use the same pattern as buy_player_from_transfer_list: league_teams.id = teams.id
+                cur.execute("SELECT DISTINCT lt.id FROM league_teams lt WHERE lt.user_id = ? LIMIT 1", (current_user.id,))
+                user_team_result = cur.fetchone()
+                if not user_team_result:
+                    return jsonify({'error': 'You do not manage a team.'}), 400
+                user_team_id = user_team_result['id']  # This is both league_teams.id and teams.id
+                
+                app.logger.info(f"Swap completion: User team ID (club_id) = {user_team_id}")
+                
+                # Fetch additional swap players if this is a multi-player swap
+                additional_swap_players = []
+                if offer.get('swap_type') in ['multi_swap', 'cash+multi_swap']:
+                    # Ensure swap_offer_players table exists (auto-create if missing)
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS swap_offer_players (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            offer_id INTEGER NOT NULL,
+                            player_id INTEGER NOT NULL,
+                            market_value INTEGER NOT NULL,
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (offer_id) REFERENCES market_bazaar_offers(id) ON DELETE CASCADE,
+                            FOREIGN KEY (player_id) REFERENCES players(id),
+                            UNIQUE(offer_id, player_id)
+                        )
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_swap_offer_players_offer 
+                        ON swap_offer_players(offer_id)
+                    """)
+                    
+                    cur.execute("""
+                        SELECT sop.player_id, p.player_name, p.market_value
+                        FROM swap_offer_players sop
+                        JOIN players p ON sop.player_id = p.id
+                        WHERE sop.offer_id = ?
+                        ORDER BY sop.id
+                    """, (offer_id,))
+                    additional_swap_players = [dict(row) for row in cur.fetchall()]
+                
+                # Complete the swap (handles player exchange, cash, and blacklisting)
+                # Pass user_team_id to ensure swap player goes to correct team
+                from db_helper import DATABASE
+                success = complete_swap_offer(DATABASE, offer_id, user_team_id)
+                
+                if not success:
+                    return jsonify({'error': 'Failed to complete swap offer'}), 500
+                
+                # Build player lists for blog post and user movement
+                user_gives = [offer['player_name']]
+                user_receives = [offer['swap_player_name']]
+                if additional_swap_players:
+                    for add_player in additional_swap_players:
+                        user_receives.append(add_player['player_name'])
+                
+                # Record transaction for user
+                cash_comp = offer.get('cash_compensation', 0)
+                if len(user_receives) > 1:
+                    # Multi-player swap
+                    receives_str = f"{user_receives[0]} + {len(user_receives) - 1} other player(s)"
+                else:
+                    receives_str = user_receives[0]
+                
+                if cash_comp > 0:
+                    add_user_movement(current_user.id, 'Transfer Swap',
+                                    f"Swapped {offer['player_name']} for {receives_str} + €{cash_comp:,}",
+                                    cash_comp)
+                elif cash_comp < 0:
+                    add_user_movement(current_user.id, 'Transfer Swap',
+                                    f"Swapped {offer['player_name']} for {receives_str} (paid €{abs(cash_comp):,})",
+                                    cash_comp)
+                else:
+                    add_user_movement(current_user.id, 'Transfer Swap',
+                                    f"Swapped {offer['player_name']} for {receives_str}",
+                                    0)
+                
+                # Create blog post for swap (single or multi-player)
+                # Collect all player IDs for images
+                swap_player_ids = [offer['player_id']]  # User's outgoing player
+                swap_player_ids.append(offer['swap_player_id'])  # CPU's primary swap player
+                if additional_swap_players:
+                    for add_player in additional_swap_players:
+                        swap_player_ids.append(add_player['player_id'])
+                
+                if len(user_receives) > 1:
+                    # Multi-player swap blog post
+                    additional_names = ", ".join([p['player_name'] for p in additional_swap_players])
+                    blog_title = f"Multi-Player Swap: {offer['player_name']} ↔ {offer['swap_player_name']} + {len(additional_swap_players)} other(s)"
+                    blog_content = f"<strong>{current_user.username}'s team</strong> has completed a multi-player swap deal!<br><br>"
+                    blog_content += f"<strong>Outgoing:</strong> {offer['player_name']} → {offer.get('buyer_team_name', 'CPU team')}<br>"
+                    blog_content += f"<strong>Incoming:</strong> {offer['swap_player_name']}"
+                    if additional_swap_players:
+                        blog_content += f" + {additional_names}"
+                    blog_content += f" → {current_user.username}'s team"
+                else:
+                    # Single player swap blog post
+                    blog_title = f"Player Swap: {offer['player_name']} ↔ {offer['swap_player_name']}"
+                    blog_content = f"<strong>{current_user.username}'s team</strong> has completed a swap deal! {offer['player_name']} has moved to {offer.get('buyer_team_name', 'CPU team')} in exchange for {offer['swap_player_name']}."
+                
+                if cash_comp > 0:
+                    blog_content += f"<br><br>Additionally, {current_user.username}'s team received <strong>€{cash_comp:,}</strong>."
+                elif cash_comp < 0:
+                    blog_content += f"<br><br>Additionally, {current_user.username}'s team paid <strong>€{abs(cash_comp):,}</strong>."
+                
+                post_transfer_news(blog_title, blog_content, user_id=current_user.id, player_ids=swap_player_ids)
+                
+                db_helper.commit()
+                
+                # Flash message
+                if len(user_receives) > 1:
+                    flash(f'Multi-player swap completed! {offer["player_name"]} ↔ {offer["swap_player_name"]} + {len(additional_swap_players)} other(s)', 'success')
+                else:
+                    flash(f'Swap completed! {offer["player_name"]} ↔ {offer["swap_player_name"]}', 'success')
+                return jsonify({'success': True, 'message': f'Swap completed successfully!'})
+                
+            except ImportError:
+                app.logger.error("Swap features not available")
+                return jsonify({'error': 'Swap features not available'}), 500
+        
+        # Regular (non-swap) offer handling
         # Transfer player
         cur.execute("UPDATE players SET club_id = ? WHERE id = ?",
                    (offer['buyer_team_id'], offer['player_id']))
@@ -6860,7 +7662,7 @@ def accept_market_offer(offer_id):
             blog_title = f"Transfer News: {user_team_name} Sells {offer['player_name']}"
             blog_content = f"💰 <strong>{user_team_name}</strong> has sold <strong>{offer['player_name']}</strong> to <strong>{buyer_team_name}</strong> for <strong>€{offer['offered_price']:,}</strong>!<br><br>The sale provides {user_team_name} with valuable funds to reinvest in their squad."
 
-        post_transfer_news(blog_title, blog_content, current_user.id)
+        post_transfer_news(blog_title, blog_content, current_user.id, player_ids=[offer['player_id']])
 
         db_helper.commit()
         cur.close()
@@ -7057,6 +7859,14 @@ def trigger_cpu_ai():
                     elif action['action'] == 'loan_player':
                         details = action['details']
                         offers.append(f"• 🔄 LOAN COMPLETED: {action['team']} loaned {details['player_name']} from {details['loaned_from']}")
+                    elif action['action'] == 'player_swap_offer':
+                        details = action['details']
+                        cash_text = ""
+                        if details.get('cash_compensation', 0) > 0:
+                            cash_text = f" + €{details['cash_compensation']:,}"
+                        elif details.get('cash_compensation', 0) < 0:
+                            cash_text = f" (CPU receives €{abs(details['cash_compensation']):,})"
+                        offers.append(f"• 🔄 SWAP OFFER: {action['team']} offered {details.get('swap_player', 'Unknown')} for {details.get('target_player', 'Unknown')}{cash_text}")
                     elif action['action'] == 'offer_accepted':
                         details = action['details']
                         offers.append(f"• ✅ NEGOTIATION SUCCESS: User successfully negotiated {details['player_name']} from {details['cpu_team_name']} for €{details['offered_price']:,}")
@@ -7185,7 +7995,7 @@ def scheduled_market_activity():
     """Trigger scheduled market activity (CPU AI, expired offers, etc.)"""
     if not MARKET_BAZAAR_ENABLED:
         flash("❌ Market bazaar activity is currently disabled.", 'warning')
-        return redirect(url_for('tools'))
+        return redirect(url_for('market_bazaar'))
 
     try:
         # Check if market activity is already running to prevent multiple simultaneous triggers
@@ -7195,7 +8005,7 @@ def scheduled_market_activity():
 
         if running_check and running_check[0] == 'true':
             flash("⚠️ Market activity is already running. Please wait for it to complete.", 'warning')
-            return redirect(url_for('tools'))
+            return redirect(url_for('market_bazaar'))
 
         # Set lock to prevent multiple simultaneous triggers
         cur.execute("""
@@ -7268,6 +8078,14 @@ def scheduled_market_activity():
                 elif action['action'] == 'loan_player':
                     details = action['details']
                     offers.append(f"• 🔄 LOAN COMPLETED: {action['team']} loaned {details['player_name']} from {details['loaned_from']}")
+                elif action['action'] == 'player_swap_offer':
+                    details = action['details']
+                    cash_text = ""
+                    if details.get('cash_compensation', 0) > 0:
+                        cash_text = f" + €{details['cash_compensation']:,}"
+                    elif details.get('cash_compensation', 0) < 0:
+                        cash_text = f" (CPU receives €{abs(details['cash_compensation']):,})"
+                    offers.append(f"• 🔄 SWAP OFFER: {action['team']} offered {details.get('swap_player', 'Unknown')} for {details.get('target_player', 'Unknown')}{cash_text}")
                 elif action['action'] == 'offer_accepted':
                     details = action['details']
                     offers.append(f"• ✅ NEGOTIATION SUCCESS: User successfully negotiated {details['player_name']} from {details['cpu_team_name']} for €{details['offered_price']:,}")
@@ -7285,6 +8103,41 @@ def scheduled_market_activity():
                 blog_content += "<strong>Transfer Activity & Negotiations:</strong><br><br>"
                 blog_content += "<br>".join(offers) + "<br><br>"
 
+            # Find highest overall player sold and add their image
+            highest_overall_player_id = None
+            highest_overall_player_name = None
+            highest_overall_team = None
+            highest_overall = 0
+            
+            for action in actions_taken:
+                if action['action'] == 'buy_player':
+                    details = action['details']
+                    player_name = details.get('player_name')
+                    if player_name:
+                        # Query database to find player ID and overall
+                        cur = db_helper.get_cursor()
+                        cur.execute("""
+                            SELECT id, overall, club_id 
+                            FROM players 
+                            WHERE player_name = ?
+                            ORDER BY id DESC
+                            LIMIT 1
+                        """, (player_name,))
+                        player_result = cur.fetchone()
+                        cur.close()
+                        
+                        if player_result and player_result['overall'] and player_result['overall'] > highest_overall:
+                            highest_overall = player_result['overall']
+                            highest_overall_player_id = player_result['id']
+                            highest_overall_player_name = player_name
+                            highest_overall_team = action['team']
+            
+            # Add highest overall player image at the end
+            player_ids_for_blog = []
+            if highest_overall_player_id:
+                player_ids_for_blog = [highest_overall_player_id]
+                blog_content += f"<div class='player-joining-text'>{highest_overall_player_name} will be joining {highest_overall_team}</div>"
+
             blog_content += "The market bazaar is buzzing with activity!"
         else:
             blog_title = f"Market Bazaar Activity: No Actions Taken"
@@ -7292,8 +8145,9 @@ def scheduled_market_activity():
             blog_content += f"<strong>⏰ Expired Offers:</strong> Processed and cleaned up<br><br>"
             blog_content += f"<strong>🔄 Market Updates:</strong> All pending transactions processed<br><br>"
             blog_content += "The market bazaar is ready for the next round of activity!"
+            player_ids_for_blog = []
 
-        post_transfer_news(blog_title, blog_content, user_id=1)
+        post_transfer_news(blog_title, blog_content, user_id=1, player_ids=player_ids_for_blog if 'player_ids_for_blog' in locals() else [])
 
         # Store the last market activity time and set next one
         from datetime import datetime, timedelta
@@ -7330,7 +8184,7 @@ def scheduled_market_activity():
         except Exception as unlock_error:
             app.logger.error(f"Error unlocking market activity: {unlock_error}")
 
-    return redirect(url_for('tools'))
+    return redirect(url_for('market_bazaar'))
 
 @app.route('/tools/retire_player_manual', methods=['POST'])
 @login_required
@@ -7617,6 +8471,14 @@ def webhook_scheduled_market_activity():
                 elif action['action'] == 'loan_player':
                     details = action['details']
                     offers.append(f"• 🔄 LOAN COMPLETED: {action['team']} loaned {details['player_name']} from {details['loaned_from']}")
+                elif action['action'] == 'player_swap_offer':
+                    details = action['details']
+                    cash_text = ""
+                    if details.get('cash_compensation', 0) > 0:
+                        cash_text = f" + €{details['cash_compensation']:,}"
+                    elif details.get('cash_compensation', 0) < 0:
+                        cash_text = f" (CPU receives €{abs(details['cash_compensation']):,})"
+                    offers.append(f"• 🔄 SWAP OFFER: {action['team']} offered {details.get('swap_player', 'Unknown')} for {details.get('target_player', 'Unknown')}{cash_text}")
                 elif action['action'] == 'offer_accepted':
                     details = action['details']
                     offers.append(f"• ✅ NEGOTIATION SUCCESS: User successfully negotiated {details['player_name']} from {details['cpu_team_name']} for €{details['offered_price']:,}")
@@ -7689,6 +8551,7 @@ def get_current_season():
         return '00/01'
     finally:
         cur.close()
+
 
 def increment_season():
     """Increment to the next season and return the new season name"""
@@ -8349,6 +9212,15 @@ def end_of_season_process():
             for skill_name, change_info in skill_changes.items():
                 if change_info['change'] != 0:  # Only update if there's a change
                     new_value = change_info['new']
+                    cur.execute(f"UPDATE players SET {skill_name} = ? WHERE id = ?",
+                              (new_value, player_data['id']))
+            
+            # Apply binary skill changes
+            binary_skill_changes = development_result.get('binary_skill_changes', {})
+            for skill_name, new_value in binary_skill_changes.items():
+                # Only update if the value changed (player gained a skill)
+                current_value = player_data.get(skill_name, 0)
+                if new_value == 1 and current_value != 1:
                     cur.execute(f"UPDATE players SET {skill_name} = ? WHERE id = ?",
                               (new_value, player_data['id']))
 
@@ -9278,6 +10150,70 @@ def get_user_teams():
 
     teams_list = [{'id': team['id'], 'name': team['team_name']} for team in user_teams]
     return jsonify({'teams': teams_list})
+
+@app.route('/free_agency/cpu_dump_strength', methods=['POST'])
+@login_required
+def cpu_dump_for_strength():
+    """CPU Dump for Strength: Release surplus players from CPU teams"""
+    try:
+        from cpu_ai import CPUAI
+        from db_helper import DATABASE
+        
+        ai = CPUAI(DATABASE)
+        result = ai.cpu_dump_for_strength()
+        
+        if result['success']:
+            total_released = result['total_released']
+            releases = result['releases']
+            
+            # Create blog post
+            if total_released > 0:
+                blog_title = "CPU Dump for Strength: Players Released"
+                blog_content = f"<strong>CPU Dump for Strength</strong> has been executed! "
+                blog_content += f"<strong>{total_released}</strong> player(s) have been released to free agency:<br><br>"
+                
+                # Group by team
+                by_team = {}
+                for release in releases:
+                    team = release['team_name']
+                    if team not in by_team:
+                        by_team[team] = []
+                    by_team[team].append(release)
+                
+                for team_name, team_releases in by_team.items():
+                    blog_content += f"<strong>{team_name}:</strong><br>"
+                    for release in team_releases:
+                        severance = release['severance']
+                        blog_content += f"  • {release['player_name']} (Overall: {release['overall']}, Age: {release['age']}) - Severance: €{severance:,}<br>"
+                    blog_content += "<br>"
+                
+                blog_content += "All released players have received 25% of their salary as severance, which has been added to their career earnings."
+                
+                post_transfer_news(blog_title, blog_content, user_id=1)
+                
+                flash(f'✅ CPU Dump for Strength completed! {total_released} player(s) released to free agency.', 'success')
+            else:
+                flash('ℹ️ No players were released. All CPU teams have 28 or fewer players, or no eligible players found.', 'info')
+            
+            return jsonify({
+                'success': True,
+                'total_released': total_released,
+                'message': f'{total_released} player(s) released to free agency'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Unknown error')
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f"Error in CPU dump for strength: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/free_agency/place_player/<int:offer_id>', methods=['POST'])
 @login_required
@@ -10922,6 +11858,18 @@ def beginning_of_season():
         # Create the second blog post
         post_transfer_news("🌟 Young Talents - Season Preview (21 & Under)", young_talents_content, user_id=1)
 
+        # Post 3: Under 18 - Top 10 players per position (18 years old or less)
+        under_18_content = generate_age_group_post(cur, max_age=18, title="Under 18 (Included)")
+        post_transfer_news("🌱 Under 18 Talents - Season Preview (18 & Under)", under_18_content, user_id=1)
+
+        # Post 4: Over 30 - Top 10 players per position (30 years old or more)
+        over_30_content = generate_age_group_post(cur, min_age=30, title="Over 30 (Included)")
+        post_transfer_news("👴 Veterans - Season Preview (30 & Over)", over_30_content, user_id=1)
+
+        # Post 5: Over 35 - Top 10 players per position (35 years old or more)
+        over_35_content = generate_age_group_post(cur, min_age=35, title="Over 35 (Included)")
+        post_transfer_news("🏆 Legends - Season Preview (35 & Over)", over_35_content, user_id=1)
+
         flash("✅ Beginning of season blog posts generated successfully!", "success")
 
     except Exception as e:
@@ -11003,6 +11951,61 @@ def generate_young_talents_post(cur):
             JOIN teams t ON p.club_id = t.id
             WHERE p.registered_position IN ({placeholders})
             AND p.age <= 21
+            AND t.club_name != 'No Club'
+            ORDER BY p.overall DESC
+            LIMIT 10
+        """, position_list)
+
+        players = cur.fetchall()
+
+        if players:
+            content += f"<strong>{position_name}:</strong><br>"
+            for i, player in enumerate(players, 1):
+                content += f"• {player['player_name']} ({player['overall']}, Age {player['age']}) - {player['club_name']}<br>"
+            content += "<br>"
+
+    content += "---<br><em>Generated at the beginning of the season</em>"
+    return content
+
+def generate_age_group_post(cur, min_age=None, max_age=None, title=""):
+    """Generate age group blog post (under 18, over 30, or over 35)"""
+    if min_age is not None:
+        age_filter = f"AND p.age >= {min_age}"
+        age_description = f"{min_age} years old or more"
+        emoji = "👴" if min_age == 30 else "🏆"
+    elif max_age is not None:
+        age_filter = f"AND p.age <= {max_age}"
+        age_description = f"{max_age} years old or less"
+        emoji = "🌱"
+    else:
+        return ""
+    
+    content = f"{emoji} <strong>{title.upper()} - SEASON PREVIEW</strong><br><br>"
+    content += f"As we kick off the new season, let's analyze the top talent across all positions ({age_description}):<br><br>"
+
+    # Position groups: some positions are aggregated together
+    position_groups = [
+        (0, "Goal-Keeper", [0]),
+        (2, "Centre-Back / Sweeper", [2, 3]),  # Aggregated: Sweepers & Centre-Backs
+        (4, "Side-Back / Wing-Back", [4, 6]),  # Aggregated: Side-Backs & Wing-Backs
+        (5, "Defensive Midfielder", [5]),
+        (7, "Central Midfielder", [7]),
+        (8, "Side Midfielder", [8]),
+        (9, "Attacking Midfielder", [9]),
+        (10, "Winger", [10]),
+        (11, "Shadow Striker", [11]),
+        (12, "Striker", [12])
+    ]
+
+    for position_id, position_name, position_list in position_groups:
+        # Get top 10 players for this position group (with age filter, excluding "No club" players)
+        placeholders = ','.join('?' * len(position_list))
+        cur.execute(f"""
+            SELECT p.player_name, p.overall, p.age, t.club_name
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            WHERE p.registered_position IN ({placeholders})
+            {age_filter}
             AND t.club_name != 'No Club'
             ORDER BY p.overall DESC
             LIMIT 10
@@ -12726,8 +13729,8 @@ def generate_preferred_lineups():
                                  key=lambda x: x.get('overall', 0), reverse=True)
             side_backs = sorted([p for p in players if get_pos_int(p) in [4, 6]], 
                               key=lambda x: x.get('overall', 0), reverse=True)
-            centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7]], 
-                               key=lambda x: x.get('overall', 0), reverse=True)  # Fixed: removed 8 (SMF) from CM
+            centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7, 9]], 
+                               key=lambda x: x.get('overall', 0), reverse=True)  # DMF (5), CMF (7), AMF (9)
             side_mids = sorted([p for p in players if get_pos_int(p) in [8, 10]], 
                              key=lambda x: x.get('overall', 0), reverse=True)
             forwards = sorted([p for p in players if get_pos_int(p) in [11, 12]], 
@@ -13143,8 +14146,16 @@ def create_fake_international_player(nationality: str, position: str, db_path: s
         if nationality not in NATIONALITY_DATA:
             nationality = 'England'
         
-        first_names = NATIONALITY_DATA[nationality]['names']
-        surnames = SURNAME_DATA.get(nationality, SURNAME_DATA['England'])
+        # Handle both old structure ('names') and new structure ('first_names'/'surnames')
+        nat_data = NATIONALITY_DATA.get(nationality, NATIONALITY_DATA.get('England', {}))
+        if 'first_names' in nat_data:
+            # New structure: first_names and surnames in same dict
+            first_names = nat_data['first_names']
+            surnames = nat_data.get('surnames', [])
+        else:
+            # Old structure: 'names' in NATIONALITY_DATA, surnames in SURNAME_DATA
+            first_names = nat_data.get('names', ['John'])
+            surnames = SURNAME_DATA.get(nationality, SURNAME_DATA.get('England', ['Doe']))
         first_name = random.choice(first_names)
         surname = random.choice(surnames) if random.random() > 0.3 else ""
         full_name = f"{first_name} {surname}".strip() if surname else first_name
@@ -14809,10 +15820,19 @@ def simulate_international_game(game_id):
             from game_mechanics import NATIONALITY_DATA, SURNAME_DATA
             import random
             
-            first_names = NATIONALITY_DATA.get(nationality, NATIONALITY_DATA['England'])['names']
-            surnames = SURNAME_DATA.get(nationality, SURNAME_DATA['England'])
-            first_name = random.choice(first_names)
-            surname = random.choice(surnames) if random.random() > 0.3 else ""
+            # Handle both old structure ('names') and new structure ('first_names'/'surnames')
+            nat_data = NATIONALITY_DATA.get(nationality, NATIONALITY_DATA.get('England', {}))
+            if 'first_names' in nat_data:
+                # New structure: first_names and surnames in same dict
+                first_names = nat_data['first_names']
+                surnames = nat_data.get('surnames', [])
+            else:
+                # Old structure: 'names' in NATIONALITY_DATA, surnames in SURNAME_DATA
+                first_names = nat_data.get('names', ['John'])
+                surnames = SURNAME_DATA.get(nationality, SURNAME_DATA.get('England', ['Doe']))
+            
+            first_name = random.choice(first_names) if first_names else "John"
+            surname = random.choice(surnames) if surnames and random.random() > 0.3 else ""
             full_name = f"{first_name} {surname}".strip() if surname else first_name
             
             # Insert into temp_players table (NOT players table)

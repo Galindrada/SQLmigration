@@ -20,6 +20,19 @@
                     {% endfor %}
                 </div>
             </div>
+
+            {% if current_user.is_authenticated %}
+            <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                <form method="POST" action="{{ url_for('add_to_favourites', player_id=player.id) }}" style="display: inline-block; margin: 0;">
+                    <button type="submit" class="btn btn-outline-warning btn-sm">
+                        ⭐ Add to Favourites
+                    </button>
+                </form>
+                <a href="{{ url_for('negotiate_with_cpu', player_id=player.id) }}" class="btn btn-primary btn-sm">
+                    Negotiate
+                </a>
+            </div>
+            {% endif %}
         </div>
 
         <div class="profile-picture-section">

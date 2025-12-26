@@ -598,6 +598,17 @@ def safe_refresh_database():
         except Exception as e:
             print(f"  ❌ Error creating blog_posts table: {e}")
         
+        # Add player_ids column to posts table for player images in blog posts
+        print("\n🖼️  Adding player_ids column to posts table...")
+        try:
+            cursor.execute("ALTER TABLE posts ADD COLUMN player_ids TEXT")
+            print("  ✅ Added player_ids column to posts table (stores JSON array of player IDs for images)")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding player_ids column: {e}")
+            else:
+                print("  ℹ️  player_ids column already exists")
+        
         # Create retired_players table for Hall of Fame
         print("\n🏆 Creating retired_players table (Hall of Fame)...")
         try:
@@ -1194,6 +1205,24 @@ def safe_refresh_database():
                 print("  ✅ loaned_by column already exists in players table")
             else:
                 print(f"  ❌ Error adding loaned_by column: {e}")
+        
+        # Create user_favourites table for scouting feature
+        print("\n⭐ Creating user_favourites table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_favourites (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+                    UNIQUE(user_id, player_id)
+                )
+            """)
+            print("  ✅ Created user_favourites table")
+        except Exception as e:
+            print(f"  ❌ Error creating user_favourites table: {e}")
         
         # Initialize first season if none exists
         try:

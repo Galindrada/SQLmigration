@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+
+{% block title %}Scouting - Favourite Players{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Scouting</h2>
+    <p>Manage your favourite players list for quick reference and scouting.</p>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4 class="mb-0" style="color: black;">Favourite List</h4>
+        </div>
+        <div class="card-body">
+            {% if favourites and favourites|length > 0 %}
+                <div class="table-responsive">
+                    <table>
+                        <thead class="thead-dark">
+                            <tr>
+                                <th>Name</th>
+                                <th>Age</th>
+                                <th>Pos</th>
+                                <th>Side</th>
+                                <th>Att</th>
+                                <th>Def</th>
+                                <th>Phy</th>
+                                <th>Pwr</th>
+                                <th>Te</th>
+                                <th>GK</th>
+                                <th>P</th>
+                                <th>G</th>
+                                <th>A</th>
+                                <th>Salary</th>
+                                <th>MV</th>
+                                <th>CTy</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in favourites %}
+                            <tr>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <img src="{{ url_for('serve_player_image_by_id', player_id=p['id']) }}" 
+                                             alt="{{ p['player_name'] }}"
+                                             style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; border: 2px solid #ddd;"
+                                             onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                        <div style="width: 40px; height: 40px; border-radius: 50%; background: #ddd; display: none; align-items: center; justify-content: center; font-size: 20px;">👤</div>
+                                        <a href="{{ url_for('pes6_player_details', player_id=p['id']) }}">
+                                            {{ p['player_name'] }}
+                                        </a>
+                                    </div>
+                                </td>
+                                <td>{{ p['age'] }}</td>
+                                <td>
+                                    {% set game_pos = p['game_position'] %}
+                                    {% if game_pos == 'Goal-Keeper' %}GK
+                                    {% elif game_pos == 'Sweeper' %}SW
+                                    {% elif game_pos == 'Centre-Back' %}CB
+                                    {% elif game_pos == 'Side-Back' %}SB
+                                    {% elif game_pos == 'Wing-Back' %}WB
+                                    {% elif game_pos == 'Defensive Midfielder' %}DMF
+                                    {% elif game_pos == 'Center-Midfielder' %}CMF
+                                    {% elif game_pos == 'Side-Midfielder' %}SMF
+                                    {% elif game_pos == 'Attacking Midfielder' %}AMF
+                                    {% elif game_pos == 'Winger' %}WF
+                                    {% elif game_pos == 'Shadow Striker' %}SS
+                                    {% elif game_pos == 'Striker' %}CF
+                                    {% else %}{{ game_pos }}
+                                    {% endif %}
+                                </td>
+                                <td>{{ p['strong_foot'] }}</td>
+                                <td>{{ p['attack_rating'] }}</td>
+                                <td>{{ p['defense_rating'] }}</td>
+                                <td>{{ p['physical_rating'] }}</td>
+                                <td>{{ p['power_rating'] }}</td>
+                                <td>{{ p['technique_rating'] }}</td>
+                                <td>{{ p['goalkeeping_rating'] }}</td>
+                                <td>{{ p['games_played'] or 0 }}</td>
+                                <td>{{ p['goals'] or 0 }}</td>
+                                <td>{{ p['assists'] or 0 }}</td>
+                                <td>€{{ p['salary'] | format_currency_compact if p['salary'] else '0' }}</td>
+                                <td>€{{ p['market_value'] | format_currency_compact if p['market_value'] else '0' }}</td>
+                                <td>{{ p['contract_years_remaining'] }}</td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('remove_from_favourites', player_id=p['id']) }}" style="display:inline;">
+                                        <button type="submit" class="btn btn-sm btn-danger">
+                                            Remove
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p>You don't have any favourite players yet. Visit a player page and click "Add to Favourites".</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Player Search/Filter Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4 class="mb-0" style="color: black;">Player Search & Filter</h4>
+        </div>
+        <div class="card-body">
+            <form id="playerSearchForm" method="GET" action="{{ url_for('player_search') }}">
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label for="position">Position:</label>
+                        <select name="position" id="position" class="form-control">
+                            <option value="">All Positions</option>
+                            <option value="Goal-Keeper" {% if search_params and search_params.get('position') == 'Goal-Keeper' %}selected{% endif %}>GK</option>
+                            <option value="Sweeper" {% if search_params and search_params.get('position') == 'Sweeper' %}selected{% endif %}>SW</option>
+                            <option value="Centre-Back" {% if search_params and search_params.get('position') == 'Centre-Back' %}selected{% endif %}>CB</option>
+                            <option value="Side-Back" {% if search_params and search_params.get('position') == 'Side-Back' %}selected{% endif %}>SB</option>
+                            <option value="Wing-Back" {% if search_params and search_params.get('position') == 'Wing-Back' %}selected{% endif %}>WB</option>
+                            <option value="Defensive Midfielder" {% if search_params and search_params.get('position') == 'Defensive Midfielder' %}selected{% endif %}>DMF</option>
+                            <option value="Center-Midfielder" {% if search_params and search_params.get('position') == 'Center-Midfielder' %}selected{% endif %}>CMF</option>
+                            <option value="Side-Midfielder" {% if search_params and search_params.get('position') == 'Side-Midfielder' %}selected{% endif %}>SMF</option>
+                            <option value="Attacking Midfielder" {% if search_params and search_params.get('position') == 'Attacking Midfielder' %}selected{% endif %}>AMF</option>
+                            <option value="Winger" {% if search_params and search_params.get('position') == 'Winger' %}selected{% endif %}>WF</option>
+                            <option value="Shadow Striker" {% if search_params and search_params.get('position') == 'Shadow Striker' %}selected{% endif %}>SS</option>
+                            <option value="Striker" {% if search_params and search_params.get('position') == 'Striker' %}selected{% endif %}>CF</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="age_min">Age Min:</label>
+                        <input type="number" name="age_min" id="age_min" class="form-control" min="15" max="50" placeholder="15" value="{{ search_params.get('age_min', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="age_max">Age Max:</label>
+                        <input type="number" name="age_max" id="age_max" class="form-control" min="15" max="50" placeholder="50" value="{{ search_params.get('age_max', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="salary_max">Max Salary:</label>
+                        <input type="number" name="salary_max" id="salary_max" class="form-control" min="0" placeholder="€" value="{{ search_params.get('salary_max', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="market_value_max">Max Market Value:</label>
+                        <input type="number" name="market_value_max" id="market_value_max" class="form-control" min="0" placeholder="€" value="{{ search_params.get('market_value_max', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="overall_min">Min Overall:</label>
+                        <input type="number" name="overall_min" id="overall_min" class="form-control" min="0" max="100" placeholder="0-100" value="{{ search_params.get('overall_min', '') if search_params else '' }}">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label for="attack_min">Min Attack:</label>
+                        <input type="number" name="attack_min" id="attack_min" class="form-control" min="0" max="100" placeholder="0-100" value="{{ search_params.get('attack_min', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="defense_min">Min Defense:</label>
+                        <input type="number" name="defense_min" id="defense_min" class="form-control" min="0" max="100" placeholder="0-100" value="{{ search_params.get('defense_min', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="physical_min">Min Physical:</label>
+                        <input type="number" name="physical_min" id="physical_min" class="form-control" min="0" max="100" placeholder="0-100" value="{{ search_params.get('physical_min', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="power_min">Min Power:</label>
+                        <input type="number" name="power_min" id="power_min" class="form-control" min="0" max="100" placeholder="0-100" value="{{ search_params.get('power_min', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="technique_min">Min Technique:</label>
+                        <input type="number" name="technique_min" id="technique_min" class="form-control" min="0" max="100" placeholder="0-100" value="{{ search_params.get('technique_min', '') if search_params else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="goalkeeping_min">Min Goalkeeping:</label>
+                        <input type="number" name="goalkeeping_min" id="goalkeeping_min" class="form-control" min="0" max="100" placeholder="0-100" value="{{ search_params.get('goalkeeping_min', '') if search_params else '' }}">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <button type="submit" class="btn btn-primary">Search Players</button>
+                        <button type="button" class="btn btn-secondary" onclick="resetFilters()">Reset Filters</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Search Results -->
+    {% if search_results is defined %}
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4 class="mb-0" style="color: black;">Search Results ({{ search_results|length }} players found)</h4>
+        </div>
+        <div class="card-body">
+            {% if search_results and search_results|length > 0 %}
+                <div class="table-responsive">
+                    <table>
+                        <thead class="thead-dark">
+                            <tr>
+                                <th>Name</th>
+                                <th>Age</th>
+                                <th>Pos</th>
+                                <th>Side</th>
+                                <th>Att</th>
+                                <th>Def</th>
+                                <th>Phy</th>
+                                <th>Pwr</th>
+                                <th>Te</th>
+                                <th>GK</th>
+                                <th>OV</th>
+                                <th>P</th>
+                                <th>G</th>
+                                <th>A</th>
+                                <th>Salary</th>
+                                <th>MV</th>
+                                <th>CTy</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in search_results %}
+                            <tr>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <img src="{{ url_for('serve_player_image_by_id', player_id=p['id']) }}" 
+                                             alt="{{ p['player_name'] }}"
+                                             style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; border: 2px solid #ddd;"
+                                             onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                        <div style="width: 40px; height: 40px; border-radius: 50%; background: #ddd; display: none; align-items: center; justify-content: center; font-size: 20px;">👤</div>
+                                        <a href="{{ url_for('pes6_player_details', player_id=p['id']) }}">
+                                            {{ p['player_name'] }}
+                                        </a>
+                                    </div>
+                                </td>
+                                <td>{{ p['age'] }}</td>
+                                <td>
+                                    {% set game_pos = p['game_position'] %}
+                                    {% if game_pos == 'Goal-Keeper' %}GK
+                                    {% elif game_pos == 'Sweeper' %}SW
+                                    {% elif game_pos == 'Centre-Back' %}CB
+                                    {% elif game_pos == 'Side-Back' %}SB
+                                    {% elif game_pos == 'Wing-Back' %}WB
+                                    {% elif game_pos == 'Defensive Midfielder' %}DMF
+                                    {% elif game_pos == 'Center-Midfielder' %}CMF
+                                    {% elif game_pos == 'Side-Midfielder' %}SMF
+                                    {% elif game_pos == 'Attacking Midfielder' %}AMF
+                                    {% elif game_pos == 'Winger' %}WF
+                                    {% elif game_pos == 'Shadow Striker' %}SS
+                                    {% elif game_pos == 'Striker' %}CF
+                                    {% else %}{{ game_pos }}
+                                    {% endif %}
+                                </td>
+                                <td>{{ p['strong_foot'] }}</td>
+                                <td>{{ p['attack_rating'] }}</td>
+                                <td>{{ p['defense_rating'] }}</td>
+                                <td>{{ p['physical_rating'] }}</td>
+                                <td>{{ p['power_rating'] }}</td>
+                                <td>{{ p['technique_rating'] }}</td>
+                                <td>{{ p['goalkeeping_rating'] }}</td>
+                                <td>{{ p['overall'] or 'N/A' }}</td>
+                                <td>{{ p['games_played'] or 0 }}</td>
+                                <td>{{ p['goals'] or 0 }}</td>
+                                <td>{{ p['assists'] or 0 }}</td>
+                                <td>€{{ p['salary'] | format_currency_compact if p['salary'] else '0' }}</td>
+                                <td>€{{ p['market_value'] | format_currency_compact if p['market_value'] else '0' }}</td>
+                                <td>{{ p['contract_years_remaining'] }}</td>
+                                <td>
+                                    {% if current_user.is_authenticated %}
+                                        <a href="{{ url_for('negotiate_with_cpu', player_id=p['id']) }}" class="btn btn-sm btn-primary" style="margin-right: 5px;">Negotiate</a>
+                                        <form method="POST" action="{{ url_for('add_to_favourites', player_id=p['id']) }}" style="display:inline;">
+                                            <input type="hidden" name="return_to_search" value="1">
+                                            <input type="hidden" name="search_params" value="{{ request.query_string }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-warning">
+                                                ⭐ Add
+                                            </button>
+                                        </form>
+                                    {% else %}
+                                        <a href="{{ url_for('login') }}" class="btn btn-sm btn-secondary">Login to Negotiate</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p>No players found matching your criteria.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    function resetFilters() {
+        document.getElementById('playerSearchForm').reset();
+    }
+</script>
+
+<style>
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+    }
+    th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+    th {
+        background-color: #f2f2f2;
+    }
+    tr:nth-child(even) {
+        background-color: #f9f9f9;
+    }
+    tr:hover {
+        background-color: #f1f1f1;
+    }
+</style>
+{% endblock %}
+
