@@ -1049,11 +1049,11 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     performance_boost = calculate_performance_boost(player_data, db_path)
     # Separate natural development from performance-driven development
     # Natural works even at 0 games (drives youth growth and veteran decline)
-    natural_weight = 0.4
-    performance_weight = 0.6
+    natural_weight = 0.55
+    performance_weight = 0.45
     games_played = int(player_data.get('games_played', 0) or 0)
     # Assume ~34 league matches as reference; clamp to 1.0
-    games_ratio = min(1.0, max(0.0, games_played / 34.0))
+    games_ratio = min(1.0, max(0.0, games_played / 25.0))
     # Youth floor: allow some growth even with few/no games for young players
     # Stronger floor for <=20, tapering off with age
     if age <= 20:
@@ -1065,7 +1065,7 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     else:
         youth_floor = 0.05
     effective_games_factor = max(games_ratio, youth_floor)
-    perf_factor = 1.0 + 0.6 * float(performance_boost.get('total_boost', 0.0))
+    perf_factor = 1.0 + 0.5 * float(performance_boost.get('total_boost', 0.0))
     # Compose additively: performance term decoupled from age sign so it mitigates decline
     natural_component = base_multiplier * age_multiplier * natural_weight
     performance_component = base_multiplier * performance_weight * effective_games_factor * perf_factor
@@ -3096,8 +3096,8 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     performance_boost = calculate_performance_boost(player_data, db_path)
     # Separate natural development from performance-driven development
     # Natural works even at 0 games (drives youth growth and veteran decline)
-    natural_weight = 0.4
-    performance_weight = 0.6
+    natural_weight = 0.55
+    performance_weight = 0.45
     games_played = int(player_data.get('games_played', 0) or 0)
     # Assume ~34 league matches as reference; clamp to 1.0
     games_ratio = min(1.0, max(0.0, games_played / 34.0))
@@ -3112,7 +3112,7 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
     else:
         youth_floor = 0.05
     effective_games_factor = max(games_ratio, youth_floor)
-    perf_factor = 1.0 + 0.6 * float(performance_boost.get('total_boost', 0.0))
+    perf_factor = 1.0 + 0.5 * float(performance_boost.get('total_boost', 0.0))
     # Compose additively: performance term decoupled from age sign so it mitigates decline
     natural_component = base_multiplier * age_multiplier * natural_weight
     performance_component = base_multiplier * performance_weight * effective_games_factor * perf_factor
@@ -3410,10 +3410,10 @@ def calculate_performance_boost(player_data: dict, db_path: str = 'pes6_league_d
     nationality_strength = calculate_nationality_strength(nationality, db_path)
     
     # Club performance boosts (original values - these define the baseline)
-    games_boost = min(0.5, games_played * 0.02)  # Max 0.5 boost from games
+    games_boost = min(1.1, games_played * 0.05)  # Max 0.5 boost from games
     goals_mvp_combined = goals + mvp
-    goals_boost = min(0.8, goals_mvp_combined * 0.1)  # Max 0.8 boost from goals + MVP combined
-    assists_boost = min(0.6, assists * 0.08)  # Max 0.6 boost from assists
+    goals_boost = min(0.4, goals_mvp_combined * 0.04)  # Max 0.8 boost from goals + MVP combined
+    assists_boost = min(0.4, assists * 0.04)  # Max 0.6 boost from assists
     total_club_boost = games_boost + goals_boost + assists_boost
     
     # International performance boosts (scaled to match club boost ranges, then weighted by nationality)
@@ -3422,9 +3422,9 @@ def calculate_performance_boost(player_data: dict, db_path: str = 'pes6_league_d
     int_goals_equivalent = int_goals * nationality_strength
     int_assists_equivalent = int_assists * nationality_strength
     
-    int_caps_boost = min(0.5, int_games_equivalent * 0.02)  # Same max as club games
-    int_goals_boost = min(0.8, int_goals_equivalent * 0.1)  # Same max as club goals
-    int_assists_boost = min(0.6, int_assists_equivalent * 0.08)  # Same max as club assists
+    int_caps_boost = min(0.5, int_games_equivalent * 0.05)  # Same max as club games
+    int_goals_boost = min(0.3, int_goals_equivalent * 0.05)  # Same max as club goals
+    int_assists_boost = min(0.3, int_assists_equivalent * 0.05)  # Same max as club assists
     total_int_boost = int_caps_boost + int_goals_boost + int_assists_boost
     
     # Distribute boost between club and international (not additive)
@@ -5097,29 +5097,29 @@ def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict
         # Calculate age-based skill modifier
         age_modifier = 0
         if age == 15:
-            age_modifier = 4 + random.randint(-3, 3)  # Youngest = most penalty
+            age_modifier = 4 + random.randint(-5, 5)  # Youngest = most penalty
         elif age == 16:
-            age_modifier = 2 + random.randint(-3, 3)
+            age_modifier = 2 + random.randint(-5, 5)
         elif age == 17:
-            age_modifier = 1 + random.randint(-3, 3)
+            age_modifier = 1 + random.randint(-5, 5)
         elif age == 18:
-            age_modifier = -2 + random.randint(-3, 3)  # Baseline
+            age_modifier = -2 + random.randint(-5, 5)  # Baseline
         elif age == 19:
-            age_modifier = -4 + random.randint(-3, 3)   # Older = less penalty
+            age_modifier = -4 + random.randint(-5, 5)   # Older = less penalty
         elif age == 20:
-            age_modifier = -6 + random.randint(-3, 3)   # Oldest = least penalty
+            age_modifier = -6 + random.randint(-5, 5)   # Oldest = least penalty
         
         # Get inner_strength from regen_data (should be set previously)
         inner_strength = regen_data.get('inner_strength', 5)  # Default to 5 if not set
         
         # Calculate inner_strength-based penalty
         if inner_strength == 9:
-            inner_strength_penalty = 15 + random.randint(-3, 3)
+            inner_strength_penalty = 15 + random.randint(-5, 5)
         elif inner_strength == 1:
-            inner_strength_penalty = 30
+            inner_strength_penalty = 30 + random.randint(-5, 5)
         else:
             # Linear interpolation between 1 and 9
-            inner_strength_penalty = 30 - ((inner_strength - 1) / 8) * 15 + random.randint(-3, 3)
+            inner_strength_penalty = 30 - ((inner_strength - 1) / 8) * 15 + + random.randint(-5, 5)
         
         # Define positional attributes (overwrite with base player values)
         positional_attributes = {
@@ -5193,7 +5193,7 @@ def modify_regen_with_base_player(regen_data: Dict, db_path: str = None) -> Dict
                 # Apply inner_strength penalty + age modifier with per-skill randomness (-6 to +6)
                 total_penalty = inner_strength_penalty + age_modifier
                 # Add per-skill random variation (-6 to +6)
-                skill_randomness = random.randint(-6, 6)
+                skill_randomness = random.randint(-9, 9)
                 skill_attributes[skill] = max(1, int(base_value - total_penalty + skill_randomness))
             else:
                 skill_attributes[skill] = 1
