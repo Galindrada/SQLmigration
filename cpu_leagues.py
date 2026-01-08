@@ -2184,8 +2184,8 @@ def simulate_cpu_game(home_team_id, away_team_id, cur):
                                key=lambda x: x.get('overall', 0), reverse=True)
             centre_backs = sorted([p for p in players if get_pos_int(p) in [2, 3]], 
                                  key=lambda x: x.get('overall', 0), reverse=True)
-            centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7]], 
-                                key=lambda x: x.get('overall', 0), reverse=True)  # Fixed: removed 8 (SMF) from CM
+            centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7, 9]], 
+                                key=lambda x: x.get('overall', 0), reverse=True)  # DMF (5), CMF (7), AMF (9)
             side_mids = sorted([p for p in players if get_pos_int(p) in [8, 10]], 
                               key=lambda x: x.get('overall', 0), reverse=True)
             forwards = sorted([p for p in players if get_pos_int(p) in [11, 12]], 
@@ -2215,7 +2215,7 @@ def simulate_cpu_game(home_team_id, away_team_id, cur):
             'GK': [p for p in players if get_pos_int(p) == 0],
             'SB/WB': [p for p in players if get_pos_int(p) in [4, 6]],
             'CB/SW': [p for p in players if get_pos_int(p) in [2, 3]],
-            'CM': [p for p in players if get_pos_int(p) in [5, 7]],  # Fixed: removed 8 (SMF) from CM
+            'CM': [p for p in players if get_pos_int(p) in [5, 7, 9]],  # DMF (5), CMF (7), AMF (9)
             'SM': [p for p in players if get_pos_int(p) in [8, 10]],
             'FWD': [p for p in players if get_pos_int(p) in [11, 12]]
         }
@@ -2247,7 +2247,7 @@ def simulate_cpu_game(home_team_id, away_team_id, cur):
                         position_group = 'SB/WB'
                     elif pos in [2, 3]:
                         position_group = 'CB/SW'
-                    elif pos in [5, 7, 8]:
+                    elif pos in [5, 7, 9]:
                         position_group = 'CM'
                     elif pos in [8, 10]:
                         position_group = 'SM'

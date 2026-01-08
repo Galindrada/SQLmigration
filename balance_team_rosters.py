@@ -281,6 +281,7 @@ def balance_team_rosters():
                 if not assigned:
                     # If no team available, release to free agents
                     no_club_team_id = None
+                        cursor = conn.cursor()
                     cursor.execute("SELECT id FROM teams WHERE club_name = 'No Club'")
                     no_club_result = cursor.fetchone()
                     if no_club_result:

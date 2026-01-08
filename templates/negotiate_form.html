@@ -16,11 +16,11 @@
                             <h5 style="color: black;">Player Information</h5>
                             <p style="color: black;"><strong>Name:</strong> {{ player_name }}</p>
                             <p style="color: black;"><strong>Current Club:</strong> {{ club_name }}</p>
-                            <p style="color: black;"><strong>Market Value:</strong> €{{ "{:,}".format(market_value) }}</p>
+                            <p style="color: black;"><strong>Market Value:</strong> €{{ "{:,}".format((market_value or 0)|int) }}</p>
                         </div>
                         <div class="col-md-6">
                             <h5 style="color: black;">Negotiation Options</h5>
-                            <p style="color: black;"><strong>Buy Now Price:</strong> €{{ "{:,}".format(buy_now_price) }}</p>
+                            <p style="color: black;"><strong>Buy Now Price:</strong> €{{ "{:,}".format((buy_now_price or 0)|int) }}</p>
                             <p style="color: black;">(3x market value, minimum €5M)</p>
                         </div>
                     </div>
@@ -32,12 +32,12 @@
                                     <h5 class="mb-0">Buy Now</h5>
                                 </div>
                                 <div class="card-body">
-                                    <p style="color: black;">Purchase the player immediately for €{{ "{:,}".format(buy_now_price) }}</p>
+                                    <p style="color: black;">Purchase the player immediately for €{{ "{:,}".format((buy_now_price or 0)|int) }}</p>
                                     <form method="POST" action="{{ url_for('negotiate_with_cpu', player_id=player_id) }}">
                                         <input type="hidden" name="action" value="buy_now">
                                         <button type="submit" class="btn btn-primary btn-block" 
                                                 onclick="return confirm('Are you sure you want to buy {{ player_name }}?')">
-                                            Buy Now - €{{ "{:,}".format(buy_now_price) }}
+                                            Buy Now - €{{ "{:,}".format((buy_now_price or 0)|int) }}
                                         </button>
                                     </form>
                                 </div>
@@ -61,6 +61,47 @@
                                         </div>
                                         <button type="submit" class="btn btn-success btn-block">
                                             Submit Offer
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PHASE 2: Loan Proposal Section -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="card border-info">
+                                <div class="card-header bg-info text-white">
+                                    <h5 class="mb-0">🔄 Loan Proposal</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p style="color: black;">Propose a loan deal until the end of the season</p>
+                                    <form method="POST" action="{{ url_for('negotiate_with_cpu', player_id=player_id) }}">
+                                        <input type="hidden" name="action" value="propose_loan">
+                                        <div class="alert alert-info">
+                                            <small><strong>Note:</strong> Loan duration is fixed to 1 season (until end of season)</small>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <div class="form-group">
+                                                    <label for="wage_coverage" style="color: black;">Wage Coverage (%)</label>
+                                                    <input type="number" class="form-control" id="wage_coverage" name="wage_coverage" 
+                                                           min="0" max="100" value="50" step="5" required>
+                                                    <small class="form-text text-muted">How much of the player's wages you'll pay (higher = more attractive to CPU)</small>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="form-group">
+                                                    <label for="loan_fee" style="color: black;">Loan Fee (€)</label>
+                                                    <input type="number" class="form-control" id="loan_fee" name="loan_fee" 
+                                                           min="0" step="10000" value="0" required>
+                                                    <small class="form-text text-muted">One-time loan fee (higher = more attractive to CPU)</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button type="submit" class="btn btn-info btn-block">
+                                            Propose Loan
                                         </button>
                                     </form>
                                 </div>

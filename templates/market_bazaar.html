@@ -44,11 +44,13 @@
                         <div id="timer-status" class="mt-2">
                             <span class="badge badge-light">⏰ Timer Active</span>
                         </div>
-                        <!-- Manual trigger button hidden -->
-                        <div class="mt-3" style="display: none;">
-                            <button id="manual-trigger-btn" class="btn btn-outline-light btn-sm" onclick="triggerMarketActivity()">
-                                🔄 Trigger Now
-                            </button>
+                        <!-- CPU AI Trigger Button -->
+                        <div class="mt-3">
+                            <form method="post" action="{{ url_for('scheduled_market_activity') }}" onsubmit="return confirm('Trigger CPU AI market activity?\n\nThis will:\n- Analyze CPU team composition needs\n- List overpaid/surplus players for sale\n- Make offers on suitable players\n- Process user offers to CPU teams\n- Process expired offers and clean up market\n- Consider budget constraints and toxic contracts\n- Create blog post with activity summary\n- 40% chance per CPU team to take action\n\nThis action cannot be undone!')" style="display: inline;">
+                                <button type="submit" class="btn btn-outline-light btn-lg" style="font-weight: bold;">
+                                    🤖 Trigger CPU AI Activity
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -96,7 +98,7 @@
                                                 {{ position_names.get(offer.registered_position, 'N/A') }}
                                             </td>
                                             <td>{{ offer.age }}</td>
-                                            <td>€{{ "{:,}".format(offer.market_value or 0) }}</td>
+                                            <td>€{{ "{:,}".format((offer.market_value or 0)|int) }}</td>
                                             <td>
                                                 {% if offer.offer_type == 'listed' %}
                                                     <span class="badge badge-info">Listed</span>
@@ -105,28 +107,75 @@
                                                 {% endif %}
                                             </td>
                                             <td class="text-success">
-                                                <strong>€{{ "{:,}".format(offer.offered_price or 0) }}</strong>
+                                                {% if offer.swap_type in ['swap', 'cash+swap', 'multi_swap', 'cash+multi_swap'] %}
+                                                    {# PHASE 2: Display swap offer (single or multi-player) #}
+                                                    <span class="badge badge-info">🔄 SWAP</span><br>
+                                                    <small>
+                                                        <strong><a href="/pes6_player/{{ offer.swap_player_id }}" style="color: inherit; text-decoration: underline;">{{ offer.swap_player_name }}</a></strong><br>
+                                                        (€{{ "{:,}".format((offer.swap_player_value or 0)|int) }})
+                                                        {% if offer.additional_swap_players %}
+                                                            {% for add_player in offer.additional_swap_players %}
+                                                                <br>+ <a href="/pes6_player/{{ add_player.player_id }}" style="color: inherit; text-decoration: underline;">{{ add_player.player_name }}</a>
+                                                                (€{{ "{:,}".format((add_player.market_value or 0)|int) }})
+                                                            {% endfor %}
+                                                        {% endif %}
+                                                        {% if offer.cash_compensation > 0 %}
+                                                            <br>+ €{{ "{:,}".format((offer.cash_compensation or 0)|int) }}
+                                                        {% elif offer.cash_compensation < 0 %}
+                                                            <br>- €{{ "{:,}".format((-offer.cash_compensation or 0)|int) }}
+                                                        {% endif %}
+                                                    </small>
+                                                {% else %}
+                                                    <strong>€{{ "{:,}".format((offer.offered_price or 0)|int) }}</strong>
+                                                {% endif %}
                                             </td>
                                             <td>{{ offer.buyer_team_name }}</td>
                                             <td>
                                                 {% if offer.offer_type == 'listed' %}
-                                                    <button type="button" class="btn btn-success btn-sm" 
-                                                            onclick="acceptOffer({{ offer.id }}, '{{ offer.player_name }}', {{ offer.offered_price }})">
-                                                        Accept
-                                                    </button>
-                                                    <button type="button" class="btn btn-danger btn-sm" 
-                                                            onclick="rejectOffer({{ offer.id }}, '{{ offer.player_name }}')">
-                                                        Reject
-                                                    </button>
+                                                    {% if offer.swap_type in ['swap', 'cash+swap', 'multi_swap', 'cash+multi_swap'] %}
+                                                        {# PHASE 2: Swap offer buttons (single or multi-player) #}
+                                                        <button type="button" class="btn btn-success btn-sm" 
+                                                                onclick="acceptOffer({{ offer.id }}, '{{ offer.player_name }}', {{ offer.offered_price }}, '{{ offer.swap_player_name|default('') }}', {{ offer.cash_compensation or 0 }})">
+                                                            Accept
+                                                        </button>
+                                                        <button type="button" class="btn btn-danger btn-sm" 
+                                                                onclick="rejectOffer({{ offer.id }}, '{{ offer.player_name }}')">
+                                                            Reject
+                                                        </button>
+                                                    {% else %}
+                                                        {# Regular cash offer #}
+                                                        <button type="button" class="btn btn-success btn-sm" 
+                                                                onclick="acceptOffer({{ offer.id }}, '{{ offer.player_name }}', {{ offer.offered_price }}, '{{ offer.swap_player_name|default('') }}', {{ offer.cash_compensation or 0 }})">
+                                                            Accept
+                                                        </button>
+                                                        <button type="button" class="btn btn-danger btn-sm" 
+                                                                onclick="rejectOffer({{ offer.id }}, '{{ offer.player_name }}')">
+                                                            Reject
+                                                        </button>
+                                                    {% endif %}
                                                 {% else %}
-                                                    <button type="button" class="btn btn-success btn-sm" 
-                                                            onclick="acceptCPUOfferDirect({{ offer.player_id }}, '{{ offer.player_name }}', {{ offer.offered_price }}, {{ offer.buyer_team_id }})">
-                                                        Accept
-                                                    </button>
-                                                    <button type="button" class="btn btn-danger btn-sm" 
-                                                            onclick="rejectCPUOfferDirect({{ offer.player_id }}, '{{ offer.player_name }}')">
-                                                        Reject
-                                                    </button>
+                                                    {# Unlisted offers - check if swap or cash #}
+                                                    {% if offer.swap_type in ['swap', 'cash+swap', 'multi_swap', 'cash+multi_swap'] %}
+                                                        {# PHASE 2: Unlisted swap offer buttons (single or multi-player) #}
+                                                        <button type="button" class="btn btn-success btn-sm" 
+                                                                onclick="acceptOffer({{ offer.id }}, '{{ offer.player_name }}', {{ offer.offered_price }}, '{{ offer.swap_player_name|default('') }}', {{ offer.cash_compensation or 0 }})">
+                                                            Accept
+                                                        </button>
+                                                        <button type="button" class="btn btn-danger btn-sm" 
+                                                                onclick="rejectOffer({{ offer.id }}, '{{ offer.player_name }}')">
+                                                            Reject
+                                                        </button>
+                                                    {% else %}
+                                                        {# Regular unlisted cash offer #}
+                                                        <button type="button" class="btn btn-success btn-sm" 
+                                                                onclick="acceptCPUOfferDirect({{ offer.player_id }}, '{{ offer.player_name }}', {{ offer.offered_price }}, {{ offer.buyer_team_id }})">
+                                                            Accept
+                                                        </button>
+                                                        <button type="button" class="btn btn-danger btn-sm" 
+                                                                onclick="rejectCPUOfferDirect({{ offer.player_id }}, '{{ offer.player_name }}')">
+                                                            Reject
+                                                        </button>
+                                                    {% endif %}
                                                 {% endif %}
                                             </td>
                                         </tr>
@@ -180,29 +229,29 @@
                                                 {{ position_names.get(player.registered_position, 'N/A') }}
                                             </td>
                                             <td>{{ player.age }}</td>
-                                            <td>€{{ "{:,}".format(player.market_value or 0) }}</td>
+                                            <td>€{{ "{:,}".format((player.market_value or 0)|int) }}</td>
                                             <td class="text-primary">
                                                 {% if player.listing_type in ['user_loan', 'cpu_loan'] %}
                                                     {% if player.salary_support_percentage and player.salary_support_percentage >= 100 %}
                                                         {# 100% salary support = Free loan (lender pays all salary) #}
-                                                        <strong class="text-success">-€{{ "{:,}".format(player.salary or 0) }}</strong>
+                                                        <strong class="text-success">-€{{ "{:,}".format((player.salary or 0)|int) }}</strong>
                                                         <br><small class="text-success">Free Loan (100% Support)</small>
                                                     {% elif player.salary_support_percentage and player.salary_support_percentage > 0 %}
                                                         {# Partial salary support #}
-                                                        <strong class="text-success">-€{{ "{:,}".format(-player.asking_price) }}</strong>
+                                                        <strong class="text-success">-€{{ "{:,}".format((-player.asking_price)|int) }}</strong>
                                                         <br><small class="text-success">Salary Support ({{ "{:.0f}".format(player.salary_support_percentage) }}%)</small>
                                                     {% elif player.asking_price and player.asking_price > 0 %}
                                                         {# Loan fee, no salary support #}
-                                                        <strong>€{{ "{:,}".format(player.asking_price) }}</strong>
+                                                        <strong>€{{ "{:,}".format((player.asking_price)|int) }}</strong>
                                                         <br><small class="text-muted">Loan Fee</small>
                                                     {% else %}
                                                         {# No fee, no support - loanee pays full salary #}
-                                                        <strong class="text-warning">€{{ "{:,}".format(player.salary or 0) }}</strong>
+                                                        <strong class="text-warning">€{{ "{:,}".format((player.salary or 0)|int) }}</strong>
                                                         <br><small class="text-muted">No Support (Loanee Pays Full Salary)</small>
                                                     {% endif %}
                                                 {% else %}
                                                     {# Sale listings #}
-                                                    <strong>€{{ "{:,}".format(player.asking_price or 0) }}</strong>
+                                                    <strong>€{{ "{:,}".format((player.asking_price or 0)|int) }}</strong>
                                                     {% if player.asking_price and player.market_value and player.asking_price < player.market_value %}
                                                         <br><small class="text-success">Below Market Value!</small>
                                                     {% endif %}
@@ -284,9 +333,9 @@
                                                 {{ position_names.get(offer.registered_position, 'N/A') }}
                                             </td>
                                             <td>{{ offer.age }}</td>
-                                            <td>€{{ "{:,}".format(offer.market_value or 0) }}</td>
+                                            <td>€{{ "{:,}".format((offer.market_value or 0)|int) }}</td>
                                             <td>{{ offer.seller_team_name }}</td>
-                                            <td>€{{ "{:,}".format(offer.offered_price) }}</td>
+                                            <td>€{{ "{:,}".format((offer.offered_price or 0)|int) }}</td>
                                             <td>
                                                 {% if offer.status == 'pending' %}
                                                     <span class="badge badge-warning">Pending</span>
@@ -346,8 +395,8 @@
                                                 {{ position_names.get(player.registered_position, 'N/A') }}
                                             </td>
                                             <td>{{ player.age }}</td>
-                                            <td>€{{ "{:,}".format(player.market_value or 0) }}</td>
-                                            <td>€{{ "{:,}".format(player.salary or 0) }}</td>
+                                            <td>€{{ "{:,}".format((player.market_value or 0)|int) }}</td>
+                                            <td>€{{ "{:,}".format((player.salary or 0)|int) }}</td>
                                             <td>{{ player.contract_years_remaining }}</td>
                                             <td>
                                                 <button type="button" class="btn btn-success btn-sm" 
@@ -469,8 +518,8 @@
             
             document.getElementById('listPlayerId').value = playerId;
             document.getElementById('listPlayerName').value = playerName;
-            document.getElementById('listPlayerMarketValue').value = '€' + marketValue.toLocaleString();
-            document.getElementById('listPlayerAskingPrice').value = marketValue;
+            document.getElementById('listPlayerMarketValue').value = '€' + Math.round(marketValue).toLocaleString();
+            document.getElementById('listPlayerAskingPrice').value = Math.round(marketValue);
             
             // Set listing type based on type parameter
             if (type === 'loan') {
@@ -513,9 +562,10 @@
                         
                         function updatePreview() {
                             const percentage = parseFloat(percentageInput.value) || 0;
-                            const subsidy = Math.round(data.salary * (percentage / 100));
-                            const remaining = data.salary - subsidy;
-                            preview.textContent = `Salary: €${data.salary.toLocaleString()}/year. You pay: €${subsidy.toLocaleString()}/year (${percentage}%). Loanee pays: €${remaining.toLocaleString()}/year (${(100-percentage)}%). Loan will show as: -€${subsidy.toLocaleString()}`;
+                            const salary = Math.round(data.salary || 0);
+                            const subsidy = Math.round(salary * (percentage / 100));
+                            const remaining = salary - subsidy;
+                            preview.textContent = `Salary: €${salary.toLocaleString()}/year. You pay: €${subsidy.toLocaleString()}/year (${percentage}%). Loanee pays: €${remaining.toLocaleString()}/year (${(100-percentage)}%). Loan will show as: -€${subsidy.toLocaleString()}`;
                         }
                         
                         percentageInput.addEventListener('input', updatePreview);
@@ -558,8 +608,24 @@
             });
         }
         
-        function acceptOffer(offerId, playerName, offeredPrice) {
-            if (confirm(`Accept offer of €${offeredPrice.toLocaleString()} for ${playerName}?`)) {
+        function acceptOffer(offerId, playerName, offeredPrice, swapPlayerName = null, cashCompensation = 0) {
+            // Build confirmation message
+            let confirmMessage;
+            if (swapPlayerName) {
+                // This is a swap offer
+                if (cashCompensation > 0) {
+                    confirmMessage = `Accept swap: ${playerName} ↔ ${swapPlayerName} + €${Math.round(cashCompensation).toLocaleString()}?`;
+                } else if (cashCompensation < 0) {
+                    confirmMessage = `Accept swap: ${playerName} ↔ ${swapPlayerName} (you pay €${Math.round(Math.abs(cashCompensation)).toLocaleString()})?`;
+                } else {
+                    confirmMessage = `Accept swap: ${playerName} ↔ ${swapPlayerName}?`;
+                }
+            } else {
+                // Regular cash offer
+                confirmMessage = `Accept offer of €${Math.round(offeredPrice).toLocaleString()} for ${playerName}?`;
+            }
+            
+            if (confirm(confirmMessage)) {
                 // Show loading state
                 const button = event.target;
                 const originalText = button.textContent;
@@ -669,8 +735,8 @@
             
             proposals.forEach(proposal => {
                 const offerText = proposal.cash < 0 ? 
-                    `Compensation: €${Math.abs(proposal.cash).toLocaleString()}` : 
-                    `€${proposal.cash.toLocaleString()}`;
+                    `Compensation: €${Math.round(Math.abs(proposal.cash)).toLocaleString()}` : 
+                    `€${Math.round(proposal.cash).toLocaleString()}`;
                     
                 content += `
                     <tr>
@@ -698,8 +764,8 @@
         
         function acceptCPUOffer(playerId, teamName, offerAmount) {
             const offerText = offerAmount < 0 ? 
-                `compensation of €${Math.abs(offerAmount).toLocaleString()}` : 
-                `€${offerAmount.toLocaleString()}`;
+                `compensation of €${Math.round(Math.abs(offerAmount)).toLocaleString()}` : 
+                `€${Math.round(offerAmount).toLocaleString()}`;
                 
             if (confirm(`Accept offer of ${offerText} from ${teamName}?`)) {
                 // TODO: Implement accept CPU offer functionality
@@ -711,11 +777,11 @@
             const content = `
                 <h6>Player: ${playerName}</h6>
                 <p><strong>Club:</strong> ${clubName}</p>
-                <p><strong>Asking Price:</strong> €${askingPrice.toLocaleString()}</p>
+                <p><strong>Asking Price:</strong> €${Math.round(askingPrice).toLocaleString()}</p>
                 <p>This will initiate a purchase from the transfer list.</p>
                 <div class="mt-3">
-                    <button type="button" class="btn btn-success" onclick="confirmBuy(${listingId}, '${playerName}', ${askingPrice})">
-                        Buy for €${askingPrice.toLocaleString()}
+                    <button type="button" class="btn btn-success" onclick="confirmBuy(${listingId}, '${playerName}', ${Math.round(askingPrice)})">
+                        Buy for €${Math.round(askingPrice).toLocaleString()}
                     </button>
                     <button type="button" class="btn btn-secondary" onclick="declineBuy()">
                         Cancel
@@ -728,7 +794,7 @@
         }
         
         function confirmBuy(listingId, playerName, askingPrice) {
-            if (confirm(`Buy ${playerName} for €${askingPrice.toLocaleString()}?`)) {
+            if (confirm(`Buy ${playerName} for €${Math.round(askingPrice).toLocaleString()}?`)) {
                 fetch(`/market_bazaar/buy_player/${listingId}`, {
                     method: 'POST'
                 })
@@ -778,7 +844,7 @@
         }
         
         function loanPlayer(listingId, playerName, loanFee, clubName) {
-            if (confirm(`Loan ${playerName} from ${clubName} for €${loanFee.toLocaleString()}?`)) {
+            if (confirm(`Loan ${playerName} from ${clubName} for €${Math.round(loanFee).toLocaleString()}?`)) {
                 fetch(`/market_bazaar/loan_player/${listingId}`, {
                     method: 'POST'
                 })
@@ -800,7 +866,7 @@
         }
         
         function acceptCPUOfferDirect(playerId, playerName, offeredPrice, buyerTeamId) {
-            if (confirm(`Accept CPU offer of €${offeredPrice.toLocaleString()} for ${playerName}?`)) {
+            if (confirm(`Accept CPU offer of €${Math.round(offeredPrice).toLocaleString()} for ${playerName}?`)) {
                 // Show loading state
                 const button = event.target;
                 const originalText = button.textContent;
@@ -1190,13 +1256,13 @@
                     message += `Buyer: ${data.buyer_team}\n\n`;
                     
                     if (salePrice >= 0) {
-                        message += `Sale Price: €${salePrice.toLocaleString()}\n`;
-                        message += `Commission (25%): €${data.commission.toLocaleString()}\n`;
-                        message += `Net Amount: €${netAmount.toLocaleString()}`;
+                        message += `Sale Price: €${Math.round(salePrice).toLocaleString()}\n`;
+                        message += `Commission (25%): €${Math.round(data.commission).toLocaleString()}\n`;
+                        message += `Net Amount: €${Math.round(netAmount).toLocaleString()}`;
                     } else {
-                        message += `Compensation Paid: €${Math.abs(salePrice).toLocaleString()}\n`;
-                        message += `Commission (25%): €${data.commission.toLocaleString()}\n`;
-                        message += `Total Cost: €${Math.abs(netAmount).toLocaleString()}\n\n`;
+                        message += `Compensation Paid: €${Math.round(Math.abs(salePrice)).toLocaleString()}\n`;
+                        message += `Commission (25%): €${Math.round(data.commission).toLocaleString()}\n`;
+                        message += `Total Cost: €${Math.round(Math.abs(netAmount)).toLocaleString()}\n\n`;
                         message += `⚠️ Contract was extremely toxic - you paid to offload the player!`;
                     }
                     
@@ -1221,3 +1287,77 @@
         }
     </script>
 {% endblock %}
+<!-- PHASE 2: Swap Offer Details Modal -->
+<div class="modal fade" id="swapDetailsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">🔄 Player Swap Offer</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="swapDetailsContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// PHASE 2: Show swap offer details
+function showSwapDetails(offerId, yourPlayer, theirPlayer, cashComp) {
+    let content = `
+        <div class="text-center">
+            <h5>Swap Proposal</h5>
+            <div class="row mt-4">
+                <div class="col-5">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="text-danger">You Give</h6>
+                            <strong>\${yourPlayer}</strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-2 d-flex align-items-center justify-content-center">
+                    <h3>↔</h3>
+                </div>
+                <div class="col-5">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="text-success">You Receive</h6>
+                            <strong>\${theirPlayer}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+    `;
+    
+    if (cashComp > 0) {
+        content += `
+            <div class="alert alert-success mt-3">
+                <strong>+ €\${cashComp.toLocaleString()}</strong> cash compensation
+            </div>
+        `;
+    } else if (cashComp < 0) {
+        content += `
+            <div class="alert alert-warning mt-3">
+                <strong>- €\${Math.abs(cashComp).toLocaleString()}</strong> you pay
+            </div>
+        `;
+    }
+    
+    content += `
+        <div class="alert alert-info mt-3">
+            <small><strong>⚠️ Note:</strong> Both players will be blacklisted after the swap to prevent re-trading.</small>
+        </div>
+    </div>
+    `;
+    
+    document.getElementById('swapDetailsContent').innerHTML = content;
+    $('#swapDetailsModal').modal('show');
+}
+</script>

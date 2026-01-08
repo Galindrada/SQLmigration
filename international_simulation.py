@@ -40,8 +40,8 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
                            key=lambda x: x.get('overall', 0), reverse=True)
         centre_backs = sorted([p for p in players if get_pos_int(p) in [2, 3]], 
                              key=lambda x: x.get('overall', 0), reverse=True)
-        centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7]], 
-                            key=lambda x: x.get('overall', 0), reverse=True)
+        centre_mids = sorted([p for p in players if get_pos_int(p) in [5, 7, 9]], 
+                            key=lambda x: x.get('overall', 0), reverse=True)  # DMF (5), CMF (7), AMF (9)
         side_mids = sorted([p for p in players if get_pos_int(p) in [8, 10]], 
                           key=lambda x: x.get('overall', 0), reverse=True)
         forwards = sorted([p for p in players if get_pos_int(p) in [11, 12]], 

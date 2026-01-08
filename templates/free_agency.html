@@ -69,6 +69,14 @@
             </form>
             <small class="text-muted" style="margin-left: 10px;">Click to manually check and process any expired offers</small>
         </div>
+        
+        <!-- CPU Dump for Strength Button -->
+        <div style="margin-top: 15px;">
+            <form method="POST" action="{{ url_for('cpu_dump_for_strength') }}" style="display: inline;" onsubmit="return confirm('Execute CPU Dump for Strength? This will release surplus players from CPU teams (>28 players) to free agency. Teams will pay 25% severance.');">
+                <button type="submit" class="btn btn-warning">💪 CPU Dump for Strength</button>
+            </form>
+            <small class="text-muted" style="margin-left: 10px;">Release surplus players from CPU teams (>28 players) to free agency. Teams pay 25% severance.</small>
+        </div>
     </div>
 
     <!-- Filter Section -->

@@ -2401,6 +2401,87 @@ class TeamManager:
         except Exception as e:
             print(f"❌ Error refreshing standings: {e}")
 
+def fix_loaned_by_values(manager: TeamManager):
+    """Fix loaned_by field: convert numeric team IDs to proper club names"""
+    try:
+        print("\n" + "="*80)
+        print("🔧 FIX LOANED_BY VALUES")
+        print("="*80)
+        print("This routine will find all players with numeric loaned_by values")
+        print("(team IDs) and convert them to proper club names.\n")
+        
+        cursor = manager.conn.cursor()
+        
+        # Find players with numeric loaned_by values
+        cursor.execute("""
+            SELECT p.id, p.player_name, p.loaned_by
+            FROM players p
+            WHERE p.loaned_by IS NOT NULL 
+            AND p.loaned_by != ''
+            AND CAST(p.loaned_by AS TEXT) GLOB '[0-9]*'
+            AND CAST(p.loaned_by AS TEXT) NOT GLOB '*[^0-9]*'
+        """)
+        
+        players_to_fix = cursor.fetchall()
+        
+        if not players_to_fix:
+            print("✅ No players found with numeric loaned_by values. All values are correct!")
+            return
+        
+        print(f"Found {len(players_to_fix)} player(s) with numeric loaned_by values:\n")
+        
+        fixed_count = 0
+        error_count = 0
+        
+        for player in players_to_fix:
+            team_id = int(player['loaned_by'])
+            cursor.execute("SELECT club_name FROM teams WHERE id = ?", (team_id,))
+            team_result = cursor.fetchone()
+            
+            if team_result:
+                club_name = team_result['club_name']
+                print(f"  Fixing: {player['player_name']} (ID {player['id']})")
+                print(f"    Old: loaned_by='{player['loaned_by']}' (team ID {team_id})")
+                print(f"    New: loaned_by='{club_name}'")
+                
+                cursor.execute("UPDATE players SET loaned_by = ? WHERE id = ?", (club_name, player['id']))
+                fixed_count += 1
+            else:
+                print(f"  ⚠️  ERROR: Could not find team with ID {team_id} for player {player['player_name']} (ID {player['id']})")
+                error_count += 1
+        
+        if fixed_count > 0:
+            manager.conn.commit()
+            print(f"\n✅ Successfully fixed {fixed_count} player(s)")
+        else:
+            print(f"\n⚠️  No players were fixed")
+        
+        if error_count > 0:
+            print(f"⚠️  {error_count} player(s) could not be fixed (team ID not found)")
+        
+        # Verify the fix
+        print("\n=== VERIFICATION ===")
+        cursor.execute("""
+            SELECT p.id, p.player_name, p.loaned_by
+            FROM players p
+            WHERE p.loaned_by IS NOT NULL 
+            AND p.loaned_by != ''
+            AND CAST(p.loaned_by AS TEXT) GLOB '[0-9]*'
+            AND CAST(p.loaned_by AS TEXT) NOT GLOB '*[^0-9]*'
+        """)
+        remaining = cursor.fetchall()
+        
+        if remaining:
+            print(f"⚠️  WARNING: {len(remaining)} player(s) still have numeric loaned_by values!")
+            for p in remaining:
+                print(f"  - {p['player_name']} (ID {p['id']}): loaned_by='{p['loaned_by']}'")
+        else:
+            print("✅ All players now have proper club names in loaned_by field")
+        
+    except Exception as e:
+        print(f"❌ Error fixing loaned_by values: {e}")
+        manager.conn.rollback()
+
 def estimate_contract_renewal(manager: TeamManager):
     """Estimate contract renewal demands for a specific player"""
     try:
@@ -2587,7 +2668,10 @@ def display_menu():
     print("25. Populate AMF player stats (games, goals, assists) for CPU teams")
     print("26. Analyze CPU team selling/loaning thresholds")
     print("27. Recalculate market values for CPU team players only")
-    print("28. Exit")
+    print("28. Fix loaned_by values (convert numeric IDs to club names)")
+    print("29. Clear player historical statistics")
+    print("30. Match international stats (copy lifetime to current season)")
+    print("31. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -4657,6 +4741,274 @@ def analyze_cpu_team_selling_thresholds(manager: TeamManager):
         traceback.print_exc()
         return False
 
+def clear_player_history(manager: TeamManager, player_id: int) -> bool:
+    """
+    Clear all historical statistics for a player.
+    
+    This function clears:
+    - Season history (player_season_history table)
+    - Games, Goals, Assists, MVP (players table)
+    - All International data (lifetime and current season)
+    - Career earnings
+    - Championships and cups won
+    
+    Args:
+        manager: TeamManager instance
+        player_id: ID of the player to clear history for
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not manager.conn:
+        print("❌ Not connected to database")
+        return False
+    
+    cursor = manager.conn.cursor()
+    
+    try:
+        # First, verify the player exists
+        cursor.execute("SELECT id, player_name FROM players WHERE id = ?", (player_id,))
+        player = cursor.fetchone()
+        
+        if not player:
+            print(f"❌ Player with ID {player_id} not found")
+            return False
+        
+        player_name = player[1] if isinstance(player, tuple) else player['player_name']
+        print(f"\n⚠️  WARNING: This will clear all historical statistics for player {player_id} ({player_name})")
+        print("This includes:")
+        print("  - Season history (player_season_history table)")
+        print("  - Games, Goals, Assists, MVP")
+        print("  - All International data (lifetime and current season)")
+        print("  - Career earnings")
+        print("  - Championships and cups won")
+        
+        confirmation = input("\nAre you sure you want to proceed? (yes/no): ").strip().lower()
+        
+        if confirmation != 'yes':
+            print("❌ Operation cancelled")
+            return False
+        
+        # Clear season history
+        cursor.execute("DELETE FROM player_season_history WHERE player_id = ?", (player_id,))
+        season_history_deleted = cursor.rowcount
+        print(f"  ✅ Deleted {season_history_deleted} season history records")
+        
+        # Clear all player stats, international data, career earnings, and achievements
+        cursor.execute("""
+            UPDATE players 
+            SET games_played = 0,
+                goals = 0,
+                assists = 0,
+                MVP = 0,
+                international_caps_total = 0,
+                international_goals = 0,
+                international_assists = 0,
+                current_season_caps = 0,
+                current_international_goals = 0,
+                current_international_assists = 0,
+                career_earnings = 0,
+                championships_won = 0,
+                cups_won = 0
+            WHERE id = ?
+        """, (player_id,))
+        
+        manager.conn.commit()
+        
+        print(f"  ✅ Cleared all statistics for player {player_id} ({player_name})")
+        print(f"\n✅ Player history cleared successfully!")
+        print(f"   - Season history records deleted: {season_history_deleted}")
+        print(f"   - Games/Goals/Assists/MVP reset to 0")
+        print(f"   - All International stats reset to 0")
+        print(f"   - Career earnings reset to 0")
+        print(f"   - Championships and cups won reset to 0")
+        
+        return True
+        
+    except Exception as e:
+        manager.conn.rollback()
+        print(f"❌ Error clearing player history: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def clear_player_history_option(manager: TeamManager):
+    """
+    Wrapper function to prompt for player ID and clear their history.
+    """
+    try:
+        player_id_input = input("\nEnter the player ID to clear history for (or 'cancel' to exit): ").strip()
+        
+        if player_id_input.lower() == 'cancel':
+            print("❌ Operation cancelled")
+            return
+        
+        try:
+            player_id = int(player_id_input)
+        except ValueError:
+            print("❌ Invalid player ID. Please enter a number.")
+            return
+        
+        clear_player_history(manager, player_id)
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+
+def match_international_stats(manager: TeamManager) -> bool:
+    """
+    Copy lifetime international statistics to current season variables for ALL players.
+    
+    This function copies for each player:
+    - international_caps_total → current_season_caps
+    - international_goals → current_international_goals
+    - international_assists → current_international_assists
+    
+    Args:
+        manager: TeamManager instance
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not manager.conn:
+        print("❌ Not connected to database")
+        return False
+    
+    cursor = manager.conn.cursor()
+    
+    try:
+        # Get count of all players
+        cursor.execute("SELECT COUNT(*) as total FROM players")
+        total_players = cursor.fetchone()['total']
+        
+        print(f"\n📊 MATCH INTERNATIONAL STATS FOR ALL PLAYERS")
+        print("="*80)
+        print(f"This will copy lifetime international stats to current season stats")
+        print(f"for ALL {total_players} players in the database.")
+        print(f"\nFor each player, this will copy:")
+        print(f"  - international_caps_total → current_season_caps")
+        print(f"  - international_goals → current_international_goals")
+        print(f"  - international_assists → current_international_assists")
+        
+        confirmation = input(f"\n⚠️  Are you sure you want to proceed? (yes/no): ").strip().lower()
+        
+        if confirmation != 'yes':
+            print("❌ Operation cancelled")
+            return False
+        
+        # Get all players with their stats
+        cursor.execute("""
+            SELECT id, player_name, 
+                   international_caps_total, international_goals, international_assists,
+                   current_season_caps, current_international_goals, current_international_assists
+            FROM players
+            ORDER BY id
+        """)
+        
+        players = cursor.fetchall()
+        
+        if not players:
+            print("❌ No players found in database")
+            return False
+        
+        updated_count = 0
+        skipped_count = 0
+        sample_updates = []
+        
+        print(f"\n🔄 Processing {len(players)} players...")
+        
+        for player in players:
+            player_id = player['id']
+            player_name = player['player_name']
+            lifetime_caps = player['international_caps_total'] or 0
+            lifetime_goals = player['international_goals'] or 0
+            lifetime_assists = player['international_assists'] or 0
+            current_caps = player['current_season_caps'] or 0
+            current_goals = player['current_international_goals'] or 0
+            current_assists = player['current_international_assists'] or 0
+            
+            # Check if update is needed
+            if (current_caps == lifetime_caps and 
+                current_goals == lifetime_goals and 
+                current_assists == lifetime_assists):
+                skipped_count += 1
+                continue
+            
+            # Update current season stats with lifetime stats
+            cursor.execute("""
+                UPDATE players 
+                SET current_season_caps = ?,
+                    current_international_goals = ?,
+                    current_international_assists = ?
+                WHERE id = ?
+            """, (lifetime_caps, lifetime_goals, lifetime_assists, player_id))
+            
+            updated_count += 1
+            
+            # Store sample updates for display (first 10 and some with changes)
+            if updated_count <= 10 or (updated_count <= 50 and (current_caps != lifetime_caps or current_goals != lifetime_goals or current_assists != lifetime_assists)):
+                sample_updates.append({
+                    'name': player_name,
+                    'id': player_id,
+                    'old_caps': current_caps,
+                    'new_caps': lifetime_caps,
+                    'old_goals': current_goals,
+                    'new_goals': lifetime_goals,
+                    'old_assists': current_assists,
+                    'new_assists': lifetime_assists
+                })
+            
+            # Progress indicator
+            if updated_count % 500 == 0:
+                print(f"   ⏳ Processed {updated_count} updates...")
+        
+        manager.conn.commit()
+        
+        # Print summary
+        print(f"\n✅ International stats matched successfully!")
+        print("="*80)
+        print(f"📊 Summary:")
+        print(f"   - Total players processed: {len(players)}")
+        print(f"   - Players updated: {updated_count}")
+        print(f"   - Players already matched (skipped): {skipped_count}")
+        
+        if sample_updates:
+            print(f"\n📋 Sample updates (first {min(10, len(sample_updates))}):")
+            print("-" * 100)
+            print(f"{'Player Name':<25} {'ID':<6} {'Caps':<12} {'Goals':<12} {'Assists':<12}")
+            print("-" * 100)
+            
+            for update in sample_updates[:10]:
+                caps_change = f"{update['old_caps']}→{update['new_caps']}" if update['old_caps'] != update['new_caps'] else str(update['new_caps'])
+                goals_change = f"{update['old_goals']}→{update['new_goals']}" if update['old_goals'] != update['new_goals'] else str(update['new_goals'])
+                assists_change = f"{update['old_assists']}→{update['new_assists']}" if update['old_assists'] != update['new_assists'] else str(update['new_assists'])
+                
+                print(f"{update['name']:<25} {update['id']:<6} {caps_change:<12} {goals_change:<12} {assists_change:<12}")
+            
+            if len(sample_updates) > 10:
+                print(f"   ... and {len(sample_updates) - 10} more sample updates")
+        
+        return True
+        
+    except Exception as e:
+        manager.conn.rollback()
+        print(f"❌ Error matching international stats: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def match_international_stats_option(manager: TeamManager):
+    """
+    Wrapper function to match international stats for all players.
+    """
+    try:
+        match_international_stats(manager)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+
 def main():
     print("🏆 Team Management System")
     print("Direct database access for team ownership management")
@@ -4670,7 +5022,7 @@ def main():
     try:
         while True:
             display_menu()
-            choice = input("\nEnter your choice (1-28): ").strip()
+            choice = input("\nEnter your choice (1-31): ").strip()
             
             if choice == '1':
                 list_users(manager)
@@ -4727,10 +5079,16 @@ def main():
             elif choice == '27':
                 recalculate_cpu_team_market_values(manager)
             elif choice == '28':
+                fix_loaned_by_values(manager)
+            elif choice == '29':
+                clear_player_history_option(manager)
+            elif choice == '30':
+                match_international_stats_option(manager)
+            elif choice == '31':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-28.")
+                print("❌ Invalid choice. Please enter 1-31.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")

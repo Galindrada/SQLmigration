@@ -277,7 +277,9 @@ def safe_refresh_database():
             ('players', 'international_caps_total', 'INTEGER DEFAULT 0'),
             ('players', 'international_goals', 'INTEGER DEFAULT 0'),
             ('players', 'international_assists', 'INTEGER DEFAULT 0'),
-            ('players', 'current_season_caps', 'INTEGER DEFAULT 0')
+            ('players', 'current_season_caps', 'INTEGER DEFAULT 0'),
+            ('players', 'current_international_goals', 'INTEGER DEFAULT 0'),
+            ('players', 'current_international_assists', 'INTEGER DEFAULT 0')
         ]
         
         for table, column, definition in international_columns:

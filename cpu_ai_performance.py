@@ -132,11 +132,11 @@ def should_team_act_optimized(team_id: int, player_count: int, last_action_time:
     
     Priority tiers:
     1. CRITICAL: < 16 players (always act - team is undermanned)
-    2. URGENT: Haven't acted in 24+ hours (80% chance)
-    3. HIGH: Haven't acted in 12+ hours (50% chance)
-    4. NORMAL: Haven't acted in 6+ hours (30% chance)
-    5. LOW: Haven't acted in 3+ hours (15% chance)
-    6. MINIMAL: Acted recently (5% chance)
+    2. URGENT: Haven't acted in 24+ hours (95% chance)
+    3. HIGH: Haven't acted in 12+ hours (80% chance)
+    4. NORMAL: Haven't acted in 6+ hours (60% chance)
+    5. LOW: Haven't acted in 3+ hours (40% chance)
+    6. MINIMAL: Acted recently (25% chance)
     
     Args:
         team_id: Team ID
@@ -153,7 +153,7 @@ def should_team_act_optimized(team_id: int, player_count: int, last_action_time:
     
     # If no last action time, allow action (first time)
     if not last_action_time:
-        return random.random() < 0.5  # 50% chance for first action
+        return random.random() < 0.70  # 70% chance for first action (increased from 50%)
     
     try:
         last_action = datetime.fromisoformat(last_action_time)
@@ -161,22 +161,22 @@ def should_team_act_optimized(team_id: int, player_count: int, last_action_time:
         
         # URGENT: 24+ hours since last action
         if hours_since_action >= 24:
-            return random.random() < 0.80
+            return random.random() < 0.95  # Increased from 80% to 95%
         
         # HIGH: 12+ hours since last action
         if hours_since_action >= 12:
-            return random.random() < 0.50
+            return random.random() < 0.80  # Increased from 50% to 80%
         
         # NORMAL: 6+ hours since last action
         if hours_since_action >= 6:
-            return random.random() < 0.30
+            return random.random() < 0.60  # Increased from 30% to 60%
         
         # LOW: 3+ hours since last action
         if hours_since_action >= 3:
-            return random.random() < 0.15
+            return random.random() < 0.40  # Increased from 15% to 40%
         
         # MINIMAL: Less than 3 hours since last action
-        return random.random() < 0.05
+        return random.random() < 0.25  # Increased from 5% to 25%
         
     except (ValueError, TypeError):
         # If timestamp is invalid, use default 30% chance

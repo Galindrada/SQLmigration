@@ -26,7 +26,7 @@ MARKET_BAZAAR_ENABLED = False  # Set to False to disable automatic market activi
 
 # Loan Money Transfer Divisor
 # Set to 1 for full amount, 2 to halve the money transferred on loan completion
-LOAN_MONEY_DIVISOR = 2
+LOAN_MONEY_DIVISOR = 1
 
 def get_next_market_activity_time():
     """Get the next market activity time (3 hours from now)"""
@@ -9186,7 +9186,12 @@ def end_of_season_process():
                    short_pass_accuracy, short_pass_speed, long_pass_accuracy, long_pass_speed,
                    shot_accuracy, shot_power, shot_technique, free_kick_accuracy, swerve,
                    heading, jump, technique, aggression, mentality, goal_keeping,
-                   team_work, consistency, condition_fitness, games_played, goals, assists, seed_player
+                   team_work, consistency, condition_fitness, games_played, goals, assists, 
+                   COALESCE(MVP, 0) as MVP, seed_player,
+                   COALESCE(current_season_caps, 0) as current_season_caps,
+                   COALESCE(current_international_goals, 0) as current_international_goals,
+                   COALESCE(current_international_assists, 0) as current_international_assists,
+                   nationality
             FROM players
             WHERE development_key > 0 AND trait_key IS NOT NULL 
             AND (draftee = 0 OR draftee IS NULL)
@@ -9199,6 +9204,8 @@ def end_of_season_process():
         for player in players_for_development:
             # Convert player data to dictionary format
             player_data = dict(player)
+            # Add db_path for nationality strength calculation
+            player_data['db_path'] = 'pes6_league_db.sqlite'
 
             # Calculate development
             development_result = calculate_player_skill_development(
@@ -16217,16 +16224,18 @@ def simulate_international_game(game_id):
             if goals > 0:
                 cur.execute("""
                     UPDATE players
-                    SET international_goals = international_goals + ?
+                    SET international_goals = international_goals + ?,
+                        current_international_goals = current_international_goals + ?
                     WHERE id = ?
-                """, (goals, player_id))
+                """, (goals, goals, player_id))
             
             # Update international assists
             assists = int(stat.get('assists', 0))
             if assists > 0:
                 cur.execute("""
                     UPDATE players
-                    SET international_assists = international_assists + ?
+                    SET international_assists = international_assists + ?,
+                        current_international_assists = current_international_assists + ?
                     WHERE id = ?
                 """, (assists, player_id))
         

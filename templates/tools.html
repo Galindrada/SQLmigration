@@ -265,19 +265,11 @@
         
         <div class="row mt-3">
             <div class="col-md-12">
-                <h5>🤖 CPU AI Market Activity</h5>
-                <p>Trigger CPU teams to make intelligent transfer decisions in the market bazaar. CPU teams will analyze their needs and either list players for sale or make offers on available players. This also processes expired offers, user offers to CPU teams, and cleans up the market.</p>
-                <form method="post" action="{{ url_for('scheduled_market_activity') }}" onsubmit="return confirm('Trigger CPU AI market activity?\n\nThis will:\n- Analyze CPU team composition needs\n- List overpaid/surplus players for sale\n- Make offers on suitable players\n- Process user offers to CPU teams\n- Process expired offers and clean up market\n- Consider budget constraints and toxic contracts\n- Create blog post with activity summary\n- 40% chance per CPU team to take action\n\nThis action cannot be undone!')">
-                    <button type="submit" class="button" style="background-color: #9b59b6; font-weight: bold;">🤖 Trigger CPU AI Activity</button>
+                <h5>🧹 Market Management</h5>
+                <p>Clear all active market bazaar listings and offers. This will expire all current transfer listings and CPU offers.</p>
+                <form method="post" action="{{ url_for('expire_market_offers_route') }}" onsubmit="return confirm('Clear all market bazaar activity?\n\nThis will expire:\n- All active transfer listings\n- All active CPU offers\n- All active user offers\n\nThis action cannot be undone!')">
+                    <button type="submit" class="button" style="background-color: #e74c3c; font-weight: bold;">🧹 Clear Market</button>
                 </form>
-                
-                <div class="mt-2">
-                    <h6>🧹 Market Management</h6>
-                    <p class="small">Clear all active market bazaar listings and offers. This will expire all current transfer listings and CPU offers.</p>
-                    <form method="post" action="{{ url_for('expire_market_offers_route') }}" onsubmit="return confirm('Clear all market bazaar activity?\n\nThis will expire:\n- All active transfer listings\n- All active CPU offers\n- All active user offers\n\nThis action cannot be undone!')">
-                        <button type="submit" class="button" style="background-color: #e74c3c; font-weight: bold;">🧹 Clear Market</button>
-                    </form>
-                </div>
             </div>
         </div>
         
@@ -294,8 +286,8 @@
         <div class="row mt-3">
             <div class="col-md-12">
                 <h5>🆓 Recalculate Free Agent Salary Demands</h5>
-                <p>Recalculate salary demands for all free agents (No Club players) using the advanced game mechanics algorithm. This updates their salary requirements based on current skills and age.</p>
-                <form method="post" action="{{ url_for('recalculate_free_agent_salaries') }}" onsubmit="return confirm('Recalculate free agent salary demands?\n\nThis will:\n- Recalculate salary demands for all free agents\n- Update demands based on current skills and age\n- Create a blog post about the update\n- Only affects players with No Club (club_id = 141)\n\nThis action cannot be undone!')">
+                <p>Recalculate salary demands for all free agents (No Club players) using the advanced game mechanics algorithm. This updates their salary requirements based on current skills and age. Draftees are excluded from this recalculation.</p>
+                <form method="post" action="{{ url_for('recalculate_free_agent_salaries') }}" onsubmit="return confirm('Recalculate free agent salary demands?\n\nThis will:\n- Recalculate salary demands for all free agents\n- Update demands based on current skills and age\n- Create a blog post about the update\n- Only affects players with No Club (club_id = 141)\n- Excludes draftees (draftee = 1)\n\nThis action cannot be undone!')">
                     <button type="submit" class="button" style="background-color: #f0ad4e; font-weight: bold;">🆓 Recalculate Free Agent Salaries</button>
                 </form>
             </div>

@@ -192,4 +192,8 @@ The financial system is now perfectly tuned to your specifications:
 - ✅ Display on game management pages
 
 Ready for production! 💰
+pyth
+Now we need to move to another update. I need to create another page under the "management" tile called "scouting" where users may save that favourite list players. On that page we should have the "Favourite List" on top this table should have the same data that we have on pes6_game_teams/ID with an additional button called "Remove" that should allow us to remove the player from our favourite list.  The route pes6_player/ID should have a new button named "Add to Favourites" that adds the player to the users "Favourite List" on the "scouting" page. If there is a database schema update please add it as usual to refresh_and_reimport.py keeping the schema data safe if it already exists.
 
+
+We have a WC Qualifier competition created, at the international, (competition ID=11 as example) and when I try to simulate this game as example: http://127.0.0.1:5000/international/game/589 it throws the error   Error simulating game: 'names' 

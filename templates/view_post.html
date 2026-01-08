@@ -19,6 +19,24 @@
             </p>
         {% endif %}
 
+        {# Display player images if player_ids are present #}
+        {% if post.get('player_ids') and post.player_ids %}
+            <div class="player-images-container" style="display: flex; flex-wrap: wrap; gap: 15px; margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                {% for player_id in post.player_ids %}
+                    <div class="player-image-item" style="text-align: center; flex: 0 0 auto;">
+                        <a href="{{ url_for('pes6_player_details', player_id=player_id) }}">
+                            <img src="{{ url_for('serve_player_image_by_id', player_id=player_id) }}" 
+                                 alt="Player image"
+                                 style="width: 120px; height: 120px; object-fit: cover; border-radius: 8px; border: 3px solid #667eea; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease;"
+                                 onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';"
+                                 onmouseover="this.style.transform='scale(1.05)'"
+                                 onmouseout="this.style.transform='scale(1)'">
+                        </a>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
         <div class="post-content">{{ post.content | safe }}</div>
     </div>
 

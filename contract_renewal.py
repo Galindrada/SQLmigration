@@ -12,6 +12,7 @@ import pandas as pd
 from game_mechanics import (
     calculate_player_salary_base, 
     get_cached_position_averages,
+    apply_random_salary_adjustment,
     GLOBAL_BASE_SALARY
 )
 
@@ -92,29 +93,23 @@ class ContractRenewalManager:
                      'heading', 'jump', 'technique', 'aggression', 'mentality', 'goal_keeping',
                      'team_work', 'consistency', 'condition_fitness']
             
-            binaries = ['dribbling', 'tactical_dribble', 'positioning', 'reaction', 'play_making',
-                       'passing', 'scoring', '1-1_score', 'post_player', 'lines', 'middle_shooting',
-                       'side', 'centre', 'penalties', '1-touch_pass', 'outside', 'marking', 'sliding',
-                       'covering', 'd_line_control', 'penalty_stopper', '1-on-1_stopper', 'long_throw']
+            binaries = ['dribbling_skill', 'tactical_dribble', 'positioning', 'reaction', 'playmaking',
+                       'passing', 'scoring', 'one_one_scoring', 'post_player', 'lines', 'middle_shooting',
+                       'side', 'centre', 'penalties', 'one_touch_pass', 'outside', 'marking', 'sliding',
+                       'covering', 'd_line_control', 'penalty_stopper', 'one_on_one_stopper', 'long_throw']
             
             # Calculate base salary
+            # Position-specific skill boosts are now applied inside calculate_player_salary_base:
+            # - Goalkeepers (0): Defense, Balance, Response, Agility, Goal Keeping get 1.5x boost
+            # - Sweepers/Centre-backs (2, 3): Defense, Balance, Heading, Jump get 1.5x boost
+            # This provides more accurate compensation based on key skills rather than a blanket multiplier
             base_salary = calculate_player_salary_base(player_row, pos_avg_df, skills, binaries)
             
-            # Apply 30% boost for defensive positions (GK=0, CB=2, DMF=3, FB=4)
-            registered_position = player_data.get('registered_position')
-            try:
-                # Handle both string and integer formats, strip whitespace if string
-                if isinstance(registered_position, str):
-                    pos_int = int(registered_position.strip())
-                elif isinstance(registered_position, (int, float)):
-                    pos_int = int(registered_position)
-                else:
-                    pos_int = -1
-                
-                if pos_int in [0, 2, 3]:
-                    base_salary = int(base_salary * 1.75)
-            except (ValueError, TypeError):
-                pass  # Keep base_salary as-is if position is invalid
+            # Apply random salary adjustment (±20% variation, rounded to nearest 1000)
+            # Use player ID as seed for deterministic results (same player always gets same adjustment)
+            # This matches the fair salary calculation used elsewhere in the system
+            random.seed(player_data.get('id', 1))
+            fair_salary = apply_random_salary_adjustment(base_salary)
             
             # Calculate player's overall for negotiation difficulty
             from refresh_and_reimport import calculate_player_overall
@@ -144,14 +139,16 @@ class ContractRenewalManager:
             else:
                 yearly_wage_rise = random.uniform(0.01, 0.10)  # 1-10% for older players
             
+            # Apply contract renewal variance (-2% to +15%) on top of fair salary
+            # This is in addition to the ±20% variance already in fair_salary from apply_random_salary_adjustment
+            contract_renewal_variance = random.uniform(-0.02, 0.15)
+            salary_demand = fair_salary * (1 + contract_renewal_variance)
+            
             if is_cpu:
-                # CPU gets fair terms (base salary)
-                salary_demand = base_salary
+                # CPU gets fair terms (fair salary + contract renewal variance)
                 signing_bonus_percentage = random.uniform(0.10, 0.25)
             else:
-                # User players ask for more (15-30% increase)
-                salary_increase = random.uniform(-0.05, 0.20)
-                salary_demand = base_salary * (1 + salary_increase)
+                # User players can ask for more signing bonus
                 signing_bonus_percentage = random.uniform(0.10, 0.50)
             
             random.seed()  # Reset random seed
@@ -168,7 +165,8 @@ class ContractRenewalManager:
                 'yearly_wage_rise': yearly_wage_rise,
                 'signing_bonus': signing_bonus,
                 'player_overall': player_overall,
-                'base_salary': base_salary
+                'base_salary': base_salary,
+                'fair_salary': fair_salary
             }
             
         except Exception as e:

@@ -59,7 +59,7 @@
                             <td>{{ position_names.get(player.registered_position|int, 'Unknown') }}</td>
                             <td>{{ player.nationality }}</td>
                             <td><span class="badge bg-primary">{{ player.overall }}</span></td>
-                            <td>€{{ "{:,}".format(player.salary) }}</td>
+                            <td>€{{ "{:,}".format((player.salary or 0)|int) }}</td>
                             <td>{{ player.contract_years_remaining }}y ({{ "%.0f"|format(player.yearly_wage_rise * 100) }}%)</td>
                             <td>
                                 <form method="POST" action="{{ url_for('draft_player', player_id=player.id, team_id=0) }}" style="display: flex; gap: 5px; align-items: center;" onsubmit="return draftPlayer(this, event, '{{ player.player_name }}')">
