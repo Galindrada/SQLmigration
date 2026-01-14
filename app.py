@@ -13692,6 +13692,90 @@ def advance_cpu_knockout_round(division_id):
     finally:
         cur.close()
 
+@app.route('/cpu_leagues/delete_league/<int:league_id>', methods=['POST'])
+@login_required
+def delete_cpu_league(league_id):
+    """Delete a CPU league and all its related data, but preserve budgets and player stats"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Verify league exists and is a CPU league (not Colados League)
+        cur.execute("SELECT id, name FROM leagues WHERE id = ? AND name != 'Colados League'", (league_id,))
+        league = cur.fetchone()
+        
+        if not league:
+            flash('League not found or cannot be deleted', 'danger')
+            return redirect(url_for('cpu_leagues'))
+        
+        league_name = league['name'] if hasattr(league, 'keys') else league[1]
+        
+        # Get all divisions for this league
+        cur.execute("SELECT id FROM divisions WHERE league_id = ?", (league_id,))
+        divisions = cur.fetchall()
+        division_ids = [div['id'] if hasattr(div, 'keys') else div[0] for div in divisions]
+        
+        # Get counts for flash message
+        games_count = 0
+        teams_count = 0
+        if division_ids:
+            placeholders = ','.join('?' * len(division_ids))
+            cur.execute(f"SELECT COUNT(*) FROM league_games WHERE division_id IN ({placeholders})", division_ids)
+            games_count = cur.fetchone()[0]
+            
+            cur.execute(f"SELECT COUNT(*) FROM division_teams WHERE division_id IN ({placeholders})", division_ids)
+            teams_count = cur.fetchone()[0]
+        
+        # Delete in correct order to avoid foreign key constraints
+        if division_ids:
+            placeholders = ','.join('?' * len(division_ids))
+            # 1. Delete player game stats (references league_games)
+            cur.execute(f"""
+                DELETE FROM player_game_stats
+                WHERE game_id IN (SELECT id FROM league_games WHERE division_id IN ({placeholders}))
+            """, division_ids)
+            
+            # 2. Delete league games (references divisions)
+            cur.execute(f"""
+                DELETE FROM league_games
+                WHERE division_id IN ({placeholders})
+            """, division_ids)
+            
+            # 3. Delete CPU knockout teams (references divisions)
+            cur.execute(f"""
+                DELETE FROM cpu_knockout_teams
+                WHERE division_id IN ({placeholders})
+            """, division_ids)
+            
+            # 4. Delete division standings (references divisions)
+            cur.execute(f"""
+                DELETE FROM division_standings
+                WHERE division_id IN ({placeholders})
+            """, division_ids)
+            
+            # 5. Delete division teams (references divisions)
+            cur.execute(f"""
+                DELETE FROM division_teams
+                WHERE division_id IN ({placeholders})
+            """, division_ids)
+            
+            # 6. Delete divisions (references league)
+            cur.execute("DELETE FROM divisions WHERE league_id = ?", (league_id,))
+        
+        # 7. Delete the league itself
+        cur.execute("DELETE FROM leagues WHERE id = ?", (league_id,))
+        
+        db_helper.commit()
+        flash(f'✅ League "{league_name}" deleted successfully! ({teams_count} teams, {games_count} games removed. Team budgets and player stats preserved.)', 'success')
+        return redirect(url_for('cpu_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error deleting CPU league: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'❌ Error deleting league: {str(e)}', 'danger')
+        return redirect(url_for('cpu_leagues'))
+    finally:
+        cur.close()
+
 @app.route('/cpu_leagues/generate_preferred_lineups', methods=['POST'])
 @login_required
 def generate_preferred_lineups():

@@ -155,7 +155,12 @@
     {% if cpu_leagues %}
         {% for league in cpu_leagues %}
         <div class="section">
-            <h2>🏆 {{ league.name }}</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2 style="margin: 0;">🏆 {{ league.name }}</h2>
+                <button class="btn btn-danger btn-sm" onclick="confirmDeleteLeague({{ league.id }}, '{{ league.name }}')">
+                    🗑️ Delete League
+                </button>
+            </div>
             {% if league.description %}
             <p class="text-muted">{{ league.description }}</p>
             {% endif %}
@@ -802,6 +807,17 @@ function filterGamesByRound(divisionId, roundNumber) {
         if (noGamesMsg) {
             noGamesMsg.style.display = visibleCount === 0 ? 'block' : 'none';
         }
+    }
+}
+
+function confirmDeleteLeague(leagueId, leagueName) {
+    if (confirm(`⚠️ WARNING: This will permanently delete the league "${leagueName}"!\n\nThis includes:\n- All divisions in this league\n- All games and results\n- All standings and scoreboards\n- All knockout tournament data\n\nTeam budgets and player stats will NOT be affected.\n\nThis action CANNOT be undone!\n\nAre you absolutely sure you want to delete this league?`)) {
+        // Create a form and submit it
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/cpu_leagues/delete_league/${leagueId}`;
+        document.body.appendChild(form);
+        form.submit();
     }
 }
 </script>
