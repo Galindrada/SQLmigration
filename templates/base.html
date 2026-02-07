@@ -6,6 +6,7 @@
     <title>{% block title %}PES6 League{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    {% block head %}{% endblock %}
 </head>
 <body>
     <header>
@@ -25,7 +26,9 @@
                         <li><a href="{{ url_for('index') }}">Home</a></li>
                         <li><a href="{{ url_for('blog') }}">Blog</a></li>
                         <li><a href="{{ url_for('pes6_game_teams') }}">PES Game Data</a></li>
+                        <li><a href="{{ url_for('leaderboards') }}">Leaderboards</a></li>
                         <li><a href="{{ url_for('hall_of_fame') }}">Hall of Fame</a></li>
+                        <li><a href="{{ url_for('fantasy') }}">Fantasy</a></li>
                     </ul>
                 </li>
                 
@@ -57,6 +60,7 @@
                         <ul class="nav-submenu">
                             <li><a href="{{ url_for('colados_league') }}">Colados Leagues</a></li>
                             <li><a href="{{ url_for('cpu_leagues') }}">CPU Leagues</a></li>
+                            <li><a href="{{ url_for('inter_leagues') }}">Inter-Leagues</a></li>
                             <li><a href="{{ url_for('international') }}">International</a></li>
                         </ul>
                     </li>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 280" width="200" height="280">
+  <defs>
+    <linearGradient id="packBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b4513"/>
+      <stop offset="50%" style="stop-color:#654321"/>
+      <stop offset="100%" style="stop-color:#5c3a1e"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#d4af37"/>
+      <stop offset="50%" style="stop-color:#f4d03f"/>
+      <stop offset="100%" style="stop-color:#d4af37"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="180" height="260" rx="12" ry="12" fill="url(#packBg)" stroke="url(#gold)" stroke-width="6"/>
+  <rect x="60" y="0" width="80" height="25" rx="8" ry="0" fill="url(#gold)"/>
+  <text x="100" y="115" text-anchor="middle" font-size="64" fill="rgba(255,255,255,0.9)"><�</text>
+  <text x="100" y="200" text-anchor="middle" font-size="14" font-weight="bold" fill="url(#gold)">BOOSTER</text>
+  <text x="100" y="218" text-anchor="middle" font-size="14" font-weight="bold" fill="url(#gold)">PACK</text>
+</svg>

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Select Team - Inter-Leagues{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Select Team for Squad Selection</h2>
+    <p>You have multiple teams in this competition. Please select which team you want to select a squad for:</p>
+    
+    <div class="list-group" style="max-width: 500px; margin-top: 20px;">
+        {% for team in teams %}
+        <a href="{{ url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team.id) }}" 
+           class="list-group-item list-group-item-action">
+            <h5>{{ team.team_name }}</h5>
+        </a>
+        {% endfor %}
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <a href="{{ url_for('inter_leagues', competition_id=competition_id) }}" class="btn btn-secondary">Back</a>
+    </div>
+</div>
+{% endblock %}

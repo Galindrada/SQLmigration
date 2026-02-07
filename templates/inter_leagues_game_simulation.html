@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+
+{% block title %}Inter-Leagues Game - {{ game.home_team_name }} vs {{ game.away_team_name }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <h1>⚽ Inter-Leagues Game Details</h1>
+    
+    <!-- Game Info -->
+    <div class="game-info-section" style="margin-bottom: 30px;">
+        <h2>{{ game.home_team_name }} vs {{ game.away_team_name }}</h2>
+        <div class="game-details">
+            <p><strong>Competition:</strong> {{ competition_name }}</p>
+            <p><strong>Date:</strong> {{ game.game_date or 'N/A' }}</p>
+            <p><strong>Status:</strong> 
+                {% if game.is_played %}
+                    <span class="badge badge-success">Played</span>
+                {% else %}
+                    <span class="badge badge-warning">Pending</span>
+                {% endif %}
+            </p>
+        </div>
+        {% if game.is_played %}
+        <div class="score-display" style="text-align: center; margin: 20px 0;">
+            <h3 class="score" style="font-size: 3rem; font-weight: bold;">{{ game.home_score }} - {{ game.away_score }}</h3>
+            {% if mvp_player_id and mvp_player_name %}
+            <div class="mvp-info" style="display: flex; align-items: center; justify-content: center; gap: 15px; margin-top: 20px;">
+                <div style="text-align: center;">
+                    <img src="{{ url_for('serve_player_image_by_id', player_id=mvp_player_id) }}" 
+                         alt="{{ mvp_player_name }}"
+                         style="width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 3px solid #ffd700; box-shadow: 0 4px 8px rgba(0,0,0,0.3);"
+                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                </div>
+                <div>
+                    <p style="margin: 0; font-size: 1.2em;">🏆 MVP: <strong>{{ mvp_player_name }}</strong></p>
+                </div>
+            </div>
+            {% elif mvp_player_id %}
+            <p class="mvp-info">🏆 MVP: <strong>Player ID {{ mvp_player_id }}</strong></p>
+            {% else %}
+            <p class="text-muted">🏆 MVP: <em>Undetermined</em></p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if game.is_played %}
+    <!-- Player Statistics -->
+    <div class="player-stats-section" style="margin-bottom: 30px;">
+        <h3>⚽ Player Statistics</h3>
+        <div class="row">
+            <div class="col-md-6">
+                <h4>{{ game.home_team_name }}</h4>
+                <div class="player-stats-table" style="max-height: 600px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; background: white;">
+                    <table class="table table-sm">
+                        <thead class="thead-light">
+                            <tr>
+                                <th>Player</th>
+                                <th>Position</th>
+                                <th>Goals</th>
+                                <th>Assists</th>
+                                <th>Minutes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in home_player_stats %}
+                            {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                            {% set row_classes = "" %}
+                            {% if mvp_player_id and player.player_id == mvp_player_id %}
+                                {% set row_classes = "table-warning" %}
+                            {% endif %}
+                            <tr {% if row_classes %}class="{{ row_classes }}"{% endif %}>
+                                <td>
+                                    {{ player.player_name }}
+                                    {% if mvp_player_id and player.player_id == mvp_player_id %}
+                                    <span class="badge badge-warning">MVP</span>
+                                    {% endif %}
+                                    {% if player.is_starter %}
+                                    <span class="badge badge-info">Starter</span>
+                                    {% elif player.minutes_played and player.minutes_played < 90 %}
+                                    <span class="badge badge-secondary">Sub</span>
+                                    {% endif %}
+                                    {% if player.yellow_cards and player.yellow_cards > 0 %}
+                                    <span class="badge badge-warning" title="Yellow Cards">🟡 {{ player.yellow_cards }}</span>
+                                    {% endif %}
+                                    {% if player.red_cards and player.red_cards > 0 %}
+                                    <span class="badge badge-danger" title="Red Cards">🔴 {{ player.red_cards }}</span>
+                                    {% endif %}
+                                    {% if player.injuries and player.injuries > 0 %}
+                                    <span class="badge badge-info" title="Injury">🏥 {{ player.injuries }}w</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if pos == 0 %}GK
+                                    {% elif pos == 2 %}SW
+                                    {% elif pos == 3 %}CB
+                                    {% elif pos == 4 %}SB
+                                    {% elif pos == 5 %}DMF
+                                    {% elif pos == 6 %}WB
+                                    {% elif pos == 7 %}CMF
+                                    {% elif pos == 8 %}SMF
+                                    {% elif pos == 9 %}AMF
+                                    {% elif pos == 10 %}WF
+                                    {% elif pos == 11 %}SS
+                                    {% elif pos == 12 %}CF
+                                    {% else %}-
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ player.goals or 0 }}</strong></td>
+                                <td>{{ player.assists or 0 }}</td>
+                                <td>{{ player.minutes_played or 90 }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if not home_player_stats %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">No player stats available</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <h4>{{ game.away_team_name }}</h4>
+                <div class="player-stats-table" style="max-height: 600px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; background: white;">
+                    <table class="table table-sm">
+                        <thead class="thead-light">
+                            <tr>
+                                <th>Player</th>
+                                <th>Position</th>
+                                <th>Goals</th>
+                                <th>Assists</th>
+                                <th>Minutes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in away_player_stats %}
+                            {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                            {% set row_classes = "" %}
+                            {% if mvp_player_id and player.player_id == mvp_player_id %}
+                                {% set row_classes = "table-warning" %}
+                            {% endif %}
+                            <tr {% if row_classes %}class="{{ row_classes }}"{% endif %}>
+                                <td>
+                                    {{ player.player_name }}
+                                    {% if mvp_player_id and player.player_id == mvp_player_id %}
+                                    <span class="badge badge-warning">MVP</span>
+                                    {% endif %}
+                                    {% if player.is_starter %}
+                                    <span class="badge badge-info">Starter</span>
+                                    {% elif player.minutes_played and player.minutes_played < 90 %}
+                                    <span class="badge badge-secondary">Sub</span>
+                                    {% endif %}
+                                    {% if player.yellow_cards and player.yellow_cards > 0 %}
+                                    <span class="badge badge-warning" title="Yellow Cards">🟡 {{ player.yellow_cards }}</span>
+                                    {% endif %}
+                                    {% if player.red_cards and player.red_cards > 0 %}
+                                    <span class="badge badge-danger" title="Red Cards">🔴 {{ player.red_cards }}</span>
+                                    {% endif %}
+                                    {% if player.injuries and player.injuries > 0 %}
+                                    <span class="badge badge-info" title="Injury">🏥 {{ player.injuries }}w</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if pos == 0 %}GK
+                                    {% elif pos == 2 %}SW
+                                    {% elif pos == 3 %}CB
+                                    {% elif pos == 4 %}SB
+                                    {% elif pos == 5 %}DMF
+                                    {% elif pos == 6 %}WB
+                                    {% elif pos == 7 %}CMF
+                                    {% elif pos == 8 %}SMF
+                                    {% elif pos == 9 %}AMF
+                                    {% elif pos == 10 %}WF
+                                    {% elif pos == 11 %}SS
+                                    {% elif pos == 12 %}CF
+                                    {% else %}-
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ player.goals or 0 }}</strong></td>
+                                <td>{{ player.assists or 0 }}</td>
+                                <td>{{ player.minutes_played or 90 }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if not away_player_stats %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">No player stats available</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Events (Blog Style) -->
+    {% if events %}
+    <div class="events-section" style="margin-top: 40px;">
+        <h3>📝 Match Events</h3>
+        <div class="events-container" style="max-width: 800px; margin: 30px auto;">
+            {% for event in events %}
+            {% if event.type == 'goal' %}
+            <div class="event-card" style="background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); margin-bottom: 20px; padding: 20px; border-left: 4px solid #28a745;">
+                <div class="event-header" style="display: flex; align-items: center; margin-bottom: 15px;">
+                    <span class="event-minute" style="background: #28a745; color: white; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; margin-right: 15px;">{{ event.minute }}'</span>
+                    <span class="event-type" style="font-size: 1.1rem; font-weight: 600; color: #2c3e50;">⚽ Goal!</span>
+                </div>
+                <div class="event-content" style="display: flex; align-items: center; gap: 15px;">
+                    <img src="{{ url_for('serve_player_image_by_id', player_id=event.player_id) }}" 
+                         alt="{{ event.player_name }}"
+                         style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 3px solid #28a745; flex-shrink: 0;"
+                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                    <div class="event-player-info" style="flex: 1;">
+                        <div class="event-player-name" style="font-size: 1.1rem; font-weight: 600; color: #2c3e50; margin-bottom: 5px;">{{ event.player_name }} ({{ event.team|title }})</div>
+                        {% if event.assist_player_name %}
+                        <div class="event-assist" style="font-size: 0.9rem; color: #6c757d; font-style: italic;">
+                            Assist: {{ event.assist_player_name }}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% elif event.type == 'yellow_card' %}
+            <div class="event-card" style="background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); margin-bottom: 20px; padding: 20px; border-left: 4px solid #ffc107;">
+                <div class="event-header" style="display: flex; align-items: center; margin-bottom: 15px;">
+                    <span class="event-minute" style="background: #ffc107; color: #212529; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; margin-right: 15px;">{{ event.minute }}'</span>
+                    <span class="event-type" style="font-size: 1.1rem; font-weight: 600; color: #2c3e50;">🟡 Yellow Card</span>
+                </div>
+                <div class="event-content" style="display: flex; align-items: center; gap: 15px;">
+                    <img src="{{ url_for('serve_player_image_by_id', player_id=event.player_id) }}" 
+                         alt="{{ event.player_name }}"
+                         style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 3px solid #ffc107; flex-shrink: 0;"
+                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                    <div class="event-player-info" style="flex: 1;">
+                        <div class="event-player-name" style="font-size: 1.1rem; font-weight: 600; color: #2c3e50;">{{ event.player_name }} ({{ event.team|title }})</div>
+                    </div>
+                </div>
+            </div>
+            {% elif event.type == 'red_card' %}
+            <div class="event-card" style="background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); margin-bottom: 20px; padding: 20px; border-left: 4px solid #dc3545;">
+                <div class="event-header" style="display: flex; align-items: center; margin-bottom: 15px;">
+                    <span class="event-minute" style="background: #dc3545; color: white; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; margin-right: 15px;">{{ event.minute }}'</span>
+                    <span class="event-type" style="font-size: 1.1rem; font-weight: 600; color: #2c3e50;">🔴 Red Card - Sent Off!</span>
+                </div>
+                <div class="event-content" style="display: flex; align-items: center; gap: 15px;">
+                    <img src="{{ url_for('serve_player_image_by_id', player_id=event.player_id) }}" 
+                         alt="{{ event.player_name }}"
+                         style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 3px solid #dc3545; flex-shrink: 0;"
+                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                    <div class="event-player-info" style="flex: 1;">
+                        <div class="event-player-name" style="font-size: 1.1rem; font-weight: 600; color: #2c3e50;">{{ event.player_name }} ({{ event.team|title }})</div>
+                    </div>
+                </div>
+            </div>
+            {% elif event.type == 'injury' %}
+            <div class="event-card" style="background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); margin-bottom: 20px; padding: 20px; border-left: 4px solid #17a2b8;">
+                <div class="event-header" style="display: flex; align-items: center; margin-bottom: 15px;">
+                    <span class="event-minute" style="background: #17a2b8; color: white; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; margin-right: 15px;">{{ event.minute }}'</span>
+                    <span class="event-type" style="font-size: 1.1rem; font-weight: 600; color: #2c3e50;">🏥 Injury</span>
+                </div>
+                <div class="event-content" style="display: flex; align-items: center; gap: 15px;">
+                    <img src="{{ url_for('serve_player_image_by_id', player_id=event.player_id) }}" 
+                         alt="{{ event.player_name }}"
+                         style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 3px solid #17a2b8; flex-shrink: 0;"
+                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                    <div class="event-player-info" style="flex: 1;">
+                        <div class="event-player-name" style="font-size: 1.1rem; font-weight: 600; color: #2c3e50; margin-bottom: 5px;">{{ event.player_name }} ({{ event.team|title }})</div>
+                        <div class="event-injury" style="font-size: 0.9rem; color: #6c757d; font-style: italic;">
+                            Out for {{ event.weeks }} week{{ 's' if event.weeks > 1 else '' }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+    
+    <div style="text-align: center; margin-top: 30px;">
+        <a href="{{ url_for('inter_leagues', competition_id=game.competition_id) }}" class="btn btn-secondary">← Back to Inter-Leagues</a>
+    </div>
+</div>
+
+<style>
+.mvp-row {
+    background-color: #fff3cd !important;
+}
+</style>
+{% endblock %}

@@ -215,6 +215,37 @@ def safe_refresh_database():
             else:
                 print("  ℹ️  profile_image column already exists")
         
+        # Add Inter-League suspension and injury columns to players table
+        print("\n🟡 Adding InterLeague_YC column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN InterLeague_YC INTEGER DEFAULT 0")
+            print("  ✅ Added InterLeague_YC column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding InterLeague_YC column: {e}")
+            else:
+                print("  ℹ️  InterLeague_YC column already exists")
+        
+        print("\n🔴 Adding InterLeague_RC column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN InterLeague_RC INTEGER DEFAULT 0")
+            print("  ✅ Added InterLeague_RC column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding InterLeague_RC column: {e}")
+            else:
+                print("  ℹ️  InterLeague_RC column already exists")
+        
+        print("\n🏥 Adding InterLeague_Injury column to players table...")
+        try:
+            cursor.execute("ALTER TABLE players ADD COLUMN InterLeague_Injury INTEGER DEFAULT 0")
+            print("  ✅ Added InterLeague_Injury column")
+        except Exception as e:
+            if 'duplicate column name' not in str(e):
+                print(f"  ❌ Error adding InterLeague_Injury column: {e}")
+            else:
+                print("  ℹ️  InterLeague_Injury column already exists")
+        
         # Add performance tracking columns to players table
         print("\n📊 Adding performance tracking columns to players table...")
         performance_columns = [
@@ -804,6 +835,469 @@ def safe_refresh_database():
             
         except Exception as e:
             print(f"  ❌ Error creating Colados League tables: {e}")
+        
+        # Create Inter-Leagues tables
+        print("\n🌍 Creating Inter-Leagues tables...")
+        try:
+            # Inter-Leagues Competitions table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_competitions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1
+                )
+            """)
+            print("  ✅ Created inter_leagues_competitions table")
+            
+            # Inter-Leagues Rounds table (with timer information)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_rounds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    start_time TIMESTAMP,
+                    end_time TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                    UNIQUE(competition_id, round_number)
+                )
+            """)
+            print("  ✅ Created inter_leagues_rounds table")
+            
+            # Inter-Leagues Teams table (to store which teams are in which competition)
+            # Changed to team-based: allows multiple teams per user, CPU teams allowed
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_teams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    team_name TEXT NOT NULL,
+                    group_letter TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    UNIQUE(competition_id, team_name)
+                )
+            """)
+            print("  ✅ Created inter_leagues_teams table")
+            
+            # Check and fix UNIQUE constraint on inter_leagues_teams if needed
+            try:
+                # Check if table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='inter_leagues_teams'")
+                if cursor.fetchone():
+                    # Try to insert a test record to see if old constraint exists
+                    # Actually, better: check sqlite_master for the table definition
+                    cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='inter_leagues_teams'")
+                    table_sql = cursor.fetchone()
+                    if table_sql and table_sql[0]:
+                        table_def = table_sql[0].upper()
+                        # Check if old constraint exists (UNIQUE on competition_id, user_id)
+                        if 'UNIQUE(COMPETITION_ID, USER_ID)' in table_def or 'UNIQUE(USER_ID, COMPETITION_ID)' in table_def:
+                            print("  ⚠️  Old UNIQUE constraint detected. Recreating table...")
+                            # Recreate table with correct constraint
+                            # Step 1: Create new table
+                            cursor.execute("""
+                                CREATE TABLE inter_leagues_teams_new (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    competition_id INTEGER NOT NULL,
+                                    user_id INTEGER NOT NULL,
+                                    team_name TEXT NOT NULL,
+                                    group_letter TEXT,
+                                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                    FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                                    UNIQUE(competition_id, team_name)
+                                )
+                            """)
+                            # Step 2: Copy data (handle potential duplicates by using DISTINCT)
+                            cursor.execute("""
+                                INSERT INTO inter_leagues_teams_new 
+                                (id, competition_id, user_id, team_name, group_letter, created_at)
+                                SELECT id, competition_id, user_id, team_name, group_letter, created_at
+                                FROM inter_leagues_teams
+                                WHERE id IN (
+                                    SELECT MIN(id) FROM inter_leagues_teams
+                                    GROUP BY competition_id, team_name
+                                )
+                            """)
+                            # Step 3: Drop old table and rename
+                            cursor.execute("DROP TABLE inter_leagues_teams")
+                            cursor.execute("ALTER TABLE inter_leagues_teams_new RENAME TO inter_leagues_teams")
+                            print("  ✅ Fixed UNIQUE constraint on inter_leagues_teams")
+            except Exception as e:
+                print(f"  ℹ️  Constraint check skipped (may be normal): {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # Inter-Leagues User Squads table (squad selection with 100M salary cap)
+            # Changed to team-based: references inter_leagues_teams.id
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_user_squads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    round_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                    FOREIGN KEY (round_id) REFERENCES inter_leagues_rounds(id),
+                    FOREIGN KEY (team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE,
+                    FOREIGN KEY (player_id) REFERENCES players(id),
+                    UNIQUE(competition_id, round_id, team_id, player_id)
+                )
+            """)
+            print("  ✅ Created inter_leagues_user_squads table")
+            
+            # Inter-Leagues Games table
+            # Changed to team-based: references inter_leagues_teams.id
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_games (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    round_id INTEGER NOT NULL,
+                    home_team_id INTEGER NOT NULL,
+                    away_team_id INTEGER NOT NULL,
+                    home_team_name TEXT NOT NULL,
+                    away_team_name TEXT NOT NULL,
+                    home_score INTEGER DEFAULT 0,
+                    away_score INTEGER DEFAULT 0,
+                    game_date TIMESTAMP,
+                    is_played BOOLEAN DEFAULT 0,
+                    mvp_player_id INTEGER,
+                    group_id INTEGER,
+                    round_type TEXT DEFAULT 'group_stage',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                    FOREIGN KEY (round_id) REFERENCES inter_leagues_rounds(id),
+                    FOREIGN KEY (home_team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE,
+                    FOREIGN KEY (away_team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE,
+                    FOREIGN KEY (group_id) REFERENCES inter_leagues_groups(id)
+                )
+            """)
+            print("  ✅ Created inter_leagues_games table")
+            
+            # Inter-Leagues Player Stats table
+            # Changed to team-based: references inter_leagues_teams.id
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_player_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    player_name TEXT NOT NULL,
+                    goals INTEGER DEFAULT 0,
+                    assists INTEGER DEFAULT 0,
+                    minutes_played INTEGER DEFAULT 90,
+                    is_starter BOOLEAN DEFAULT 1,
+                    yellow_cards INTEGER DEFAULT 0,
+                    red_cards INTEGER DEFAULT 0,
+                    injuries INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES inter_leagues_games(id),
+                    FOREIGN KEY (player_id) REFERENCES players(id),
+                    FOREIGN KEY (team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE
+                )
+            """)
+            print("  ✅ Created inter_leagues_player_stats table")
+            
+            # Inter-Leagues Standings table
+            # Changed to team-based: references inter_leagues_teams.id
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_standings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    team_name TEXT NOT NULL,
+                    games_played INTEGER DEFAULT 0,
+                    wins INTEGER DEFAULT 0,
+                    draws INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    goals_for INTEGER DEFAULT 0,
+                    goals_against INTEGER DEFAULT 0,
+                    goal_difference INTEGER DEFAULT 0,
+                    points INTEGER DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                    FOREIGN KEY (team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE,
+                    UNIQUE(competition_id, team_id)
+                )
+            """)
+            print("  ✅ Created inter_leagues_standings table")
+            
+            # Inter-Leagues Groups table (to store group information)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    competition_id INTEGER NOT NULL,
+                    group_letter TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                    UNIQUE(competition_id, group_letter)
+                )
+            """)
+            print("  ✅ Created inter_leagues_groups table")
+            
+            # Note: group_id and round_type are now in the CREATE TABLE statement above
+            
+            # Pre-populate the 3 competitions
+            cursor.execute("""
+                INSERT OR IGNORE INTO inter_leagues_competitions (id, name, description)
+                VALUES 
+                    (1, 'Champions League', 'The premier inter-leagues competition'),
+                    (2, 'Masters League', 'The second tier inter-leagues competition'),
+                    (3, 'Conference League', 'The third tier inter-leagues competition')
+            """)
+            print("  ✅ Pre-populated Champions League, Masters League, and Conference League")
+            
+            # Migration: Convert from user-based to team-based schema
+            print("\n🔄 Migrating Inter-Leagues tables from user-based to team-based schema...")
+            try:
+                # Check if old schema exists (has user_id columns in standings/games/squads/stats)
+                cursor.execute("PRAGMA table_info(inter_leagues_standings)")
+                standings_columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'user_id' in standings_columns and 'team_id' not in standings_columns:
+                    print("  ⚠️  Old schema detected. Migrating data...")
+                    
+                    # Step 1: Migrate inter_leagues_standings
+                    print("    Migrating inter_leagues_standings...")
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS inter_leagues_standings_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            competition_id INTEGER NOT NULL,
+                            team_id INTEGER NOT NULL,
+                            team_name TEXT NOT NULL,
+                            games_played INTEGER DEFAULT 0,
+                            wins INTEGER DEFAULT 0,
+                            draws INTEGER DEFAULT 0,
+                            losses INTEGER DEFAULT 0,
+                            goals_for INTEGER DEFAULT 0,
+                            goals_against INTEGER DEFAULT 0,
+                            goal_difference INTEGER DEFAULT 0,
+                            points INTEGER DEFAULT 0,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                            FOREIGN KEY (team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE,
+                            UNIQUE(competition_id, team_id)
+                        )
+                    """)
+                    
+                    # Migrate data: create team entries if needed, then migrate standings
+                    cursor.execute("SELECT DISTINCT competition_id, user_id, username FROM inter_leagues_standings")
+                    old_standings = cursor.fetchall()
+                    for comp_id, user_id, username in old_standings:
+                        # Get team_name from inter_leagues_teams or use username as fallback
+                        cursor.execute("""
+                            SELECT id, team_name FROM inter_leagues_teams 
+                            WHERE competition_id = ? AND user_id = ? LIMIT 1
+                        """, (comp_id, user_id))
+                        team_row = cursor.fetchone()
+                        if team_row:
+                            team_id, team_name = team_row[0], team_row[1]
+                            # Copy standings data (old schema has username, not team_name)
+                            cursor.execute("""
+                                INSERT INTO inter_leagues_standings_new 
+                                (competition_id, team_id, team_name, games_played, wins, draws, losses,
+                                 goals_for, goals_against, goal_difference, points, updated_at)
+                                SELECT competition_id, ?, ?, games_played, wins, draws, losses,
+                                       goals_for, goals_against, goal_difference, points, updated_at
+                                FROM inter_leagues_standings
+                                WHERE competition_id = ? AND user_id = ?
+                            """, (team_id, team_name, comp_id, user_id))
+                        else:
+                            # No team entry exists - create one using username as team_name
+                            # This shouldn't happen, but handle it gracefully
+                            print(f"    ⚠️  Warning: No team entry found for user {user_id} in competition {comp_id}, skipping migration")
+                    
+                    # Replace old table
+                    cursor.execute("DROP TABLE inter_leagues_standings")
+                    cursor.execute("ALTER TABLE inter_leagues_standings_new RENAME TO inter_leagues_standings")
+                    print("    ✅ Migrated inter_leagues_standings")
+                    
+                    # Step 2: Migrate inter_leagues_games
+                    print("    Migrating inter_leagues_games...")
+                    cursor.execute("PRAGMA table_info(inter_leagues_games)")
+                    games_columns = [row[1] for row in cursor.fetchall()]
+                    
+                    if 'home_user_id' in games_columns and 'home_team_id' not in games_columns:
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS inter_leagues_games_new (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                competition_id INTEGER NOT NULL,
+                                round_id INTEGER NOT NULL,
+                                home_team_id INTEGER NOT NULL,
+                                away_team_id INTEGER NOT NULL,
+                                home_team_name TEXT NOT NULL,
+                                away_team_name TEXT NOT NULL,
+                                home_score INTEGER DEFAULT 0,
+                                away_score INTEGER DEFAULT 0,
+                                game_date TIMESTAMP,
+                                is_played BOOLEAN DEFAULT 0,
+                                mvp_player_id INTEGER,
+                                group_id INTEGER,
+                                round_type TEXT DEFAULT 'group_stage',
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                                FOREIGN KEY (round_id) REFERENCES inter_leagues_rounds(id),
+                                FOREIGN KEY (home_team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE,
+                                FOREIGN KEY (away_team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE,
+                                FOREIGN KEY (group_id) REFERENCES inter_leagues_groups(id)
+                            )
+                        """)
+                        
+                        # Migrate games data
+                        cursor.execute("""
+                            INSERT INTO inter_leagues_games_new 
+                            (id, competition_id, round_id, home_team_id, away_team_id, home_team_name, away_team_name,
+                             home_score, away_score, game_date, is_played, mvp_player_id, group_id, round_type, created_at)
+                            SELECT 
+                                g.id, g.competition_id, g.round_id,
+                                ht.id as home_team_id, at.id as away_team_id,
+                                g.home_team_name, g.away_team_name,
+                                g.home_score, g.away_score, g.game_date, g.is_played, g.mvp_player_id,
+                                g.group_id, COALESCE(g.round_type, 'group_stage'), g.created_at
+                            FROM inter_leagues_games g
+                            LEFT JOIN inter_leagues_teams ht ON ht.competition_id = g.competition_id AND ht.user_id = g.home_user_id AND ht.team_name = g.home_team_name
+                            LEFT JOIN inter_leagues_teams at ON at.competition_id = g.competition_id AND at.user_id = g.away_user_id AND at.team_name = g.away_team_name
+                        """)
+                        
+                        cursor.execute("DROP TABLE inter_leagues_games")
+                        cursor.execute("ALTER TABLE inter_leagues_games_new RENAME TO inter_leagues_games")
+                        print("    ✅ Migrated inter_leagues_games")
+                    
+                    # Step 3: Migrate inter_leagues_user_squads
+                    print("    Migrating inter_leagues_user_squads...")
+                    cursor.execute("PRAGMA table_info(inter_leagues_user_squads)")
+                    squads_columns = [row[1] for row in cursor.fetchall()]
+                    
+                    if 'user_id' in squads_columns and 'team_id' not in squads_columns:
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS inter_leagues_user_squads_new (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                competition_id INTEGER NOT NULL,
+                                round_id INTEGER NOT NULL,
+                                team_id INTEGER NOT NULL,
+                                player_id INTEGER NOT NULL,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (competition_id) REFERENCES inter_leagues_competitions(id),
+                                FOREIGN KEY (round_id) REFERENCES inter_leagues_rounds(id),
+                                FOREIGN KEY (team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE,
+                                FOREIGN KEY (player_id) REFERENCES players(id),
+                                UNIQUE(competition_id, round_id, team_id, player_id)
+                            )
+                        """)
+                        
+                        # Migrate squads data
+                        cursor.execute("""
+                            INSERT INTO inter_leagues_user_squads_new 
+                            (competition_id, round_id, team_id, player_id, created_at)
+                            SELECT 
+                                s.competition_id, s.round_id, t.id as team_id, s.player_id, s.created_at
+                            FROM inter_leagues_user_squads s
+                            JOIN inter_leagues_teams t ON t.competition_id = s.competition_id AND t.user_id = s.user_id
+                            LIMIT 1
+                        """)
+                        
+                        cursor.execute("DROP TABLE inter_leagues_user_squads")
+                        cursor.execute("ALTER TABLE inter_leagues_user_squads_new RENAME TO inter_leagues_user_squads")
+                        print("    ✅ Migrated inter_leagues_user_squads")
+                    
+                    # Step 4: Migrate inter_leagues_player_stats
+                    print("    Migrating inter_leagues_player_stats...")
+                    cursor.execute("PRAGMA table_info(inter_leagues_player_stats)")
+                    stats_columns = [row[1] for row in cursor.fetchall()]
+                    
+                    if 'user_id' in stats_columns and 'team_id' not in stats_columns:
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS inter_leagues_player_stats_new (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                game_id INTEGER NOT NULL,
+                                player_id INTEGER NOT NULL,
+                                team_id INTEGER NOT NULL,
+                                player_name TEXT NOT NULL,
+                                goals INTEGER DEFAULT 0,
+                                assists INTEGER DEFAULT 0,
+                                minutes_played INTEGER DEFAULT 90,
+                                is_starter BOOLEAN DEFAULT 1,
+                                yellow_cards INTEGER DEFAULT 0,
+                                red_cards INTEGER DEFAULT 0,
+                                injuries INTEGER DEFAULT 0,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (game_id) REFERENCES inter_leagues_games(id),
+                                FOREIGN KEY (player_id) REFERENCES players(id),
+                                FOREIGN KEY (team_id) REFERENCES inter_leagues_teams(id) ON DELETE CASCADE
+                            )
+                        """)
+                        
+                        # Migrate stats data
+                        cursor.execute("""
+                            INSERT INTO inter_leagues_player_stats_new 
+                            (game_id, player_id, team_id, player_name, goals, assists, minutes_played, is_starter, created_at)
+                            SELECT 
+                                s.game_id, s.player_id, 
+                                CASE 
+                                    WHEN g.home_team_id IS NOT NULL AND s.user_id = (SELECT user_id FROM inter_leagues_teams WHERE id = g.home_team_id) 
+                                    THEN g.home_team_id
+                                    WHEN g.away_team_id IS NOT NULL AND s.user_id = (SELECT user_id FROM inter_leagues_teams WHERE id = g.away_team_id)
+                                    THEN g.away_team_id
+                                    ELSE (SELECT id FROM inter_leagues_teams WHERE competition_id = g.competition_id AND user_id = s.user_id LIMIT 1)
+                                END as team_id,
+                                s.player_name, s.goals, s.assists, s.minutes_played, s.is_starter, 
+                                COALESCE(s.yellow_cards, 0) as yellow_cards,
+                                COALESCE(s.red_cards, 0) as red_cards,
+                                COALESCE(s.injuries, 0) as injuries,
+                                s.created_at
+                            FROM inter_leagues_player_stats s
+                            JOIN inter_leagues_games g ON s.game_id = g.id
+                        """)
+                        
+                        cursor.execute("DROP TABLE inter_leagues_player_stats")
+                        cursor.execute("ALTER TABLE inter_leagues_player_stats_new RENAME TO inter_leagues_player_stats")
+                        print("    ✅ Migrated inter_leagues_player_stats")
+                    
+                    print("  ✅ Migration completed successfully!")
+                else:
+                    print("  ℹ️  Tables already use team-based schema (or tables don't exist yet)")
+                    
+            except Exception as e:
+                print(f"  ⚠️  Migration error (may be normal if tables are new): {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # Add cards and injuries columns to inter_leagues_player_stats if they don't exist
+            print("\n🟡🔴🏥 Adding cards and injuries columns to inter_leagues_player_stats...")
+            try:
+                cursor.execute("PRAGMA table_info(inter_leagues_player_stats)")
+                existing_columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'yellow_cards' not in existing_columns:
+                    cursor.execute("ALTER TABLE inter_leagues_player_stats ADD COLUMN yellow_cards INTEGER DEFAULT 0")
+                    print("  ✅ Added yellow_cards column")
+                else:
+                    print("  ℹ️  yellow_cards column already exists")
+                
+                if 'red_cards' not in existing_columns:
+                    cursor.execute("ALTER TABLE inter_leagues_player_stats ADD COLUMN red_cards INTEGER DEFAULT 0")
+                    print("  ✅ Added red_cards column")
+                else:
+                    print("  ℹ️  red_cards column already exists")
+                
+                if 'injuries' not in existing_columns:
+                    cursor.execute("ALTER TABLE inter_leagues_player_stats ADD COLUMN injuries INTEGER DEFAULT 0")
+                    print("  ✅ Added injuries column")
+                else:
+                    print("  ℹ️  injuries column already exists")
+            except Exception as e:
+                print(f"  ⚠️  Error adding cards/injuries columns: {e}")
+            
+        except Exception as e:
+            print(f"  ❌ Error creating Inter-Leagues tables: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Create market_bazaar_listings table for player transfer listings
         print("\n🏪 Creating market_bazaar_listings table...")

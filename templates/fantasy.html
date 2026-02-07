@@ -1,0 +1,1135 @@
+{% extends "base.html" %}
+
+{% block title %}Fantasy{% endblock %}
+
+{% block head %}
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- GSAP with multiple fallback CDNs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js" 
+        onerror="loadGSAPFallback()"></script>
+<script>
+window.FANTASY_ASSETS = {
+    boosterPackImage: "{{ url_for('static', filename='fantasy/booster_pack.png') }}?v={{ cache_timestamp }}",
+    cardBg: "{{ url_for('static', filename='fantasy/card_bg.png') }}?v={{ cache_timestamp }}"
+};
+function loadGSAPFallback() {
+    console.log('Primary GSAP CDN failed, trying fallback...');
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js';
+    script.onerror = function() {
+        console.log('Second GSAP CDN failed, trying third fallback...');
+        const script2 = document.createElement('script');
+        script2.src = 'https://unpkg.com/gsap@3.12.2/dist/gsap.min.js';
+        script2.onerror = function() {
+            console.error('All GSAP CDNs failed! Using fallback animations.');
+            window.gsap = null;
+        };
+        document.head.appendChild(script2);
+    };
+    document.head.appendChild(script);
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div style="min-height: 100vh; background: linear-gradient(135deg, #0a4d2e 0%, #1a7a4a 100%); padding: 20px; font-family: 'Arial', sans-serif;">
+    <!-- Header -->
+    <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); border-radius: 15px; padding: 25px; margin-bottom: 20px; box-shadow: 0 8px 25px rgba(0,0,0,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="color: white;">
+            <h1 style="font-size: 32px; font-weight: bold; margin: 0 0 10px 0;">🎴 Fantasy Card Game</h1>
+            <p style="font-size: 18px; margin: 0; color: #e0e7ff;">Welcome, <strong style="color: #fbbf24;">{{ current_user.username }}</strong></p>
+        </div>
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <div style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); border-radius: 12px; padding: 15px 25px; border: 3px solid white; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                <div style="color: #78350f; font-weight: bold; font-size: 12px; margin-bottom: 5px;">TR CURRENCY</div>
+                <div id="tr-currency" style="color: #78350f; font-weight: 900; font-size: 28px;">{{ "{:,}".format(tr_currency) }}</div>
+            </div>
+            <button id="buy-booster-btn" style="background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); border: 3px solid white; border-radius: 12px; padding: 15px 30px; color: white; font-weight: 900; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: transform 0.2s;">
+                🎁 Buy Booster Pack (500 TR)
+            </button>
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+        <!-- Left: Card Collection -->
+        <div style="width: 400px; flex-shrink: 0; background: white; border-radius: 15px; padding: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); border: 4px solid #d4af37; max-height: 85vh; overflow-y: auto;">
+            <h2 style="font-size: 24px; font-weight: 900; color: #1a365d; text-align: center; margin: 0 0 20px 0; padding-bottom: 15px; border-bottom: 4px solid #d4af37; text-transform: uppercase;">📦 Card Collection</h2>
+            <div id="card-purse" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px;">
+                {% for player in players if player.profile_image %}
+                {% set rarity = player.get('rarity', 'normal') %}
+                {% set border_color = '#000000' if rarity == 'normal' else '#2563eb' if rarity == 'rare' else '#9333ea' if rarity == 'mythical' else '#d4af37' if rarity == 'legendary' else '#10b981' %}
+                <!-- Compact Card View in Wallet -->
+                <div class="player-card-compact" 
+                     draggable="true"
+                     data-player-id="{{ player.id }}" 
+                     data-position="{{ player.registered_position }}"
+                     data-player-name="{{ player.player_name }}"
+                     data-rarity="{{ rarity }}"
+                     data-player-data='{{ player | tojson }}'
+                     style="width: 120px; height: 160px; min-width: 120px; min-height: 160px; flex-shrink: 0; background: url('{{ url_for("static", filename="fantasy/card_bg.png") }}?v={{ cache_timestamp }}') center/cover, linear-gradient(135deg, #e0dcd4 0%, #d5d0c8 50%, #cac4bc 100%); border-radius: 12px; border: 4px solid {{ border_color }}; position: relative; overflow: hidden; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.4); margin: 0; user-select: none; transition: transform 0.2s;">
+                    <!-- Player Name at Top -->
+                    <div style="position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 900; color: #1a365d; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px; z-index: 10; text-shadow: 1px 1px 2px rgba(255,255,255,0.9); background: linear-gradient(180deg, rgba(232,230,220,0.97) 0%, rgba(220,216,206,0.95) 100%); border-bottom: 2px solid {{ border_color }};">{{ (player.shirt_name or player.player_name)[:12] }}</div>
+                    
+                    <!-- Position Badge -->
+                    <div style="position: absolute; top: 22px; right: 4px; z-index: 20; font-size: 10px; font-weight: 900; color: white; background: {{ border_color }}; padding: 2px 6px; border-radius: 8px; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
+                        {% set pos = player.registered_position|int if player.registered_position is not none else -1 %}
+                        {% if pos == 0 %}GK{% elif pos == 2 %}SW{% elif pos == 3 %}CB{% elif pos == 4 %}SB{% elif pos == 5 %}DMF{% elif pos == 6 %}WB{% elif pos == 7 %}CMF{% elif pos == 8 %}SMF{% elif pos == 9 %}AMF{% elif pos == 10 %}WF{% elif pos == 11 %}SS{% elif pos == 12 %}CF{% else %}N/A{% endif %}
+                    </div>
+                    
+                    <!-- Player Image: square 88x88, full face visible, no crop -->
+                    <div style="position: absolute; top: 28px; left: 16px; width: 88px; height: 88px; min-width: 88px; min-height: 88px; overflow: hidden; border-radius: 8px; background: #d8d4cc; z-index: 2; box-sizing: border-box;">
+                        <img src="{{ url_for('serve_player_image_by_id', player_id=player.id) }}?v={{ cache_timestamp if cache_timestamp else '' }}" 
+                             alt="{{ player.player_name }}" 
+                             width="88" height="88"
+                             style="display: block; width: 100%; height: 100%; object-fit: contain; object-position: center center; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25)); pointer-events: none;"
+                             onerror="this.onerror=null; this.style.display='none'; var ph=this.nextElementSibling; if(ph) { ph.style.display='flex'; ph.style.alignItems='center'; ph.style.justifyContent='center'; }">
+                        <div style="display: none; position: absolute; inset: 0; background: linear-gradient(135deg, #e0e0e0 0%, #c0c0c0 100%); align-items: center; justify-content: center; color: #999; font-size: 9px; font-weight: bold;">No Img</div>
+                    </div>
+                    
+                    <!-- Compact Stats with Symbols (smaller) -->
+                    <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, rgba(232,230,220,0.98) 0%, #e0dcd4 100%); padding: 3px 4px 5px; border-radius: 0 0 12px 12px; z-index: 10;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 1px;">
+                            <div style="font-size: 10px; flex: 1; text-align: center;">⚽</div>
+                            <div style="font-size: 10px; flex: 1; text-align: center;">🛡️</div>
+                            <div style="font-size: 10px; flex: 1; text-align: center;">💪</div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 1px;">
+                            <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">{{ player.attack_rating or 0 }}</div>
+                            <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">{{ player.defense_rating or 0 }}</div>
+                            <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">{{ player.physical_rating or 0 }}</div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 1px;">
+                            <div style="font-size: 10px; flex: 1; text-align: center;">⚡</div>
+                            <div style="font-size: 10px; flex: 1; text-align: center;">🎨</div>
+                            <div style="font-size: 10px; flex: 1; text-align: center;">🧤</div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">{{ player.power_rating or 0 }}</div>
+                            <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">{{ player.technique_rating or 0 }}</div>
+                            <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">{{ player.goalkeeping_rating or 0 }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div style="text-align: center; color: #666; padding: 40px; width: 100%;">
+                    <p style="font-size: 18px; margin-bottom: 10px;">Your collection is empty</p>
+                    <p style="font-size: 14px;">Buy booster packs to get player cards (only players with photos)!</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <!-- Right: Soccer Pitch -->
+        <div style="flex: 1; min-width: 600px;">
+            <div style="background: #0a4d2e; border-radius: 15px; padding: 25px; box-shadow: 0 12px 50px rgba(0,0,0,0.6);">
+                <h2 style="font-size: 24px; font-weight: bold; color: white; text-align: center; margin: 0 0 20px 0; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">⚽ Formation Layout</h2>
+                <div style="position: relative; width: 100%; max-width: 1100px; margin: 0 auto;">
+                    <canvas id="pitch-canvas" width="1100" height="700" style="display: block; width: 100%; height: auto; border: 6px solid white; border-radius: 10px; background: linear-gradient(90deg, #0a4d2e 0%, #1a7a4a 50%, #0a4d2e 100%); box-shadow: inset 0 0 60px rgba(0,0,0,0.4);"></canvas>
+                    <div id="formation-slots" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Booster Pack Animation Container -->
+<div id="booster-animation-container" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10000; display: none; background: rgba(0,0,0,0.75);"></div>
+
+<script>
+// Formation positions (4-3-3)
+const formationPositions = [
+    { id: 'gk', x: 550, y: 650, label: 'GK' },
+    { id: 'lb', x: 250, y: 500, label: 'LB' },
+    { id: 'cb1', x: 450, y: 500, label: 'CB' },
+    { id: 'cb2', x: 650, y: 500, label: 'CB' },
+    { id: 'rb', x: 850, y: 500, label: 'RB' },
+    { id: 'cm1', x: 400, y: 400, label: 'CM' },
+    { id: 'cm2', x: 550, y: 400, label: 'CM' },
+    { id: 'cm3', x: 700, y: 400, label: 'CM' },
+    { id: 'lw', x: 250, y: 250, label: 'LW' },
+    { id: 'st', x: 550, y: 250, label: 'ST' },
+    { id: 'rw', x: 850, y: 250, label: 'RW' }
+];
+
+// Store placed cards
+const placedCards = {};
+
+// Draw soccer pitch
+function drawPitch() {
+    const canvas = document.getElementById('pitch-canvas');
+    if (!canvas) {
+        console.error('Canvas element not found!');
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // Clear
+    ctx.clearRect(0, 0, width, height);
+    
+    // Grass base
+    ctx.fillStyle = '#0a4d2e';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Grass stripes
+    ctx.strokeStyle = 'rgba(26, 122, 74, 0.3)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < width; i += 25) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, height);
+        ctx.stroke();
+    }
+    
+    // Center circle
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(width / 2, height / 2, 100, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Center line
+    ctx.beginPath();
+    ctx.moveTo(0, height / 2);
+    ctx.lineTo(width, height / 2);
+    ctx.stroke();
+    
+    // Center dot
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.beginPath();
+    ctx.arc(width / 2, height / 2, 8, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Penalty areas
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(350, 0, 400, 140);
+    ctx.strokeRect(400, 0, 300, 70);
+    ctx.strokeRect(350, height - 140, 400, 140);
+    ctx.strokeRect(400, height - 70, 300, 70);
+    
+    // Goal areas
+    ctx.strokeRect(475, 0, 150, 55);
+    ctx.strokeRect(475, height - 55, 150, 55);
+    
+    // Corner arcs
+    const cornerRadius = 30;
+    ctx.beginPath();
+    ctx.arc(0, 0, cornerRadius, 0, Math.PI / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(width, 0, cornerRadius, Math.PI / 2, Math.PI);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, height, cornerRadius, -Math.PI / 2, 0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(width, height, cornerRadius, Math.PI, -Math.PI / 2);
+    ctx.stroke();
+    
+    // Penalty spots
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.beginPath();
+    ctx.arc(width / 2, 95, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(width / 2, height - 95, 6, 0, Math.PI * 2);
+    ctx.fill();
+    
+    console.log('✅ Pitch drawn successfully');
+}
+
+// Create position slots
+function createPositionSlots() {
+    const container = document.getElementById('formation-slots');
+    if (!container) {
+        console.error('Formation slots container not found!');
+        return;
+    }
+    
+    container.innerHTML = '';
+    
+    const canvas = document.getElementById('pitch-canvas');
+    if (!canvas) return;
+    
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width / canvas.width;
+    const scaleY = canvasRect.height / canvas.height;
+    
+    formationPositions.forEach(pos => {
+        const slot = document.createElement('div');
+        slot.id = 'slot-' + pos.id;
+        slot.dataset.positionId = pos.id;
+        slot.dataset.posX = pos.x;
+        slot.dataset.posY = pos.y;
+        slot.textContent = pos.label;
+        slot.style.cssText = `
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            border: 4px dashed rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            pointer-events: all;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 13px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+            cursor: pointer;
+            z-index: 5;
+            left: ${(pos.x * scaleX - 35)}px;
+            top: ${(pos.y * scaleY - 35)}px;
+            transition: all 0.3s ease;
+        `;
+        
+        slot.addEventListener('mouseenter', function() {
+            if (!this.classList.contains('has-card')) {
+                this.style.borderColor = '#d4af37';
+                this.style.background = 'rgba(212, 175, 55, 0.4)';
+                this.style.transform = 'scale(1.15)';
+            }
+        });
+        
+        slot.addEventListener('mouseleave', function() {
+            if (!this.classList.contains('has-card')) {
+                this.style.borderColor = 'rgba(255, 255, 255, 0.8)';
+                this.style.background = 'rgba(255, 255, 255, 0.2)';
+                this.style.transform = 'scale(1)';
+            }
+        });
+        
+        // Drop zone events
+        slot.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!this.classList.contains('has-card')) {
+                this.style.borderColor = '#d4af37';
+                this.style.background = 'rgba(212, 175, 55, 0.5)';
+            }
+        });
+        
+        slot.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!this.classList.contains('has-card')) {
+                this.style.borderColor = 'rgba(255, 255, 255, 0.8)';
+                this.style.background = 'rgba(255, 255, 255, 0.2)';
+            }
+        });
+        
+        slot.addEventListener('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const playerId = e.dataTransfer.getData('text/plain');
+            const card = document.querySelector(`[data-player-id="${playerId}"]`);
+            
+            if (!card) return;
+            
+            // Remove existing card from this slot if any
+            const existingCard = this.querySelector('.field-card');
+            if (existingCard) {
+                existingCard.remove();
+            }
+            
+            const cardBg = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.cardBg) ? FANTASY_ASSETS.cardBg : '';
+            const fdBg = cardBg ? "url('" + cardBg + "') center/cover, " : '';
+            const fieldCard = document.createElement('div');
+            fieldCard.className = 'field-card';
+            fieldCard.dataset.playerId = playerId;
+            const rarity = card.dataset.rarity || 'normal';
+            const borderColor = getRarityBorderColor(rarity);
+            fieldCard.style.cssText = `
+                position: absolute;
+                width: 70px;
+                height: 90px;
+                background: ${fdBg}linear-gradient(135deg, #e0dcd4 0%, #d5d0c8 50%, #cac4bc 100%);
+                border-radius: 8px;
+                border: 3px solid ${borderColor};
+                overflow: hidden;
+                cursor: move;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+                z-index: 10;
+                left: ${(parseFloat(this.dataset.posX) * scaleX - 35)}px;
+                top: ${(parseFloat(this.dataset.posY) * scaleY - 45)}px;
+            `;
+            
+            const nameDiv = document.createElement('div');
+            nameDiv.style.cssText = 'text-align: center; font-size: 8px; font-weight: 900; color: #1a365d; text-transform: uppercase; padding: 2px 3px; background: rgba(232,230,220,0.95); border-bottom: 1px solid ' + borderColor + ';';
+            nameDiv.textContent = (card.dataset.playerName || '').substring(0, 8);
+            
+            const imgDiv = document.createElement('div');
+            imgDiv.style.cssText = 'width: 52px; height: 52px; margin: 2px auto 0; overflow: hidden; border-radius: 6px; background: #d8d4cc; display: flex; align-items: center; justify-content: center;';
+            const img = document.createElement('img');
+            img.src = card.querySelector('img') ? card.querySelector('img').src : '';
+            img.width = 52;
+            img.height = 52;
+            img.style.cssText = 'width: 52px; height: 52px; object-fit: contain; object-position: center; pointer-events: none;';
+            img.onerror = function() {
+                this.style.display = 'none';
+                const ph = document.createElement('div');
+                ph.style.cssText = 'width: 100%; height: 100%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; color: #999; font-size: 7px;';
+                ph.textContent = 'No Img';
+                imgDiv.appendChild(ph);
+            };
+            imgDiv.appendChild(img);
+            
+            fieldCard.appendChild(nameDiv);
+            fieldCard.appendChild(imgDiv);
+            
+            // Make removable
+            fieldCard.addEventListener('dblclick', function() {
+                this.remove();
+                const slot = document.getElementById('slot-' + pos.id);
+                if (slot) {
+                    slot.classList.remove('has-card');
+                    slot.style.borderColor = 'rgba(255, 255, 255, 0.8)';
+                    slot.style.background = 'rgba(255, 255, 255, 0.2)';
+                    slot.style.borderStyle = 'dashed';
+                }
+            });
+            
+            this.appendChild(fieldCard);
+            this.classList.add('has-card');
+            this.style.borderColor = '#d4af37';
+            this.style.background = 'rgba(212, 175, 55, 0.3)';
+            this.style.borderStyle = 'solid';
+            
+            placedCards[pos.id] = playerId;
+            console.log('Card placed at', pos.id);
+        });
+        
+        container.appendChild(slot);
+    });
+    
+    console.log('✅ Position slots created:', formationPositions.length);
+}
+
+let _cardDragging = false;
+let _purseClickBound = false;
+
+function _attachCardDrag(card) {
+    if (card.dataset.dragBound === '1') return;
+    card.dataset.dragBound = '1';
+    card.addEventListener('dragstart', function(e) {
+        _cardDragging = true;
+        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.setData('text/plain', this.dataset.playerId);
+        this.style.opacity = '0.5';
+    });
+    card.addEventListener('dragend', function(e) {
+        this.style.opacity = '1';
+        setTimeout(function() { _cardDragging = false; }, 0);
+    });
+}
+
+function setupCardDrag() {
+    const purse = document.getElementById('card-purse');
+    if (!purse) return;
+    
+    if (!_purseClickBound) {
+        _purseClickBound = true;
+        purse.addEventListener('click', function(e) {
+            if (_cardDragging) return;
+            const card = e.target.closest('.player-card-compact');
+            if (!card) return;
+            const data = card.dataset.playerData;
+            if (!data) return;
+            try {
+                const playerData = typeof data === 'string' ? JSON.parse(data) : data;
+                showExpandedCard(playerData);
+            } catch (err) {
+                console.warn('Fantasy: could not parse player data', err);
+            }
+        });
+    }
+    
+    const cards = document.querySelectorAll('.player-card-compact');
+    cards.forEach(function(c) { _attachCardDrag(c); });
+    
+    console.log('✅ Card drag + click setup:', cards.length, 'cards');
+}
+
+// Show expanded card modal
+function showExpandedCard(player) {
+    const rarity = player.rarity || (player.overall >= 96 ? 'limited' : player.overall >= 86 ? 'legendary' : player.overall >= 76 ? 'mythical' : player.overall >= 61 ? 'rare' : 'normal');
+    const borderColor = getRarityBorderColor(rarity);
+    
+    const pos = parseInt(player.registered_position) || -1;
+    let posLabel = 'N/A';
+    if (pos == 0) posLabel = 'GK';
+    else if (pos == 2) posLabel = 'SW';
+    else if (pos == 3) posLabel = 'CB';
+    else if (pos == 4) posLabel = 'SB';
+    else if (pos == 5) posLabel = 'DMF';
+    else if (pos == 6) posLabel = 'WB';
+    else if (pos == 7) posLabel = 'CMF';
+    else if (pos == 8) posLabel = 'SMF';
+    else if (pos == 9) posLabel = 'AMF';
+    else if (pos == 10) posLabel = 'WF';
+    else if (pos == 11) posLabel = 'SS';
+    else if (pos == 12) posLabel = 'CF';
+    
+    const modal = document.createElement('div');
+    modal.id = 'expanded-card-modal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        cursor: pointer;
+    `;
+    
+    const expandedCard = document.createElement('div');
+    const cardBg = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.cardBg) ? FANTASY_ASSETS.cardBg : '';
+    const bgStyle = cardBg ? "url('" + cardBg + "') center/cover, " : '';
+    expandedCard.style.cssText = `
+        width: 280px;
+        height: 420px;
+        background: ${bgStyle}linear-gradient(135deg, #e0dcd4 0%, #d5d0c8 50%, #cac4bc 100%);
+        border-radius: 20px 20px 80px 20px;
+        border: 10px solid ${borderColor};
+        position: relative;
+        overflow: hidden;
+        cursor: default;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+        transform: scale(0.9);
+        transition: transform 0.3s ease;
+    `;
+    
+    expandedCard.innerHTML = `
+        <div style="position: absolute; top: -20px; left: 50%; transform: translateX(-50%); width: 90px; height: 30px; background: linear-gradient(135deg, ${borderColor} 0%, ${borderColor}88 50%, ${borderColor} 100%); border-radius: 15px 15px 0 0; z-index: 15; box-shadow: 0 4px 10px rgba(0,0,0,0.4);"></div>
+        <div style="position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px; border: 5px solid #e8e4dc; border-radius: 20px 20px 80px 20px; pointer-events: none; z-index: 1;"></div>
+        
+        <!-- Player Name at Top -->
+        <div style="position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 15px; font-weight: 900; color: #1a365d; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 8px; z-index: 10; background: linear-gradient(180deg, rgba(232,230,220,0.97) 0%, rgba(220,216,206,0.95) 100%); border-bottom: 3px solid ${borderColor};">
+            ${(player.shirt_name || player.player_name || '').substring(0, 18)}
+        </div>
+        
+        <!-- Position Badge -->
+        <div style="position: absolute; top: 42px; right: 12px; z-index: 20; font-size: 12px; font-weight: 900; color: white; background: ${borderColor}; padding: 3px 8px; border-radius: 10px;">${posLabel}</div>
+        
+        <!-- Player Image: 200x200 square, full face visible, no crop -->
+        <div style="position: absolute; top: 52px; left: 50%; margin-left: -100px; width: 200px; height: 200px; min-width: 200px; min-height: 200px; overflow: hidden; border-radius: 12px; background: #d8d4cc; z-index: 2; box-sizing: border-box;">
+            <img src="/player_image/${player.id}?v={{ cache_timestamp if cache_timestamp else '' }}" 
+                 alt="${(player.player_name || '')}"
+                 width="200" height="200"
+                 style="display: block; width: 100%; height: 100%; object-fit: contain; object-position: center center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.35)); pointer-events: none;"
+                 onerror="this.style.display='none'; var n=this.nextElementSibling; if(n) { n.style.display='flex'; n.style.alignItems='center'; n.style.justifyContent='center'; }">
+            <div style="display: none; position: absolute; inset: 0; background: linear-gradient(135deg, #e0e0e0 0%, #c0c0c0 100%); align-items: center; justify-content: center; color: #999; font-size: 13px; font-weight: bold;">No Image</div>
+        </div>
+        
+        <!-- Stats with Symbols (compact) -->
+        <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, rgba(232,230,220,0.98) 0%, #e0dcd4 100%); padding: 8px 10px 10px; border-radius: 0 0 20px 20px; z-index: 10;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <div style="font-size: 13px; flex: 1; text-align: center;">⚽</div>
+                <div style="font-size: 13px; flex: 1; text-align: center;">🛡️</div>
+                <div style="font-size: 13px; flex: 1; text-align: center;">💪</div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <div style="font-size: 11px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.attack_rating || 0}</div>
+                <div style="font-size: 11px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.defense_rating || 0}</div>
+                <div style="font-size: 11px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.physical_rating || 0}</div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <div style="font-size: 13px; flex: 1; text-align: center;">⚡</div>
+                <div style="font-size: 13px; flex: 1; text-align: center;">🎨</div>
+                <div style="font-size: 13px; flex: 1; text-align: center;">🧤</div>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <div style="font-size: 11px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.power_rating || 0}</div>
+                <div style="font-size: 11px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.technique_rating || 0}</div>
+                <div style="font-size: 11px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.goalkeeping_rating || 0}</div>
+            </div>
+        </div>
+    `;
+    
+    modal.appendChild(expandedCard);
+    document.body.appendChild(modal);
+    
+    // Animate in
+    setTimeout(() => {
+        expandedCard.style.transform = 'scale(1)';
+    }, 10);
+    
+    // Close on click outside
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            expandedCard.style.transform = 'scale(0.9)';
+            expandedCard.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(modal);
+            }, 300);
+        }
+    });
+}
+
+// Get rarity border color
+function getRarityBorderColor(rarity) {
+    const colors = {
+        'normal': '#000000',
+        'rare': '#2563eb',
+        'mythical': '#9333ea',
+        'legendary': '#d4af37',
+        'limited': '#10b981'
+    };
+    return colors[rarity] || '#000000';
+}
+
+// Create player card HTML (compact version for wallet)
+function createPlayerCardHTML(player) {
+    const pos = parseInt(player.registered_position) || -1;
+    let posLabel = 'N/A';
+    if (pos == 0) posLabel = 'GK';
+    else if (pos == 2) posLabel = 'SW';
+    else if (pos == 3) posLabel = 'CB';
+    else if (pos == 4) posLabel = 'SB';
+    else if (pos == 5) posLabel = 'DMF';
+    else if (pos == 6) posLabel = 'WB';
+    else if (pos == 7) posLabel = 'CMF';
+    else if (pos == 8) posLabel = 'SMF';
+    else if (pos == 9) posLabel = 'AMF';
+    else if (pos == 10) posLabel = 'WF';
+    else if (pos == 11) posLabel = 'SS';
+    else if (pos == 12) posLabel = 'CF';
+    
+    // Determine rarity based on overall if not provided
+    const overall = player.overall || 0;
+    let rarity = player.rarity;
+    if (!rarity) {
+        if (overall >= 96) rarity = 'limited';
+        else if (overall >= 86) rarity = 'legendary';
+        else if (overall >= 76) rarity = 'mythical';
+        else if (overall >= 61) rarity = 'rare';
+        else rarity = 'normal';
+    }
+    const borderColor = getRarityBorderColor(rarity);
+    const cardBg = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.cardBg) ? FANTASY_ASSETS.cardBg : '';
+    const bgStyle = cardBg ? "url('" + cardBg + "') center/cover, " : '';
+    
+    return `
+        <div class="player-card-compact" 
+             draggable="true"
+             data-player-id="${player.id}" 
+             data-position="${player.registered_position}"
+             data-player-name="${player.player_name}"
+             data-rarity="${rarity}"
+             data-player-data='${JSON.stringify(player)}'
+             style="width: 120px; height: 160px; min-width: 120px; min-height: 160px; flex-shrink: 0; background: ${bgStyle}linear-gradient(135deg, #e0dcd4 0%, #d5d0c8 50%, #cac4bc 100%); border-radius: 12px; border: 4px solid ${borderColor}; position: relative; overflow: hidden; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.4); margin: 0; user-select: none; transition: transform 0.2s;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 900; color: #1a365d; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px; z-index: 10; text-shadow: 1px 1px 2px rgba(255,255,255,0.9); background: linear-gradient(180deg, rgba(232,230,220,0.97) 0%, rgba(220,216,206,0.95) 100%); border-bottom: 2px solid ${borderColor};">${(player.shirt_name || player.player_name || '').substring(0, 12)}</div>
+            <div style="position: absolute; top: 22px; right: 4px; z-index: 20; font-size: 10px; font-weight: 900; color: white; background: ${borderColor}; padding: 2px 6px; border-radius: 8px;">${posLabel}</div>
+            <div style="position: absolute; top: 28px; left: 16px; width: 88px; height: 88px; min-width: 88px; min-height: 88px; overflow: hidden; border-radius: 8px; background: #d8d4cc; z-index: 2; box-sizing: border-box;">
+                <img src="/player_image/${player.id}?v={{ cache_timestamp if cache_timestamp else '' }}" 
+                     alt="${(player.player_name || '')}"
+                     width="88" height="88"
+                     style="display: block; width: 100%; height: 100%; object-fit: contain; object-position: center center; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25)); pointer-events: none;"
+                     onerror="this.style.display='none'; var ph=this.nextElementSibling; if(ph) { ph.style.display='flex'; ph.style.alignItems='center'; ph.style.justifyContent='center'; }">
+                <div style="display: none; position: absolute; inset: 0; background: linear-gradient(135deg, #e0e0e0 0%, #c0c0c0 100%); align-items: center; justify-content: center; color: #999; font-size: 9px; font-weight: bold;">No Img</div>
+            </div>
+            <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, rgba(232,230,220,0.98) 0%, #e0dcd4 100%); padding: 3px 4px 5px; border-radius: 0 0 12px 12px; z-index: 10;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1px;">
+                    <div style="font-size: 10px; flex: 1; text-align: center;">⚽</div>
+                    <div style="font-size: 10px; flex: 1; text-align: center;">🛡️</div>
+                    <div style="font-size: 10px; flex: 1; text-align: center;">💪</div>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1px;">
+                    <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.attack_rating || 0}</div>
+                    <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.defense_rating || 0}</div>
+                    <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.physical_rating || 0}</div>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1px;">
+                    <div style="font-size: 10px; flex: 1; text-align: center;">⚡</div>
+                    <div style="font-size: 10px; flex: 1; text-align: center;">🎨</div>
+                    <div style="font-size: 10px; flex: 1; text-align: center;">🧤</div>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.power_rating || 0}</div>
+                    <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.technique_rating || 0}</div>
+                    <div style="font-size: 9px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.goalkeeping_rating || 0}</div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Buy Booster Pack
+document.getElementById('buy-booster-btn').addEventListener('click', function() {
+    const btn = this;
+    const currentTR = parseInt(document.getElementById('tr-currency').textContent.replace(/,/g, '')) || 0;
+    
+    if (currentTR < 500) {
+        alert('Not enough TR currency! You need 500 TR to buy a booster pack.');
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.textContent = 'Opening...';
+    
+    fetch('/fantasy/buy_booster_pack', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update TR currency
+            const newTR = currentTR - 500;
+            document.getElementById('tr-currency').textContent = newTR.toLocaleString();
+            
+            // Preload booster image (your custom booster_pack.png) then animate
+            preloadBoosterImage(function() {
+                animateBoosterPack(data.players);
+            });
+        } else {
+            alert('Error: ' + (data.error || 'Failed to buy booster pack'));
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.textContent = '🎁 Buy Booster Pack (500 TR)';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error buying booster pack. Please try again.');
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.textContent = '🎁 Buy Booster Pack (500 TR)';
+    });
+});
+
+// Wait for GSAP to load
+function waitForGSAP(callback, maxAttempts = 50) {
+    let attempts = 0;
+    const checkGSAP = setInterval(function() {
+        attempts++;
+        if (typeof gsap !== 'undefined' && gsap !== null) {
+            clearInterval(checkGSAP);
+            callback();
+        } else if (attempts >= maxAttempts) {
+            clearInterval(checkGSAP);
+            console.warn('GSAP not loaded after waiting, using fallback animation');
+            callback(true); // Pass true to indicate fallback needed
+        }
+    }, 100);
+}
+
+function _playersWithImages(players) {
+    return (players || []).filter(function(p) {
+        const v = p.profile_image;
+        return v != null && String(v).trim() !== '';
+    });
+}
+
+function preloadBoosterImage(callback) {
+    const url = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) ? FANTASY_ASSETS.boosterPackImage : '';
+    if (!url) {
+        callback();
+        return;
+    }
+    const img = new Image();
+    img.onload = function() { callback(); };
+    img.onerror = function() { callback(); };
+    img.src = url;
+}
+
+// Fallback animation using vanilla JS/CSS
+function animateBoosterPackFallback(players) {
+    const withImages = _playersWithImages(players);
+    const container = document.getElementById('booster-animation-container');
+    container.style.display = 'block';
+    container.style.pointerEvents = 'all';
+    
+    const boosterImgUrl = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) ? FANTASY_ASSETS.boosterPackImage : '';
+    const boosterPack = document.createElement('div');
+    boosterPack.id = 'booster-pack';
+    boosterPack.style.cssText = `
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 280px;
+        height: 360px;
+        z-index: 10001;
+        transition: transform 0.1s ease, scale 0.5s ease, opacity 0.5s ease;
+        overflow: hidden;
+        border: none;
+        box-shadow: none;
+    `;
+    if (boosterImgUrl) {
+        boosterPack.style.background = '#0d0d0d url("' + boosterImgUrl.replace(/"/g, '%22') + '") center/contain no-repeat';
+        const probe = document.createElement('img');
+        probe.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+        probe.onerror = function() {
+            probe.remove();
+            boosterPack.style.background = 'linear-gradient(135deg, #8b4513 0%, #654321 100%)';
+            boosterPack.style.border = '6px solid #d4af37';
+            boosterPack.style.borderRadius = '15px';
+            boosterPack.style.color = 'white';
+            boosterPack.style.fontSize = '24px';
+            boosterPack.style.fontWeight = 'bold';
+            boosterPack.appendChild(document.createTextNode('🎁'));
+        };
+        probe.src = boosterImgUrl;
+        boosterPack.appendChild(probe);
+    } else {
+        boosterPack.style.background = 'linear-gradient(135deg, #8b4513 0%, #654321 100%)';
+        boosterPack.style.border = '6px solid #d4af37';
+        boosterPack.style.borderRadius = '15px';
+        boosterPack.style.color = 'white';
+        boosterPack.style.fontSize = '24px';
+        boosterPack.style.fontWeight = 'bold';
+        boosterPack.textContent = '🎁';
+    }
+    container.appendChild(boosterPack);
+    
+    // Shake animation
+    let shakeCount = 0;
+    const shakeInterval = setInterval(function() {
+        shakeCount++;
+        const offset = (shakeCount % 2 === 0) ? -10 : 10;
+        boosterPack.style.transform = `translate(calc(-50% + ${offset}px), -50%)`;
+        
+        if (shakeCount >= 20) {
+            clearInterval(shakeInterval);
+            // Scale up and fade out
+            boosterPack.style.transform = 'translate(-50%, -50%) scale(2)';
+            boosterPack.style.opacity = '0';
+            
+            setTimeout(function() {
+                // Create and animate cards
+                const centerX = window.innerWidth / 2;
+                const centerY = window.innerHeight / 2;
+                const angles = [0, 72, 144, 216, 288];
+                const radius = 300;
+                
+                withImages.forEach((player, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'flying-card';
+                    card.innerHTML = createPlayerCardHTML(player);
+                    const angle = (angles[index] * Math.PI) / 180;
+                    const targetX = centerX + Math.cos(angle) * radius;
+                    const targetY = centerY + Math.sin(angle) * radius;
+                    
+                    card.style.cssText = `
+                        position: absolute;
+                        top: ${centerY}px;
+                        left: ${centerX}px;
+                        transform: translate(-50%, -50%) scale(0);
+                        z-index: 10002;
+                        transition: all 1s ease-out;
+                    `;
+                    container.appendChild(card);
+                    
+                    setTimeout(function() {
+                        card.style.left = targetX + 'px';
+                        card.style.top = targetY + 'px';
+                        card.style.transform = 'translate(-50%, -50%) scale(1) rotate(' + (Math.random() * 20 - 10) + 'deg)';
+                        
+                        setTimeout(function() {
+                            card.style.opacity = '0';
+                            card.style.transform = 'translate(-50%, -50%) scale(0.8)';
+                            setTimeout(function() {
+                                card.remove();
+                            }, 300);
+                        }, 1000);
+                    }, 500 + (index * 100));
+                });
+                
+                setTimeout(function() {
+                    container.innerHTML = '';
+                    container.style.display = 'none';
+                    container.style.pointerEvents = 'none';
+                    addCardsToCollectionFallback(withImages);
+                    
+                    const btn = document.getElementById('buy-booster-btn');
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.textContent = '🎁 Buy Booster Pack (500 TR)';
+                }, 2000);
+            }, 500);
+        }
+    }, 50);
+}
+
+// GSAP Animation for Booster Pack
+function animateBoosterPack(players) {
+    const withImages = _playersWithImages(players);
+    waitForGSAP(function(useFallback) {
+        if (useFallback || typeof gsap === 'undefined' || gsap === null) {
+            animateBoosterPackFallback(withImages);
+            return;
+        }
+    
+    const container = document.getElementById('booster-animation-container');
+    container.style.display = 'block';
+    container.style.pointerEvents = 'all';
+    
+    const boosterImgUrl = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) || '';
+    const boosterPack = document.createElement('div');
+    boosterPack.id = 'booster-pack';
+    boosterPack.style.cssText = `
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 280px;
+        height: 360px;
+        z-index: 10001;
+        overflow: hidden;
+        border: none;
+        box-shadow: none;
+    `;
+    if (boosterImgUrl) {
+        boosterPack.style.background = '#0d0d0d url("' + boosterImgUrl.replace(/"/g, '%22') + '") center/contain no-repeat';
+        const probe = document.createElement('img');
+        probe.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+        probe.onerror = function() {
+            probe.remove();
+            boosterPack.style.background = 'linear-gradient(135deg, #8b4513 0%, #654321 100%)';
+            boosterPack.style.border = '6px solid #d4af37';
+            boosterPack.style.borderRadius = '15px';
+            boosterPack.style.color = 'white';
+            boosterPack.style.fontSize = '24px';
+            boosterPack.style.fontWeight = 'bold';
+            boosterPack.appendChild(document.createTextNode('🎁'));
+        };
+        probe.src = boosterImgUrl;
+        boosterPack.appendChild(probe);
+    } else {
+        boosterPack.style.background = 'linear-gradient(135deg, #8b4513 0%, #654321 100%)';
+        boosterPack.style.border = '6px solid #d4af37';
+        boosterPack.style.borderRadius = '15px';
+        boosterPack.style.color = 'white';
+        boosterPack.style.fontSize = '24px';
+        boosterPack.style.fontWeight = 'bold';
+        boosterPack.textContent = '🎁';
+    }
+    container.appendChild(boosterPack);
+    
+    // Animation sequence
+    const tl = gsap.timeline({
+        onComplete: function() {
+            container.innerHTML = '';
+            container.style.display = 'none';
+            container.style.pointerEvents = 'none';
+            
+            addCardsToCollection(withImages);
+            
+            // Re-enable button
+            const btn = document.getElementById('buy-booster-btn');
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.textContent = '🎁 Buy Booster Pack (500 TR)';
+        }
+    });
+    
+    // Step 1: Shake for 1 second
+    tl.to(boosterPack, {
+        x: -10,
+        duration: 0.1,
+        repeat: 19,
+        yoyo: true,
+        ease: 'power1.inOut'
+    });
+    
+    // Step 2: Scale up and fade out
+    tl.to(boosterPack, {
+        scale: 2,
+        opacity: 0,
+        duration: 0.5,
+        ease: 'power2.out'
+    });
+    
+    // Step 3: Create and animate 5 cards flying out
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+    const angles = [0, 72, 144, 216, 288]; // 5 cards in a circle
+    const radius = 300;
+    
+    withImages.forEach((player, index) => {
+        const card = document.createElement('div');
+        card.className = 'flying-card';
+        card.innerHTML = createPlayerCardHTML(player);
+        card.style.cssText = `
+            position: absolute;
+            top: ${centerY}px;
+            left: ${centerX}px;
+            transform: translate(-50%, -50%) scale(0);
+            z-index: 10002;
+        `;
+        container.appendChild(card);
+        
+        const angle = (angles[index] * Math.PI) / 180;
+        const targetX = centerX + Math.cos(angle) * radius;
+        const targetY = centerY + Math.sin(angle) * radius;
+        
+        // Fly out animation
+        gsap.to(card, {
+            x: targetX - centerX,
+            y: targetY - centerY,
+            scale: 1,
+            rotation: (Math.random() * 20 - 10),
+            duration: 1,
+            delay: 0.5 + (index * 0.1),
+            ease: 'power2.out',
+            onComplete: function() {
+                // Fade out flying card
+                gsap.to(card, {
+                    opacity: 0,
+                    scale: 0.8,
+                    duration: 0.3,
+                    onComplete: function() {
+                        card.remove();
+                    }
+                });
+            }
+        });
+    });
+    }); // Close waitForGSAP callback
+}
+
+// Add cards to collection (only players with profile_image)
+function addCardsToCollection(players) {
+    const purse = document.getElementById('card-purse');
+    if (!purse) return;
+    
+    const withImages = (players || []).filter(function(p) {
+        const v = p.profile_image;
+        return v != null && String(v).trim() !== '';
+    });
+    
+    const emptyMsg = purse.querySelector('div[style*="Your collection is empty"]');
+    if (emptyMsg) {
+        emptyMsg.remove();
+    }
+    
+    withImages.forEach(player => {
+        const cardHTML = createPlayerCardHTML(player);
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = cardHTML;
+        const card = tempDiv.firstElementChild;
+        
+        _attachCardDrag(card);
+        
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.5)';
+        card.style.transition = 'all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+        purse.appendChild(card);
+        
+        if (typeof gsap !== 'undefined' && gsap !== null) {
+            gsap.to(card, { opacity: 1, scale: 1, duration: 0.5, ease: 'back.out(1.7)' });
+        } else {
+            setTimeout(function() { card.style.opacity = '1'; card.style.transform = 'scale(1)'; }, 10);
+        }
+    });
+    
+    console.log('✅ Added', withImages.length, 'cards to collection');
+}
+
+// Fallback version of addCardsToCollection
+function addCardsToCollectionFallback(players) {
+    const purse = document.getElementById('card-purse');
+    if (!purse) return;
+    
+    const withImages = (players || []).filter(function(p) {
+        const v = p.profile_image;
+        return v != null && String(v).trim() !== '';
+    });
+    
+    const emptyMsg = purse.querySelector('div[style*="Your collection is empty"]');
+    if (emptyMsg) {
+        emptyMsg.remove();
+    }
+    
+    withImages.forEach((player, index) => {
+        const cardHTML = createPlayerCardHTML(player);
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = cardHTML;
+        const card = tempDiv.firstElementChild;
+        
+        _attachCardDrag(card);
+        
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.5)';
+        card.style.transition = 'all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+        purse.appendChild(card);
+        
+        setTimeout(function() {
+            card.style.opacity = '1';
+            card.style.transform = 'scale(1)';
+        }, index * 50);
+    });
+    
+    console.log('✅ Added', withImages.length, 'cards to collection (fallback)');
+}
+
+// Initialize everything
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📄 DOM Content Loaded - Initializing Fantasy...');
+    
+    // Draw pitch
+    drawPitch();
+    
+    // Create position slots
+    setTimeout(function() {
+        createPositionSlots();
+        
+        // Setup card drag
+        setTimeout(function() {
+            setupCardDrag();
+            console.log('✅ Fantasy page fully initialized!');
+        }, 100);
+    }, 100);
+});
+
+// Backup initialization
+window.addEventListener('load', function() {
+    console.log('🌐 Window loaded');
+    setTimeout(function() {
+        if (!document.querySelector('#slot-gk')) {
+            console.log('Reinitializing...');
+            drawPitch();
+            createPositionSlots();
+            setupCardDrag();
+        }
+    }, 200);
+});
+</script>
+
+<style>
+.player-card-compact:hover {
+    transform: translateY(-4px) scale(1.05) !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6) !important;
+    z-index: 100 !important;
+}
+
+.player-card-compact:active {
+    cursor: grabbing !important;
+}
+
+.player-card-compact[draggable="true"]:hover {
+    cursor: grab !important;
+}
+
+#buy-booster-btn:hover {
+    transform: scale(1.05);
+}
+
+#buy-booster-btn:active {
+    transform: scale(0.95);
+}
+</style>
+{% endblock %}

@@ -7,7 +7,7 @@ import time
 
 # Free agency timer in minutes
 fa_timer = 720
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, send_from_directory, session, Response, make_response
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, send_from_directory, session, Response, make_response, abort
 from io import StringIO
 import csv
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -23,6 +23,9 @@ import db_helper  # New helper module for SQLite access
 
 # Market Bazaar Activity Toggle
 MARKET_BAZAAR_ENABLED = False  # Set to False to disable automatic market activity
+
+# Inter-Leagues Betting Toggle (disabled by default)
+INTER_LEAGUES_BETTING_ENABLED = False
 
 # Loan Money Transfer Divisor
 # Set to 1 for full amount, 2 to halve the money transferred on loan completion
@@ -2242,6 +2245,73 @@ def upload_player_image(player_id):
     return redirect(url_for('pes6_player_details', player_id=player_id))
 
 # --- NEW ROUTES FOR TOOLS PAGE AND CSV DOWNLOAD ---
+@app.route('/tools/add_betting_account_balance', methods=['POST'])
+@login_required
+def add_betting_account_balance():
+    """Add money to a user's betting account"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    # Initialize betting tables if needed
+    init_betting_tables()
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        user_id = request.form.get('user_id', type=int)
+        amount = request.form.get('amount', type=int)
+        
+        if not user_id or not amount:
+            flash('Missing required fields', 'danger')
+            return redirect(url_for('tools'))
+        
+        if amount <= 0:
+            flash('Amount must be positive', 'danger')
+            return redirect(url_for('tools'))
+        
+        # Get or create betting account
+        cur.execute("""
+            SELECT balance FROM inter_leagues_betting_accounts
+            WHERE user_id = ?
+        """, (user_id,))
+        account = cur.fetchone()
+        
+        if not account:
+            cur.execute("""
+                INSERT INTO inter_leagues_betting_accounts (user_id, balance)
+                VALUES (?, 0)
+            """, (user_id,))
+            old_balance = 0
+        else:
+            old_balance = account['balance']
+        
+        # Add amount to balance
+        new_balance = old_balance + amount
+        cur.execute("""
+            UPDATE inter_leagues_betting_accounts
+            SET balance = ?, updated_at = datetime('now')
+            WHERE user_id = ?
+        """, (new_balance, user_id))
+        
+        # Get username
+        cur.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        user_row = cur.fetchone()
+        username = user_row['username'] if user_row else f'User {user_id}'
+        
+        db_helper.commit()
+        
+        flash(f'Successfully added €{amount:,.0f} to {username}\'s betting account. New balance: €{new_balance:,.0f}', 'success')
+        return redirect(url_for('tools'))
+        
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        app.logger.error(f"Error adding betting account balance: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        flash(f'Error adding betting account balance: {str(e)}', 'danger')
+        return redirect(url_for('tools'))
+    finally:
+        cur.close()
+
 @app.route('/tools')
 def tools():
     cur = db_helper.get_cursor()
@@ -2265,12 +2335,15 @@ def tools():
     # Get national teams for flag upload tool
     cur.execute("SELECT id, team_name, nationality FROM international_teams ORDER BY team_name ASC")
     national_teams = [dict(row) for row in cur.fetchall()]
+    # Get users for betting account manager
+    cur.execute("SELECT id, username FROM users WHERE id != 1 ORDER BY username ASC")
+    users = [dict(row) for row in cur.fetchall()]
     cur.close()
 
     # Get season message from flash if available
     season_message = None
 
-    return render_template('tools.html', players=players, players_salary=players_salary, teams=teams, nationalities=nationalities, national_teams=national_teams, season_message=season_message)
+    return render_template('tools.html', players=players, players_salary=players_salary, teams=teams, nationalities=nationalities, national_teams=national_teams, season_message=season_message, users=users)
 
 @app.route('/download_updated_csv')
 @login_required # Often good to require login for tools/downloads
@@ -8325,6 +8398,18 @@ def retire_player_manual():
 
         # Clear individual achievements for the new regen (they should start with clean records)
         cur.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (player_id,))
+        
+        # Reset international statistics for the new regen (they should start with clean records)
+        cur.execute("""
+            UPDATE players 
+            SET international_caps_total = 0,
+                international_goals = 0,
+                international_assists = 0,
+                current_season_caps = 0,
+                current_international_goals = 0,
+                current_international_assists = 0
+            WHERE id = ?
+        """, (player_id,))
 
         # Assign a face from the regen_faces folder based on skin_color
         from game_mechanics import assign_regen_face
@@ -9612,6 +9697,18 @@ def end_of_season_process():
                         SET career_earnings = 0, championships_won = 0, cups_won = 0
                         WHERE id = ?
                     """, (retired_id,))
+                    
+                    # Reset international statistics for the new regen (they should start with clean records)
+                    cur.execute("""
+                        UPDATE players 
+                        SET international_caps_total = 0,
+                            international_goals = 0,
+                            international_assists = 0,
+                            current_season_caps = 0,
+                            current_international_goals = 0,
+                            current_international_assists = 0
+                        WHERE id = ?
+                    """, (retired_id,))
 
                     # Assign a face from the regen_faces folder based on skin_color
                     from game_mechanics import assign_regen_face
@@ -10336,6 +10433,293 @@ def place_expired_player(offer_id):
         cur.close()
 
 
+
+# Fantasy Route
+@app.route('/fantasy')
+@login_required
+def fantasy():
+    """Fantasy card game page (PES Association style)"""
+    cur = db_helper.get_cursor()
+    
+    # Get user's TR currency (for now, default to 1000, later we'll add a fantasy_currency table)
+    tr_currency = 1000  # TODO: Get from database when fantasy currency system is implemented
+    
+    # Get F.C. Barcelona players for the logged-in user
+    # Check if user has Barcelona as one of their teams
+    cur.execute("""
+        SELECT lt.id, lt.team_name 
+        FROM league_teams lt
+        WHERE lt.user_id = ? AND lt.team_name = 'F.C. Barcelona'
+        LIMIT 1
+    """, (current_user.id,))
+    barcelona_team = cur.fetchone()
+    
+    if barcelona_team:
+        # Get all Barcelona players
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.nationality,
+                   p.attack_rating, p.defense_rating, p.physical_rating, 
+                   p.power_rating, p.technique_rating, p.goalkeeping_rating,
+                   t.club_name, p.profile_image, p.age, p.shirt_name
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            WHERE t.club_name = 'F.C. Barcelona'
+            AND p.overall IS NOT NULL
+            ORDER BY p.overall DESC
+        """)
+        barcelona_players = [dict(row) for row in cur.fetchall()]
+    else:
+        # If user doesn't have Barcelona, get sample players anyway for demo
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.nationality,
+                   p.attack_rating, p.defense_rating, p.physical_rating, 
+                   p.power_rating, p.technique_rating, p.goalkeeping_rating,
+                   t.club_name, p.profile_image, p.age, p.shirt_name
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            WHERE t.club_name = 'F.C. Barcelona'
+            AND p.overall IS NOT NULL
+            ORDER BY p.overall DESC
+            LIMIT 18
+        """)
+        barcelona_players = [dict(row) for row in cur.fetchall()]
+    
+    cur.close()
+    
+    # Generate cache timestamp for images
+    import time
+    cache_timestamp = int(time.time())
+    
+    return render_template('fantasy.html', 
+                          user=current_user, 
+                          tr_currency=tr_currency,
+                          players=[],  # Start with empty collection
+                          cache_timestamp=cache_timestamp)
+
+# Fantasy Booster Pack Route
+@app.route('/fantasy/buy_booster_pack', methods=['POST'])
+@login_required
+def buy_booster_pack():
+    """Buy a booster pack: 5 players with images only. Fixed set for testing (same 5 each time)."""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Fixed set of 5 players with profile_image for testing (always the same)
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.nationality,
+                   p.attack_rating, p.defense_rating, p.physical_rating,
+                   p.power_rating, p.technique_rating, p.goalkeeping_rating,
+                   t.club_name, p.profile_image, p.age, p.shirt_name
+            FROM players p
+            JOIN teams t ON p.club_id = t.id
+            WHERE p.profile_image IS NOT NULL
+            AND p.profile_image != ''
+            AND p.overall IS NOT NULL
+            ORDER BY p.id ASC
+            LIMIT 5
+        """)
+        rows = cur.fetchall()
+        booster_players = []
+        for row in rows:
+            d = dict(row)
+            o = d.get('overall', 0)
+            if o >= 96:
+                d['rarity'] = 'limited'
+            elif o >= 86:
+                d['rarity'] = 'legendary'
+            elif o >= 76:
+                d['rarity'] = 'mythical'
+            elif o >= 61:
+                d['rarity'] = 'rare'
+            else:
+                d['rarity'] = 'normal'
+            booster_players.append(d)
+        
+        cur.close()
+        
+        return jsonify({
+            'success': True,
+            'players': booster_players
+        })
+    except Exception as e:
+        cur.close()
+        app.logger.error(f"Error getting booster pack: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/fantasy/booster_pack_image')
+def fantasy_booster_pack_image():
+    """Serve the booster pack image. Use static/fantasy/booster_pack.png (or .svg fallback)."""
+    fantasy_dir = os.path.join(app.root_path, 'static', 'fantasy')
+    for name, mime in [('booster_pack.png', 'image/png'), ('booster_pack.svg', 'image/svg+xml')]:
+        path = os.path.join(fantasy_dir, name)
+        if os.path.isfile(path):
+            return send_from_directory(fantasy_dir, name, mimetype=mime)
+    abort(404)
+
+
+# Leaderboards Route
+@app.route('/leaderboards')
+def leaderboards():
+    """Display all-time leaderboards for various statistics"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Top 10 Games (combine active and retired players, excluding retired from active query)
+        cur.execute("""
+            SELECT player_id, player_name, nationality, registered_position, 
+                   total_games as value, 'active' as status
+            FROM (
+                SELECT p.id as player_id, p.player_name, p.nationality, p.registered_position,
+                       (COALESCE(p.games_played, 0) + 
+                        COALESCE((SELECT SUM(games_played) FROM player_season_history WHERE player_id = p.id), 0)) as total_games
+                FROM players p
+                WHERE p.id NOT IN (SELECT player_id FROM retired_players)
+            )
+            WHERE total_games > 0
+            UNION ALL
+            SELECT player_id, player_name, nationality, registered_position,
+                   total_games_played as value, 'retired' as status
+            FROM retired_players
+            WHERE total_games_played > 0
+            ORDER BY value DESC
+            LIMIT 10
+        """)
+        top_games = [dict(row) for row in cur.fetchall()]
+        
+        # Top 10 Goals (combine active and retired players, excluding retired from active query)
+        cur.execute("""
+            SELECT player_id, player_name, nationality, registered_position,
+                   total_goals as value, 'active' as status
+            FROM (
+                SELECT p.id as player_id, p.player_name, p.nationality, p.registered_position,
+                       (COALESCE(p.goals, 0) + 
+                        COALESCE((SELECT SUM(goals) FROM player_season_history WHERE player_id = p.id), 0)) as total_goals
+                FROM players p
+                WHERE p.id NOT IN (SELECT player_id FROM retired_players)
+            )
+            WHERE total_goals > 0
+            UNION ALL
+            SELECT player_id, player_name, nationality, registered_position,
+                   total_goals as value, 'retired' as status
+            FROM retired_players
+            WHERE total_goals > 0
+            ORDER BY value DESC
+            LIMIT 10
+        """)
+        top_goals = [dict(row) for row in cur.fetchall()]
+        
+        # Top 10 Assists (combine active and retired players, excluding retired from active query)
+        cur.execute("""
+            SELECT player_id, player_name, nationality, registered_position,
+                   total_assists as value, 'active' as status
+            FROM (
+                SELECT p.id as player_id, p.player_name, p.nationality, p.registered_position,
+                       (COALESCE(p.assists, 0) + 
+                        COALESCE((SELECT SUM(assists) FROM player_season_history WHERE player_id = p.id), 0)) as total_assists
+                FROM players p
+                WHERE p.id NOT IN (SELECT player_id FROM retired_players)
+            )
+            WHERE total_assists > 0
+            UNION ALL
+            SELECT player_id, player_name, nationality, registered_position,
+                   total_assists as value, 'retired' as status
+            FROM retired_players
+            WHERE total_assists > 0
+            ORDER BY value DESC
+            LIMIT 10
+        """)
+        top_assists = [dict(row) for row in cur.fetchall()]
+        
+        # Top 10 International Caps (only from active players, retired players retain this in players table)
+        cur.execute("""
+            SELECT p.id as player_id, p.player_name, p.nationality, p.registered_position,
+                   COALESCE(p.international_caps_total, 0) as value, 'active' as status
+            FROM players p
+            WHERE COALESCE(p.international_caps_total, 0) > 0
+            AND p.id NOT IN (SELECT player_id FROM retired_players)
+            ORDER BY value DESC
+            LIMIT 10
+        """)
+        top_international_caps = [dict(row) for row in cur.fetchall()]
+        
+        # Top 10 International Goals
+        cur.execute("""
+            SELECT p.id as player_id, p.player_name, p.nationality, p.registered_position,
+                   COALESCE(p.international_goals, 0) as value, 'active' as status
+            FROM players p
+            WHERE COALESCE(p.international_goals, 0) > 0
+            AND p.id NOT IN (SELECT player_id FROM retired_players)
+            ORDER BY value DESC
+            LIMIT 10
+        """)
+        top_international_goals = [dict(row) for row in cur.fetchall()]
+        
+        # Top 10 International Assists
+        cur.execute("""
+            SELECT p.id as player_id, p.player_name, p.nationality, p.registered_position,
+                   COALESCE(p.international_assists, 0) as value, 'active' as status
+            FROM players p
+            WHERE COALESCE(p.international_assists, 0) > 0
+            AND p.id NOT IN (SELECT player_id FROM retired_players)
+            ORDER BY value DESC
+            LIMIT 10
+        """)
+        top_international_assists = [dict(row) for row in cur.fetchall()]
+        
+        # Top 10 Career Earners (combine active and retired players, excluding retired from active query)
+        cur.execute("""
+            SELECT player_id, player_name, nationality, registered_position,
+                   COALESCE(career_earnings, 0) as value, 'active' as status
+            FROM (
+                SELECT id as player_id, player_name, nationality, registered_position, career_earnings
+                FROM players
+                WHERE COALESCE(career_earnings, 0) > 0
+                AND id NOT IN (SELECT player_id FROM retired_players)
+            )
+            UNION ALL
+            SELECT player_id, player_name, nationality, registered_position,
+                   COALESCE(career_earnings, 0) as value, 'retired' as status
+            FROM retired_players
+            WHERE COALESCE(career_earnings, 0) > 0
+            ORDER BY value DESC
+            LIMIT 10
+        """)
+        top_career_earners = [dict(row) for row in cur.fetchall()]
+        
+        # Top 10 Current Salaries (active players only, exclude retired)
+        cur.execute("""
+            SELECT p.id as player_id, p.player_name, p.nationality, p.registered_position,
+                   COALESCE(p.salary, 0) as value, 'active' as status
+            FROM players p
+            WHERE COALESCE(p.salary, 0) > 0
+            AND p.id NOT IN (SELECT player_id FROM retired_players)
+            ORDER BY value DESC
+            LIMIT 10
+        """)
+        top_salaries = [dict(row) for row in cur.fetchall()]
+        
+        return render_template('leaderboards.html',
+                             top_games=top_games,
+                             top_goals=top_goals,
+                             top_assists=top_assists,
+                             top_international_caps=top_international_caps,
+                             top_international_goals=top_international_goals,
+                             top_international_assists=top_international_assists,
+                             top_career_earners=top_career_earners,
+                             top_salaries=top_salaries)
+    
+    except Exception as e:
+        app.logger.error(f"Error loading leaderboards: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        flash(f'Error loading leaderboards: {str(e)}', 'danger')
+        return redirect(url_for('index'))
+    finally:
+        cur.close()
 
 # CPU League Routes
 @app.route('/hall_of_fame')
@@ -12305,7 +12689,7 @@ def create_newcomers():
             
             styles = ['gk', 'cwp', 'cbt', 'sb', 'dmf', 'wb', 'cmf', 'smf', 'amf', 'wf', 'ss', 'cf']
             
-            appearance = ['face_type', 'skin_color', 'strong_foot']
+            appearance = ['face_type', 'skin_color', 'strong_foot', 'injury_tolerance']
             
             # Copy data from template player
             generated_data = {}
@@ -12322,6 +12706,8 @@ def create_newcomers():
             for attr in appearance:
                 if attr == 'strong_foot':
                     generated_data[attr] = template_dict.get(attr, 'R')
+                elif attr == 'injury_tolerance':
+                    generated_data[attr] = template_dict.get(attr, 'A')
                 else:
                     generated_data[attr] = template_dict.get(attr, 0)
             
@@ -12398,7 +12784,7 @@ def create_newcomers():
                     skill_dict[skill] = 50
             
             # Appearance
-            appearance_fields = ['face_type', 'skin_color', 'strong_foot']
+            appearance_fields = ['face_type', 'skin_color', 'strong_foot', 'injury_tolerance']
             for field in appearance_fields:
                 value = request.form.get(field)
                 if value is not None:
@@ -12485,6 +12871,18 @@ def create_newcomers():
                     SET {set_clause}
                     WHERE id = ?
                 """, update_values)
+                
+                # Reset international statistics for the new player (they should start with clean records)
+                cur.execute("""
+                    UPDATE players 
+                    SET international_caps_total = 0,
+                        international_goals = 0,
+                        international_assists = 0,
+                        current_season_caps = 0,
+                        current_international_goals = 0,
+                        current_international_assists = 0
+                    WHERE id = ?
+                """, (player_id_to_replace,))
                 
                 # Clear individual achievements for the replaced player (they should start with clean records)
                 cur.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (player_id_to_replace,))
@@ -14156,6 +14554,4961 @@ def cpu_league_game_management(game_id):
         app.logger.error(f"Error in cpu_league_game_management: {e}")
         flash('Error loading game data', 'danger')
         return redirect(url_for('cpu_leagues'))
+    finally:
+        cur.close()
+
+# ============================================================================
+# INTER-LEAGUES ROUTES
+# ============================================================================
+
+# Initialize betting tables if they don't exist (lazy initialization)
+def init_betting_tables():
+    """Initialize betting tables if they don't exist - called lazily when needed"""
+    try:
+        cur = db_helper.get_cursor()
+        try:
+            # Create betting accounts table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_betting_accounts (
+                    user_id INTEGER PRIMARY KEY,
+                    balance INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create bets table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS inter_leagues_bets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    game_id INTEGER NOT NULL,
+                    bet_type TEXT NOT NULL CHECK (bet_type IN ('home_win', 'draw', 'away_win')),
+                    amount INTEGER NOT NULL CHECK (amount > 0),
+                    odds REAL NOT NULL,
+                    potential_payout REAL NOT NULL,
+                    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'won', 'lost', 'void')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    settled_at TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (game_id) REFERENCES inter_leagues_games(id) ON DELETE CASCADE
+                )
+            """)
+            
+            db_helper.commit()
+        except Exception as e:
+            app.logger.error(f"Error initializing betting tables: {e}")
+            db_helper.get_connection().rollback()
+        finally:
+            cur.close()
+    except RuntimeError:
+        # No application context - will be initialized on first use
+        pass
+
+@app.route('/inter_leagues')
+@login_required
+def inter_leagues():
+    """Main Inter-Leagues page - view competitions, rounds, and standings"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get all competitions
+        cur.execute("""
+            SELECT id, name, description, created_at, is_active
+            FROM inter_leagues_competitions
+            ORDER BY is_active DESC, created_at DESC
+        """)
+        competitions = [dict(row) for row in cur.fetchall()]
+        
+        # Get selected competition ID from query parameter
+        selected_competition_id = request.args.get('competition_id', type=int)
+        
+        # If no competitions exist, show empty state
+        if not competitions:
+            return render_template('inter_leagues.html',
+                                 competitions=[],
+                                 selected_competition=None,
+                                 rounds=[],
+                                 standings=[],
+                                 games=[])
+        
+        # Determine which competition to display
+        selected_competition = None
+        if selected_competition_id:
+            selected_competition = next((c for c in competitions if c['id'] == selected_competition_id), None)
+        
+        if not selected_competition and competitions:
+            selected_competition = competitions[0]
+        
+        rounds = []
+        standings = []
+        games = []
+        
+        teams = []
+        groups = []
+        rounds = []
+        standings = []
+        games = []
+        available_users = []
+        
+        if selected_competition:
+            # Get teams for this competition
+            cur.execute("""
+                SELECT ilt.id, ilt.competition_id, ilt.user_id, ilt.team_name, ilt.group_letter,
+                       u.username
+                FROM inter_leagues_teams ilt
+                LEFT JOIN users u ON ilt.user_id = u.id
+                WHERE ilt.competition_id = ?
+                ORDER BY ilt.group_letter, ilt.team_name
+            """, (selected_competition['id'],))
+            teams = [dict(row) for row in cur.fetchall()]
+            
+            # Get groups for this competition
+            cur.execute("""
+                SELECT id, competition_id, group_letter, created_at
+                FROM inter_leagues_groups
+                WHERE competition_id = ?
+                ORDER BY group_letter
+            """, (selected_competition['id'],))
+            groups = [dict(row) for row in cur.fetchall()]
+            
+            # Get available teams (those not already in competition)
+            # Include both user teams and CPU teams
+            cur.execute("""
+                SELECT lt.team_name, lt.user_id, u.username
+                FROM league_teams lt
+                LEFT JOIN users u ON lt.user_id = u.id
+                WHERE lt.team_name NOT IN (
+                    SELECT team_name FROM inter_leagues_teams WHERE competition_id = ?
+                )
+                ORDER BY CASE WHEN lt.user_id = 1 THEN 1 ELSE 0 END, u.username, lt.team_name
+            """, (selected_competition['id'],))
+            available_teams_raw = cur.fetchall()
+            # Group by user, collecting their teams (including CPU)
+            available_users = {}
+            for row in available_teams_raw:
+                user_id = row['user_id']
+                username = row['username'] if row['username'] else 'CPU'
+                if user_id not in available_users:
+                    available_users[user_id] = {
+                        'id': user_id,
+                        'username': username,
+                        'teams': []
+                    }
+                available_users[user_id]['teams'].append({
+                    'team_name': row['team_name']
+                })
+            available_users = list(available_users.values())
+            
+            # Get rounds for this competition
+            cur.execute("""
+                SELECT id, competition_id, round_number, status, start_time, end_time, created_at
+                FROM inter_leagues_rounds
+                WHERE competition_id = ?
+                ORDER BY round_number ASC
+            """, (selected_competition['id'],))
+            rounds = [dict(row) for row in cur.fetchall()]
+            
+            # Find next pending round number for simulation button
+            next_pending_round = None
+            if rounds:
+                # Check if there are any unplayed games in any round
+                cur.execute("""
+                    SELECT MIN(ilr.round_number) as next_round
+                    FROM inter_leagues_rounds ilr
+                    JOIN inter_leagues_games ilg ON ilr.id = ilg.round_id
+                    WHERE ilr.competition_id = ?
+                    AND ilg.is_played = 0
+                    ORDER BY ilr.round_number ASC
+                """, (selected_competition['id'],))
+                result = cur.fetchone()
+                if result and result['next_round']:
+                    next_pending_round = result['next_round']
+            
+            # Get standings for this competition (team-based)
+            cur.execute("""
+                SELECT id, competition_id, team_id, team_name, games_played, wins, draws, losses,
+                       goals_for, goals_against, goal_difference, points, updated_at
+                FROM inter_leagues_standings
+                WHERE competition_id = ?
+                ORDER BY points DESC, goal_difference DESC, goals_for DESC
+            """, (selected_competition['id'],))
+            standings = [dict(row) for row in cur.fetchall()]
+            
+            # Get group standings (standings per group)
+            group_standings = {}
+            for group in groups:
+                group_letter = group['group_letter']
+                cur.execute("""
+                    SELECT ils.id, ils.competition_id, ils.team_id, ils.team_name, ils.games_played,
+                           ils.wins, ils.draws, ils.losses, ils.goals_for, ils.goals_against,
+                           ils.goal_difference, ils.points, ils.updated_at,
+                           t.id as club_id
+                    FROM inter_leagues_standings ils
+                    JOIN inter_leagues_teams ilt ON ils.team_id = ilt.id
+                    LEFT JOIN teams t ON ilt.team_name = t.club_name
+                    WHERE ils.competition_id = ? AND ilt.group_letter = ?
+                    ORDER BY ils.points DESC, ils.goal_difference DESC, ils.goals_for DESC
+                """, (selected_competition['id'], group_letter))
+                group_standings[group_letter] = [dict(row) for row in cur.fetchall()]
+            
+            # Get top scorers
+            cur.execute("""
+                SELECT ips.player_id, ips.player_name, SUM(ips.goals) as total_goals, COUNT(DISTINCT ips.game_id) as games
+                FROM inter_leagues_player_stats ips
+                JOIN inter_leagues_games ilg ON ips.game_id = ilg.id
+                WHERE ilg.competition_id = ?
+                GROUP BY ips.player_id, ips.player_name
+                HAVING total_goals > 0
+                ORDER BY total_goals DESC, games ASC
+                LIMIT 20
+            """, (selected_competition['id'],))
+            top_scorers = [dict(row) for row in cur.fetchall()]
+            
+            # Get top assist providers
+            cur.execute("""
+                SELECT ips.player_id, ips.player_name, SUM(ips.assists) as total_assists, COUNT(DISTINCT ips.game_id) as games
+                FROM inter_leagues_player_stats ips
+                JOIN inter_leagues_games ilg ON ips.game_id = ilg.id
+                WHERE ilg.competition_id = ?
+                GROUP BY ips.player_id, ips.player_name
+                HAVING total_assists > 0
+                ORDER BY total_assists DESC, games ASC
+                LIMIT 20
+            """, (selected_competition['id'],))
+            top_assists = [dict(row) for row in cur.fetchall()]
+            
+            # Get games with round information for display
+            cur.execute("""
+                SELECT ilg.id, ilg.competition_id, ilg.round_id, ilg.home_team_id, ilg.away_team_id,
+                       ilg.home_team_name, ilg.away_team_name, ilg.home_score, ilg.away_score,
+                       ilg.is_played, ilg.round_type, ilg.group_id, ilg.game_date,
+                       ilr.round_number, ilc.name as competition_name
+                FROM inter_leagues_games ilg
+                JOIN inter_leagues_rounds ilr ON ilg.round_id = ilr.id
+                JOIN inter_leagues_competitions ilc ON ilg.competition_id = ilc.id
+                WHERE ilg.competition_id = ?
+                ORDER BY ilr.round_number ASC, ilg.id ASC
+            """, (selected_competition['id'],))
+            games = [dict(row) for row in cur.fetchall()]
+            
+            # Organize games by round and status
+            games_by_round = {}
+            for game in games:
+                round_num = game['round_number']
+                if round_num not in games_by_round:
+                    games_by_round[round_num] = {
+                        'pending': [],
+                        'completed': [],
+                        'round_type': game['round_type']
+                    }
+                
+                if game['is_played']:
+                    games_by_round[round_num]['completed'].append(game)
+                else:
+                    games_by_round[round_num]['pending'].append(game)
+            
+        # Check if ALL competitions have completed group stage (for "Proceed to Knockout" button)
+        can_proceed_to_knockout = False
+        all_group_stages_complete = True
+        
+        # Check if ALL competitions have completed group stage (for "Proceed to Knockout" button)
+        can_proceed_to_knockout = False
+        all_group_stages_complete = True
+        
+        cur.execute("SELECT id, name FROM inter_leagues_competitions ORDER BY id")
+        all_competitions = [dict(row) for row in cur.fetchall()]
+        
+        if len(all_competitions) > 0:
+            for comp in all_competitions:
+                comp_id = comp['id']
+                # Check if group stage is complete
+                cur.execute("""
+                    SELECT COUNT(*) as total, SUM(CASE WHEN is_played = 1 THEN 1 ELSE 0 END) as played
+                    FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_type = 'group_stage'
+                """, (comp_id,))
+                comp_stats = cur.fetchone()
+                
+                if comp_stats and comp_stats['total'] > 0:
+                    if comp_stats['played'] < comp_stats['total']:
+                        all_group_stages_complete = False
+                        break
+                
+                # Check if knockout schedule already exists
+                cur.execute("""
+                    SELECT COUNT(*) as count FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_type IN ('quarter_final', 'semi_final', 'final')
+                """, (comp_id,))
+                has_knockout = cur.fetchone()['count'] > 0
+                
+                if has_knockout:
+                    all_group_stages_complete = False
+                    break
+            
+            can_proceed_to_knockout = all_group_stages_complete
+        
+        # Check if knockout round can be advanced (must check ALL competitions)
+        can_advance_knockout = False
+        current_knockout_round = None
+        current_knockout_round_type = None
+        
+        if len(all_competitions) > 0:
+            # Check each competition's knockout status
+            all_ready = True
+            round_type_to_check = None
+            
+            for comp in all_competitions:
+                comp_id = comp['id']
+                
+                # Get current knockout round for this competition
+                cur.execute("""
+                    SELECT DISTINCT ilr.id, ilr.round_number, ilg.round_type
+                    FROM inter_leagues_rounds ilr
+                    JOIN inter_leagues_games ilg ON ilr.id = ilg.round_id
+                    WHERE ilr.competition_id = ? 
+                    AND ilg.round_type IN ('quarter_final', 'semi_final', 'final')
+                    ORDER BY ilr.round_number DESC
+                    LIMIT 1
+                """, (comp_id,))
+                comp_round_info = cur.fetchone()
+                
+                if not comp_round_info:
+                    # This competition has no knockout rounds yet
+                    all_ready = False
+                    break
+                
+                comp_round_id = comp_round_info['id']
+                comp_round_type = comp_round_info['round_type']
+                comp_round_num = comp_round_info['round_number']
+                
+                # Set the round type we're checking (should be same for all)
+                if round_type_to_check is None:
+                    round_type_to_check = comp_round_type
+                    current_knockout_round = comp_round_num
+                    current_knockout_round_type = comp_round_type
+                elif comp_round_type != round_type_to_check:
+                    # Competitions are at different stages
+                    all_ready = False
+                    break
+                
+                # Check if all games in this competition's current round are played
+                cur.execute("""
+                    SELECT COUNT(*) as total, SUM(CASE WHEN is_played = 1 THEN 1 ELSE 0 END) as played
+                    FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_id = ?
+                """, (comp_id, comp_round_id))
+                comp_stats = cur.fetchone()
+                
+                if comp_stats['total'] == 0 or comp_stats['played'] < comp_stats['total']:
+                    all_ready = False
+                    break
+                
+                # Check if next round already exists for this competition
+                if comp_round_type == 'quarter_final':
+                    next_round_num = 8
+                elif comp_round_type == 'semi_final':
+                    next_round_num = 9
+                else:
+                    # Final - tournament complete for this competition
+                    # This competition can't be advanced further, so we can't advance all
+                    all_ready = False
+                    break
+                
+                cur.execute("""
+                    SELECT COUNT(*) as count FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_id IN (
+                        SELECT id FROM inter_leagues_rounds 
+                        WHERE competition_id = ? AND round_number = ?
+                    )
+                """, (comp_id, comp_id, next_round_num))
+                next_round_exists = cur.fetchone()['count'] > 0
+                
+                if next_round_exists:
+                    all_ready = False
+                    break
+            
+            can_advance_knockout = all_ready
+        
+        return render_template('inter_leagues.html',
+                             competitions=competitions,
+                             selected_competition=selected_competition,
+                             teams=teams,
+                             groups=groups,
+                             rounds=rounds,
+                             standings=standings,
+                             group_standings=group_standings if selected_competition else {},
+                             top_scorers=top_scorers if selected_competition else [],
+                             top_assists=top_assists if selected_competition else [],
+                             games=games,
+                             games_by_round=games_by_round if selected_competition else {},
+                             available_users=available_users,
+                             next_pending_round=next_pending_round,
+                             can_advance_knockout=can_advance_knockout if selected_competition else False,
+                             current_knockout_round=current_knockout_round,
+                             current_knockout_round_type=current_knockout_round_type,
+                             can_proceed_to_knockout=can_proceed_to_knockout if selected_competition else False)
+    
+    except Exception as e:
+        app.logger.error(f"Error in inter_leagues: {e}")
+        flash('Error loading Inter-Leagues data', 'danger')
+        return redirect(url_for('index'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/add_team/<int:competition_id>', methods=['POST'])
+@login_required
+def add_team_to_inter_league(competition_id):
+    """Add a user/team to an inter-leagues competition"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        user_id = request.form.get('user_id', type=int)
+        team_name = request.form.get('team_name', '').strip()
+        
+        if not user_id or not team_name:
+            flash('Missing user or team name', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Check if competition exists
+        cur.execute("SELECT id FROM inter_leagues_competitions WHERE id = ?", (competition_id,))
+        competition = cur.fetchone()
+        if not competition:
+            flash('Competition not found', 'danger')
+            return redirect(url_for('inter_leagues'))
+        
+        # Check if team already in competition (changed to team_name uniqueness)
+        cur.execute("""
+            SELECT id FROM inter_leagues_teams
+            WHERE competition_id = ? AND team_name = ?
+        """, (competition_id, team_name))
+        existing = cur.fetchone()
+        if existing:
+            flash('This team is already in this competition', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Check team limit (16 teams per competition)
+        cur.execute("SELECT COUNT(*) as count FROM inter_leagues_teams WHERE competition_id = ?", (competition_id,))
+        team_count = cur.fetchone()['count']
+        if team_count >= 16:
+            flash('Competition is full (16 teams maximum)', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Verify team exists in league_teams (allow CPU teams, user_id = 1)
+        cur.execute("SELECT id FROM league_teams WHERE user_id = ? AND team_name = ?", (user_id, team_name))
+        league_team = cur.fetchone()
+        if not league_team:
+            flash('Team not found or user does not own this team', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Add team to competition
+        cur.execute("""
+            INSERT INTO inter_leagues_teams (competition_id, user_id, team_name)
+            VALUES (?, ?, ?)
+        """, (competition_id, user_id, team_name))
+        
+        # Get the team_id we just inserted
+        team_id = cur.lastrowid
+        
+        # Initialize standings entry (team-based)
+        cur.execute("""
+            INSERT INTO inter_leagues_standings (competition_id, team_id, team_name)
+            VALUES (?, ?, ?)
+        """, (competition_id, team_id, team_name))
+        
+        db_helper.commit()
+        flash(f'Team {team_name} added to competition successfully!', 'success')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error adding team to inter-league: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error adding team: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/auto_populate_cpu/<int:competition_id>', methods=['POST'])
+@login_required
+def auto_populate_cpu_teams(competition_id):
+    """Auto-populate remaining competition slots with random CPU teams"""
+    import random
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Check if competition exists
+        cur.execute("SELECT id FROM inter_leagues_competitions WHERE id = ?", (competition_id,))
+        competition = cur.fetchone()
+        if not competition:
+            flash('Competition not found', 'danger')
+            return redirect(url_for('inter_leagues'))
+        
+        # Get current team count
+        cur.execute("SELECT COUNT(*) as count FROM inter_leagues_teams WHERE competition_id = ?", (competition_id,))
+        team_count = cur.fetchone()['count']
+        
+        if team_count >= 16:
+            flash('Competition is already full (16 teams)', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Get available CPU teams (user_id = 1, not already in competition, exclude "No Club")
+        cur.execute("""
+            SELECT lt.team_name, lt.user_id
+            FROM league_teams lt
+            JOIN teams t ON lt.team_name = t.club_name
+            WHERE lt.user_id = 1
+            AND t.id != 141
+            AND t.club_name != 'No Club'
+            AND lt.team_name NOT IN (
+                SELECT team_name FROM inter_leagues_teams WHERE competition_id = ?
+            )
+            ORDER BY RANDOM()
+        """, (competition_id,))
+        available_cpu_teams = [dict(row) for row in cur.fetchall()]
+        
+        if not available_cpu_teams:
+            flash('No available CPU teams to add', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Calculate how many teams to add
+        teams_to_add = min(16 - team_count, len(available_cpu_teams))
+        selected_teams = available_cpu_teams[:teams_to_add]
+        
+        # Add selected teams
+        added_count = 0
+        for team in selected_teams:
+            try:
+                # Add team to competition
+                cur.execute("""
+                    INSERT INTO inter_leagues_teams (competition_id, user_id, team_name)
+                    VALUES (?, ?, ?)
+                """, (competition_id, team['user_id'], team['team_name']))
+                
+                # Get the team_id we just inserted
+                team_id = cur.lastrowid
+                
+                # Initialize standings entry
+                cur.execute("""
+                    INSERT INTO inter_leagues_standings (competition_id, team_id, team_name)
+                    VALUES (?, ?, ?)
+                """, (competition_id, team_id, team['team_name']))
+                
+                added_count += 1
+            except Exception as e:
+                app.logger.error(f"Error adding CPU team {team['team_name']}: {e}")
+                continue
+        
+        db_helper.commit()
+        flash(f'Successfully added {added_count} CPU team(s) to the competition!', 'success')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error auto-populating CPU teams: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error auto-populating teams: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/remove_team/<int:competition_id>/<int:team_id>', methods=['POST'])
+@login_required
+def remove_team_from_inter_league(competition_id, team_id):
+    """Remove a team from an inter-leagues competition"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Verify team exists in competition
+        cur.execute("""
+            SELECT id, user_id, team_name FROM inter_leagues_teams
+            WHERE id = ? AND competition_id = ?
+        """, (team_id, competition_id))
+        team = cur.fetchone()
+        if not team:
+            flash('Team not found in this competition', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        team_name = team['team_name']
+        
+        # Remove team from competition
+        cur.execute("DELETE FROM inter_leagues_teams WHERE id = ?", (team_id,))
+        
+        # Remove standings entry (team-based)
+        cur.execute("DELETE FROM inter_leagues_standings WHERE competition_id = ? AND team_id = ?", 
+                   (competition_id, team_id))
+        
+        db_helper.commit()
+        flash(f'Team {team_name} removed from competition', 'success')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error removing team from inter-league: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error removing team: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/create_groups/<int:competition_id>', methods=['POST'])
+@login_required
+def create_inter_league_groups(competition_id):
+    """Create groups A, B, C, D for a competition"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Check if competition exists
+        cur.execute("SELECT id FROM inter_leagues_competitions WHERE id = ?", (competition_id,))
+        competition = cur.fetchone()
+        if not competition:
+            flash('Competition not found', 'danger')
+            return redirect(url_for('inter_leagues'))
+        
+        # Check if groups already exist
+        cur.execute("SELECT COUNT(*) as count FROM inter_leagues_groups WHERE competition_id = ?", (competition_id,))
+        existing_count = cur.fetchone()['count']
+        if existing_count > 0:
+            flash('Groups already exist for this competition', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Create groups A, B, C, D
+        for group_letter in ['A', 'B', 'C', 'D']:
+            cur.execute("""
+                INSERT INTO inter_leagues_groups (competition_id, group_letter)
+                VALUES (?, ?)
+            """, (competition_id, group_letter))
+        
+        db_helper.commit()
+        flash('Groups A, B, C, D created successfully!', 'success')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error creating groups: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error creating groups: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/assign_team_to_group', methods=['POST'])
+@login_required
+def assign_team_to_group():
+    """Assign a team to a group"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        competition_id = request.form.get('competition_id', type=int)
+        team_id = request.form.get('team_id', type=int)
+        group_letter = request.form.get('group_letter', '').strip().upper()
+        
+        if not competition_id or not team_id or not group_letter:
+            flash('Missing required fields', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Validate group letter
+        if group_letter not in ['A', 'B', 'C', 'D']:
+            flash('Invalid group letter (must be A, B, C, or D)', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Verify team exists in competition
+        cur.execute("""
+            SELECT id FROM inter_leagues_teams
+            WHERE id = ? AND competition_id = ?
+        """, (team_id, competition_id))
+        team = cur.fetchone()
+        if not team:
+            flash('Team not found in this competition', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Check if group exists
+        cur.execute("""
+            SELECT id FROM inter_leagues_groups
+            WHERE competition_id = ? AND group_letter = ?
+        """, (competition_id, group_letter))
+        group = cur.fetchone()
+        if not group:
+            flash('Group does not exist. Please create groups first.', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Check if group already has 4 teams
+        cur.execute("""
+            SELECT COUNT(*) as count FROM inter_leagues_teams
+            WHERE competition_id = ? AND group_letter = ?
+        """, (competition_id, group_letter))
+        group_count = cur.fetchone()['count']
+        if group_count >= 4:
+            flash(f'Group {group_letter} is full (4 teams maximum)', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Update team's group assignment
+        cur.execute("""
+            UPDATE inter_leagues_teams
+            SET group_letter = ?
+            WHERE id = ?
+        """, (group_letter, team_id))
+        
+        db_helper.commit()
+        flash(f'Team assigned to Group {group_letter} successfully!', 'success')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error assigning team to group: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error assigning team to group: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/generate_group_stage_schedule/<int:competition_id>', methods=['POST'])
+@login_required
+def generate_inter_league_group_stage_schedule(competition_id):
+    """Generate group stage schedule (round-robin home/away for each group)"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Check if competition exists
+        cur.execute("SELECT id FROM inter_leagues_competitions WHERE id = ?", (competition_id,))
+        competition = cur.fetchone()
+        if not competition:
+            flash('Competition not found', 'danger')
+            return redirect(url_for('inter_leagues'))
+        
+        # Check if groups exist
+        cur.execute("SELECT id, group_letter FROM inter_leagues_groups WHERE competition_id = ? ORDER BY group_letter", (competition_id,))
+        groups = cur.fetchall()
+        if not groups:
+            flash('Groups must be created first', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Check if all groups have 4 teams
+        for group in groups:
+            cur.execute("""
+                SELECT COUNT(*) as count FROM inter_leagues_teams
+                WHERE competition_id = ? AND group_letter = ?
+            """, (competition_id, group['group_letter']))
+            count = cur.fetchone()['count']
+            if count != 4:
+                flash(f'Group {group["group_letter"]} does not have 4 teams (has {count})', 'warning')
+                return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Check if schedule already exists
+        cur.execute("SELECT COUNT(*) as count FROM inter_leagues_games WHERE competition_id = ?", (competition_id,))
+        existing_games = cur.fetchone()['count']
+        if existing_games > 0:
+            flash('Schedule already exists. Please clear existing games first.', 'warning')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Create rounds 1-6 (all groups play simultaneously)
+        for round_num in range(1, 7):
+            cur.execute("""
+                SELECT id FROM inter_leagues_rounds
+                WHERE competition_id = ? AND round_number = ?
+            """, (competition_id, round_num))
+            existing_round = cur.fetchone()
+            if not existing_round:
+                cur.execute("""
+                    INSERT INTO inter_leagues_rounds (competition_id, round_number, status)
+                    VALUES (?, ?, 'pending')
+                """, (competition_id, round_num))
+        
+        # Get round IDs
+        cur.execute("""
+            SELECT id, round_number FROM inter_leagues_rounds
+            WHERE competition_id = ? AND round_number BETWEEN 1 AND 6
+            ORDER BY round_number
+        """, (competition_id,))
+        round_ids = {row['round_number']: row['id'] for row in cur.fetchall()}
+        
+        # Generate schedule for each group
+        games_created = 0
+        
+        # Define fixture pattern for 4 teams (home/away round-robin)
+        fixture_pattern = [
+            # Round 1: Team 1 vs Team 2, Team 3 vs Team 4
+            [(0, 1), (2, 3)],
+            # Round 2: Team 1 vs Team 3, Team 2 vs Team 4
+            [(0, 2), (1, 3)],
+            # Round 3: Team 1 vs Team 4, Team 2 vs Team 3
+            [(0, 3), (1, 2)],
+            # Round 4 (reverse): Team 2 vs Team 1, Team 4 vs Team 3
+            [(1, 0), (3, 2)],
+            # Round 5 (reverse): Team 3 vs Team 1, Team 4 vs Team 2
+            [(2, 0), (3, 1)],
+            # Round 6 (reverse): Team 4 vs Team 1, Team 3 vs Team 2
+            [(3, 0), (2, 1)],
+        ]
+        
+        for group in groups:
+            group_letter = group['group_letter']
+            
+            # Get teams in this group
+            cur.execute("""
+                SELECT id, team_name FROM inter_leagues_teams
+                WHERE competition_id = ? AND group_letter = ?
+                ORDER BY team_name
+            """, (competition_id, group_letter))
+            teams = [dict(row) for row in cur.fetchall()]
+            
+            if len(teams) != 4:
+                continue
+            
+            # Generate fixtures for this group across rounds 1-6
+            for round_num in range(1, 7):
+                round_id = round_ids.get(round_num)
+                if not round_id:
+                    continue
+                
+                # Get matches for this round
+                matches = fixture_pattern[round_num - 1]
+                for home_idx, away_idx in matches:
+                    cur.execute("""
+                        INSERT INTO inter_leagues_games
+                        (competition_id, round_id, home_team_id, away_team_id, home_team_name, away_team_name, 
+                         group_id, round_type, is_played)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 'group_stage', 0)
+                    """, (competition_id, round_id, teams[home_idx]['id'], teams[away_idx]['id'],
+                          teams[home_idx]['team_name'], teams[away_idx]['team_name'], group['id']))
+                    games_created += 1
+        
+        db_helper.commit()
+        flash(f'Successfully generated group stage schedule: {games_created} games created across {len(groups)} groups!', 'success')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error generating group stage schedule: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error generating schedule: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/generate_knockout_schedule', methods=['POST'])
+@login_required
+def generate_inter_league_knockout_schedule():
+    """Generate knockout stage schedule (quarter-finals, semi-finals, final) for ALL competitions"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get all competitions
+        cur.execute("SELECT id, name FROM inter_leagues_competitions ORDER BY id")
+        competitions = [dict(row) for row in cur.fetchall()]
+        
+        if len(competitions) == 0:
+            flash('No competitions found', 'warning')
+            return redirect(url_for('inter_leagues'))
+        
+        total_games_created = 0
+        errors = []
+        
+        # Process each competition
+        for competition in competitions:
+            competition_id = competition['id']
+            competition_name = competition['name']
+            
+            try:
+                # Check if group stage is complete (all games played)
+                cur.execute("""
+                    SELECT COUNT(*) as total, SUM(CASE WHEN is_played = 1 THEN 1 ELSE 0 END) as played
+                    FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_type = 'group_stage'
+                """, (competition_id,))
+                group_stage_stats = cur.fetchone()
+                if group_stage_stats and group_stage_stats['total'] > 0:
+                    if group_stage_stats['played'] < group_stage_stats['total']:
+                        errors.append(f'{competition_name}: Group stage not completed ({group_stage_stats["played"]}/{group_stage_stats["total"]} games)')
+                        continue
+                
+                # Check if knockout schedule already exists
+                cur.execute("""
+                    SELECT COUNT(*) as count FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_type IN ('quarter_final', 'semi_final', 'final')
+                """, (competition_id,))
+                existing_knockout = cur.fetchone()['count']
+                if existing_knockout > 0:
+                    errors.append(f'{competition_name}: Knockout schedule already exists')
+                    continue
+                
+                # Get top 2 teams from each group based on standings (8 teams total)
+                group_qualifiers = {}
+                for group_letter in ['A', 'B', 'C', 'D']:
+                    # Get group standings (sorted by points, goal difference, goals for)
+                    cur.execute("""
+                        SELECT ils.team_id as id, ils.team_name
+                        FROM inter_leagues_standings ils
+                        JOIN inter_leagues_teams ilt ON ils.team_id = ilt.id
+                        WHERE ils.competition_id = ? AND ilt.group_letter = ?
+                        ORDER BY ils.points DESC, ils.goal_difference DESC, ils.goals_for DESC
+                        LIMIT 2
+                    """, (competition_id, group_letter))
+                    group_teams = [dict(row) for row in cur.fetchall()]
+
+                    if len(group_teams) < 2:
+                        # Fallback: if standings not updated, use teams from group
+                        cur.execute("""
+                            SELECT ilt.id as id, ilt.team_name
+                            FROM inter_leagues_teams ilt
+                            WHERE ilt.competition_id = ? AND ilt.group_letter = ?
+                            ORDER BY ilt.team_name
+                            LIMIT 2
+                        """, (competition_id, group_letter))
+                        group_teams = [dict(row) for row in cur.fetchall()]
+
+                    if len(group_teams) < 2:
+                        errors.append(f'{competition_name}: Group {group_letter} does not have enough teams')
+                        break
+
+                    group_qualifiers[group_letter] = group_teams  # [winner, runner-up]
+                
+                if len(group_qualifiers) < 4:
+                    continue  # Skip this competition if not all groups have qualifiers
+
+                # Standard seeding: group winners vs runners-up from another group
+                # (A1 vs B2), (B1 vs A2), (C1 vs D2), (D1 vs C2)
+                quarter_final_fixtures = [
+                    ('A', 'B'),
+                    ('B', 'A'),
+                    ('C', 'D'),
+                    ('D', 'C'),
+                ]
+                
+                # Create knockout rounds
+                quarter_final_round_num = 7  # After 6 group stage rounds
+                semi_final_round_num = 8
+                final_round_num = 9
+                
+                for round_num in [quarter_final_round_num, semi_final_round_num, final_round_num]:
+                    cur.execute("""
+                        SELECT id FROM inter_leagues_rounds
+                        WHERE competition_id = ? AND round_number = ?
+                    """, (competition_id, round_num))
+                    existing_round = cur.fetchone()
+                    if not existing_round:
+                        cur.execute("""
+                            INSERT INTO inter_leagues_rounds (competition_id, round_number, status)
+                            VALUES (?, ?, 'pending')
+                        """, (competition_id, round_num))
+                
+                games_created = 0
+                
+                # Quarter-finals: 4 games (8 teams)
+                cur.execute("SELECT id FROM inter_leagues_rounds WHERE competition_id = ? AND round_number = ?", (competition_id, quarter_final_round_num))
+                quarter_round = cur.fetchone()
+                if quarter_round:
+                    for winner_group, runner_group in quarter_final_fixtures:
+                        home_team = group_qualifiers[winner_group][0]  # winner
+                        away_team = group_qualifiers[runner_group][1]  # runner-up
+                        cur.execute("""
+                            INSERT INTO inter_leagues_games
+                            (competition_id, round_id, home_team_id, away_team_id, home_team_name, away_team_name,
+                             round_type, is_played)
+                            VALUES (?, ?, ?, ?, ?, ?, 'quarter_final', 0)
+                        """, (competition_id, quarter_round['id'], home_team['id'],
+                              away_team['id'], home_team['team_name'],
+                              away_team['team_name']))
+                        games_created += 1
+                        total_games_created += 1
+                
+            except Exception as e:
+                errors.append(f'{competition_name}: {str(e)}')
+                app.logger.error(f"Error generating knockout schedule for {competition_name}: {e}")
+                continue
+        
+        # Show results
+        if errors:
+            for error in errors:
+                flash(error, 'warning')
+        
+        if total_games_created > 0:
+            flash(f'Successfully generated knockout schedules! {total_games_created} quarter-final games created across all competitions.', 'success')
+        else:
+            flash('No knockout schedules were generated. Check that all group stages are complete.', 'warning')
+        
+        db_helper.commit()
+        return redirect(url_for('inter_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error generating knockout schedules: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        db_helper.get_connection().rollback()
+        flash(f'Error generating knockout schedules: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/advance_knockout_round', methods=['POST'])
+@login_required
+def advance_inter_league_knockout_round():
+    """Advance to next round of knockout tournament for ALL competitions simultaneously"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        import random
+        
+        # Get all competitions
+        cur.execute("SELECT id, name FROM inter_leagues_competitions ORDER BY id")
+        competitions = [dict(row) for row in cur.fetchall()]
+        
+        if len(competitions) == 0:
+            flash('No competitions found', 'warning')
+            return redirect(url_for('inter_leagues'))
+        
+        # Process each competition
+        total_games_created = 0
+        champions = []
+        errors = []
+        
+        for competition in competitions:
+            competition_id = competition['id']
+            competition_name = competition['name']
+            
+            try:
+                # Get current knockout round (highest round number with knockout round_type that has games)
+                cur.execute("""
+                    SELECT DISTINCT ilr.id, ilr.round_number, ilg.round_type
+                    FROM inter_leagues_rounds ilr
+                    JOIN inter_leagues_games ilg ON ilr.id = ilg.round_id
+                    WHERE ilr.competition_id = ? 
+                    AND ilg.round_type IN ('quarter_final', 'semi_final', 'final')
+                    ORDER BY ilr.round_number DESC
+                    LIMIT 1
+                """, (competition_id,))
+                round_info = cur.fetchone()
+                
+                if not round_info:
+                    errors.append(f'{competition_name}: No knockout rounds found')
+                    continue
+                
+                current_round_id = round_info['id']
+                current_round_num = round_info['round_number']
+                current_round_type = round_info['round_type']
+                
+                # Check if all games in current round are played
+                cur.execute("""
+                    SELECT COUNT(*) as total, SUM(CASE WHEN is_played = 1 THEN 1 ELSE 0 END) as played
+                    FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_id = ?
+                """, (competition_id, current_round_id))
+                round_stats = cur.fetchone()
+                
+                if round_stats['total'] == 0:
+                    errors.append(f'{competition_name}: No games found in current round')
+                    continue
+                
+                if round_stats['played'] < round_stats['total']:
+                    errors.append(f'{competition_name}: Not all games in Round {current_round_num} completed ({round_stats["played"]}/{round_stats["total"]})')
+                    continue
+                
+                # Determine winners from completed games
+                cur.execute("""
+                    SELECT id, home_team_id, away_team_id, home_team_name, away_team_name, 
+                           home_score, away_score, is_played
+                    FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_id = ?
+                    ORDER BY id ASC
+                """, (competition_id, current_round_id))
+                games = cur.fetchall()
+                
+                winners = []
+                for game in games:
+                    if game['is_played'] == 1:
+                        if game['home_score'] > game['away_score']:
+                            winners.append({
+                                'id': game['home_team_id'],
+                                'name': game['home_team_name']
+                            })
+                        elif game['away_score'] > game['home_score']:
+                            winners.append({
+                                'id': game['away_team_id'],
+                                'name': game['away_team_name']
+                            })
+                        else:
+                            # Draw - use penalties (random for now)
+                            if random.random() > 0.5:
+                                winners.append({
+                                    'id': game['home_team_id'],
+                                    'name': game['home_team_name']
+                                })
+                            else:
+                                winners.append({
+                                    'id': game['away_team_id'],
+                                    'name': game['away_team_name']
+                                })
+                
+                if len(winners) == 0:
+                    errors.append(f'{competition_name}: No winners found')
+                    continue
+                
+                # If only one team left, tournament is complete
+                if len(winners) == 1:
+                    champions.append(f'{competition_name}: {winners[0]["name"]}')
+                    continue
+                
+                # Determine next round
+                if current_round_type == 'quarter_final':
+                    next_round_num = 8
+                    next_round_type = 'semi_final'
+                elif current_round_type == 'semi_final':
+                    next_round_num = 9
+                    next_round_type = 'final'
+                else:
+                    champions.append(f'{competition_name}: Already complete')
+                    continue
+                
+                # Get or create next round
+                cur.execute("""
+                    SELECT id FROM inter_leagues_rounds
+                    WHERE competition_id = ? AND round_number = ?
+                """, (competition_id, next_round_num))
+                next_round = cur.fetchone()
+                
+                if not next_round:
+                    # Create the round
+                    cur.execute("""
+                        INSERT INTO inter_leagues_rounds (competition_id, round_number, status)
+                        VALUES (?, ?, 'pending')
+                    """, (competition_id, next_round_num))
+                    next_round_id = cur.lastrowid
+                else:
+                    next_round_id = next_round['id']
+                
+                # Check if games already exist for next round
+                cur.execute("""
+                    SELECT COUNT(*) as count FROM inter_leagues_games
+                    WHERE competition_id = ? AND round_id = ?
+                """, (competition_id, next_round_id))
+                existing_games = cur.fetchone()['count']
+                
+                if existing_games > 0:
+                    errors.append(f'{competition_name}: Round {next_round_num} games already exist')
+                    continue
+                
+                # Shuffle teams for random pairing in next round
+                random.shuffle(winners)
+                
+                # Pair winners for next round
+                games_created = 0
+                for i in range(0, len(winners) - 1, 2):
+                    if i + 1 < len(winners):
+                        home_team = winners[i]
+                        away_team = winners[i + 1]
+                        
+                        cur.execute("""
+                            INSERT INTO inter_leagues_games
+                            (competition_id, round_id, home_team_id, away_team_id, home_team_name, away_team_name,
+                             round_type, is_played)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                        """, (competition_id, next_round_id, home_team['id'], away_team['id'],
+                              home_team['name'], away_team['name'], next_round_type))
+                        games_created += 1
+                        total_games_created += 1
+                
+            except Exception as e:
+                errors.append(f'{competition_name}: {str(e)}')
+                app.logger.error(f"Error advancing {competition_name}: {e}")
+                continue
+        
+        # Show results
+        if champions:
+            for champ in champions:
+                flash(f'🏆 {champ} is the champion!', 'success')
+        
+        if errors:
+            for error in errors:
+                flash(error, 'warning')
+        
+        if total_games_created > 0:
+            flash(f'Successfully advanced knockout rounds! {total_games_created} games created across all competitions.', 'success')
+        
+        if total_games_created == 0 and not champions:
+            flash('No competitions were advanced. Make sure all competitions have completed their current knockout round.', 'warning')
+        
+        db_helper.commit()
+        return redirect(url_for('inter_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error advancing inter-league knockout rounds: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        db_helper.get_connection().rollback()
+        flash(f'Error advancing rounds: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/auto_select_squad/<int:competition_id>/<int:round_id>/<int:team_id>', methods=['POST'])
+@login_required
+def auto_select_inter_league_squad(competition_id, round_id, team_id):
+    """Auto-select squad for inter-leagues with 100M salary cap"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get team info
+        cur.execute("""
+            SELECT team_name FROM inter_leagues_teams
+            WHERE id = ? AND competition_id = ?
+        """, (team_id, competition_id))
+        team_row = cur.fetchone()
+        if not team_row:
+            flash('Team not found', 'danger')
+            return redirect(url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team_id))
+        
+        team_name = team_row['team_name']
+        
+        # Get team's club_id
+        cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+        club_row = cur.fetchone()
+        if not club_row:
+            flash('Team not found in database', 'danger')
+            return redirect(url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team_id))
+        
+        club_id = club_row['id']
+        
+        # Get all eligible players from this team
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.salary,
+                   COALESCE(p.InterLeague_YC, 0) as InterLeague_YC,
+                   COALESCE(p.InterLeague_RC, 0) as InterLeague_RC,
+                   COALESCE(p.InterLeague_Injury, 0) as InterLeague_Injury
+            FROM players p
+            WHERE p.club_id = ? AND p.overall IS NOT NULL
+            AND COALESCE(p.InterLeague_RC, 0) <= 1  -- RC = 1 will be cleared, RC > 1 cannot play
+            AND COALESCE(p.InterLeague_Injury, 0) = 0  -- Only players with no injury
+            ORDER BY p.overall DESC
+        """, (club_id,))
+        all_players = [dict(row) for row in cur.fetchall()]
+        
+        if not all_players:
+            flash('No eligible players found', 'danger')
+            return redirect(url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team_id))
+        
+        # Auto-select squad using position-based logic with salary cap
+        def get_pos_int(p):
+            pos = p.get('registered_position')
+            try:
+                return int(pos) if pos is not None else -1
+            except (ValueError, TypeError):
+                return -1
+        
+        salary_cap = 100000000  # 100M
+        
+        # Select starting 11 - prioritize by position
+        gks = sorted([p for p in all_players if get_pos_int(p) == 0], 
+                    key=lambda x: x.get('overall', 0), reverse=True)
+        side_backs = sorted([p for p in all_players if get_pos_int(p) in [4, 6]], 
+                           key=lambda x: x.get('overall', 0), reverse=True)
+        centre_backs = sorted([p for p in all_players if get_pos_int(p) in [2, 3]], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+        centre_mids = sorted([p for p in all_players if get_pos_int(p) in [5, 7, 9]], 
+                            key=lambda x: x.get('overall', 0), reverse=True)
+        side_mids = sorted([p for p in all_players if get_pos_int(p) in [8, 10]], 
+                          key=lambda x: x.get('overall', 0), reverse=True)
+        forwards = sorted([p for p in all_players if get_pos_int(p) in [11, 12]], 
+                         key=lambda x: x.get('overall', 0), reverse=True)
+        
+        selected_players = []
+        # Select goalkeeper (required)
+        if gks:
+            selected_players.append(gks[0])
+        else:
+            # No GK available - take best overall player as emergency GK
+            if all_players:
+                selected_players.append(max(all_players, key=lambda x: x.get('overall', 0)))
+        
+        # Select players by position (up to 2 per position type)
+        for sb in side_backs[:2]:
+            if len(selected_players) < 11:
+                selected_players.append(sb)
+        for cb in centre_backs[:2]:
+            if len(selected_players) < 11:
+                selected_players.append(cb)
+        for cm in centre_mids[:2]:
+            if len(selected_players) < 11:
+                selected_players.append(cm)
+        for sm in side_mids[:2]:
+            if len(selected_players) < 11:
+                selected_players.append(sm)
+        for fwd in forwards[:2]:
+            if len(selected_players) < 11:
+                selected_players.append(fwd)
+        
+        # Fill remaining slots to ensure we have 11 players
+        used_ids = {p.get('id') for p in selected_players}
+        available = sorted([p for p in all_players if p.get('id') not in used_ids], 
+                         key=lambda x: x.get('overall', 0), reverse=True)
+        needed = min(11 - len(selected_players), len(available))
+        for p in available[:needed]:
+            selected_players.append(p)
+        
+        # Add substitutes (up to 7 more players, prioritizing best overall)
+        remaining = sorted([p for p in all_players if p.get('id') not in {sp.get('id') for sp in selected_players}],
+                          key=lambda x: x.get('overall', 0), reverse=True)
+        
+        # Add substitutes while staying under salary cap
+        current_salary = sum(p.get('salary', 0) or 0 for p in selected_players)
+        for p in remaining[:7]:
+            if current_salary + (p.get('salary', 0) or 0) <= salary_cap:
+                selected_players.append(p)
+                current_salary += p.get('salary', 0) or 0
+            else:
+                break
+        
+        # If over cap, remove players starting from lowest overall (but keep at least 11)
+        total_salary = sum(p.get('salary', 0) or 0 for p in selected_players)
+        if total_salary > salary_cap:
+            # Sort by overall, but keep the first 11 (starters)
+            starters = selected_players[:11]
+            substitutes = selected_players[11:]
+            substitutes.sort(key=lambda x: x.get('overall', 0))
+            
+            current_salary = sum(p.get('salary', 0) or 0 for p in starters)
+            final_squad = starters.copy()
+            
+            # Add substitutes that fit under cap
+            for p in substitutes:
+                if current_salary + (p.get('salary', 0) or 0) <= salary_cap:
+                    final_squad.append(p)
+                    current_salary += p.get('salary', 0) or 0
+            
+            selected_players = final_squad
+        
+        # Create selected_ids list and calculate total salary
+        selected_ids = [p.get('id') for p in selected_players]
+        total_salary = sum(p.get('salary', 0) or 0 for p in selected_players)
+        # Simple mode: apply the squad to ALL rounds (group + knockout) for this competition
+        cur.execute("""
+            SELECT round_number FROM inter_leagues_rounds
+            WHERE competition_id = ?
+            ORDER BY round_number
+        """, (competition_id,))
+        target_round_numbers = [row['round_number'] for row in cur.fetchall()]
+        stage_name = "All Rounds"
+        
+        # Get all round IDs for the target rounds
+        if target_round_numbers:
+            cur.execute("""
+                SELECT id, round_number FROM inter_leagues_rounds
+                WHERE competition_id = ? AND round_number IN ({})
+            """.format(','.join('?' * len(target_round_numbers))), [competition_id] + target_round_numbers)
+            target_rounds = {row['round_number']: row['id'] for row in cur.fetchall()}
+            
+            # Delete existing squad for all rounds in this stage
+            for target_round_num, target_round_id in target_rounds.items():
+                cur.execute("""
+                    DELETE FROM inter_leagues_user_squads
+                    WHERE competition_id = ? AND round_id = ? AND team_id = ?
+                """, (competition_id, target_round_id, team_id))
+            
+            # Insert auto-selected squad for all rounds in this stage
+            for target_round_num, target_round_id in target_rounds.items():
+                for player_id in selected_ids:
+                    cur.execute("""
+                        INSERT INTO inter_leagues_user_squads (competition_id, round_id, team_id, player_id)
+                        VALUES (?, ?, ?, ?)
+                    """, (competition_id, target_round_id, team_id, player_id))
+        else:
+            # Fallback: just apply to the current round
+            cur.execute("""
+                DELETE FROM inter_leagues_user_squads
+                WHERE competition_id = ? AND round_id = ? AND team_id = ?
+            """, (competition_id, round_id, team_id))
+            for player_id in selected_ids:
+                cur.execute("""
+                    INSERT INTO inter_leagues_user_squads (competition_id, round_id, team_id, player_id)
+                    VALUES (?, ?, ?, ?)
+                """, (competition_id, round_id, team_id, player_id))
+        
+        db_helper.commit()
+        flash(f'Auto-selected squad for {team_name} ({stage_name})! ({len(selected_ids)} players, €{total_salary:,} total salary)', 'success')
+        return redirect(url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team_id))
+        
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        app.logger.error(f"Error auto-selecting squad: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        flash(f'Error auto-selecting squad: {str(e)}', 'danger')
+        return redirect(url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team_id))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/select_squad/<int:competition_id>/<int:round_id>', methods=['GET', 'POST'])
+@login_required
+def select_inter_league_squad(competition_id, round_id):
+    """Select squad for an inter-leagues round with 100M salary cap"""
+    import random
+    from cpu_leagues import simulate_cpu_game
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get team_id from query parameter (optional)
+        team_id = request.args.get('team_id', type=int)
+        
+        # Get all user teams in this competition (ANY user team, not just current user's)
+        cur.execute("""
+            SELECT id, user_id, team_name FROM inter_leagues_teams
+            WHERE competition_id = ? AND user_id IS NOT NULL AND user_id != 1
+        """, (competition_id,))
+        user_teams = [dict(row) for row in cur.fetchall()]
+        
+        # If no user teams found, redirect
+        if not user_teams:
+            flash('No user teams participating in this competition', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # User has teams in competition - select the team
+        if team_id:
+            selected_team = next((t for t in user_teams if t['id'] == team_id), None)
+            if not selected_team:
+                flash('Team not found', 'danger')
+                return redirect(url_for('inter_leagues', competition_id=competition_id))
+        elif len(user_teams) == 1:
+            selected_team = user_teams[0]
+        else:
+            # Multiple teams - show selection page (any user team can be selected)
+            return render_template('inter_leagues_team_selection.html',
+                                 competition_id=competition_id,
+                                 round_id=round_id,
+                                 teams=user_teams)
+        
+        is_cpu_team = False
+        
+        team_id = selected_team['id']
+        team_name = selected_team['team_name']
+        user_id = selected_team['user_id']
+        
+        # Get round info
+        cur.execute("""
+            SELECT id, competition_id, round_number, status, start_time, end_time
+            FROM inter_leagues_rounds
+            WHERE id = ? AND competition_id = ?
+        """, (round_id, competition_id))
+        round_info = cur.fetchone()
+        if not round_info:
+            flash('Round not found', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        round_info = dict(round_info)
+        
+        # Get competition name
+        cur.execute("SELECT name FROM inter_leagues_competitions WHERE id = ?", (competition_id,))
+        competition_row = cur.fetchone()
+        competition_name = competition_row['name'] if competition_row else 'Inter-Leagues'
+        
+        # CPU teams should not use this route - they auto-select
+        # This route is only for user teams to select their squads
+        if is_cpu_team:
+            flash('CPU teams automatically select their squads', 'info')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # For user teams, show squad selection interface
+        if False:  # Changed from if is_cpu_team - this block is now unreachable but kept for structure
+            # Get team's club_id from team_name
+            cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+            club_row = cur.fetchone()
+            if not club_row:
+                flash('Team not found in database', 'danger')
+                return redirect(url_for('inter_leagues', competition_id=competition_id))
+            
+            club_id = club_row['id']
+            
+            # Get all players for this team
+            cur.execute("""
+                SELECT id, player_name, overall, registered_position, salary
+                FROM players
+                WHERE club_id = ? AND overall IS NOT NULL
+                ORDER BY overall DESC
+            """, (club_id,))
+            all_players = [dict(row) for row in cur.fetchall()]
+            
+            # Auto-select squad using CPU logic (similar to cpu_leagues)
+            def get_pos_int(p):
+                pos = p.get('registered_position')
+                try:
+                    return int(pos) if pos is not None else -1
+                except (ValueError, TypeError):
+                    return -1
+            
+            # Select starting 11 (similar to cpu_leagues select_starting_11)
+            gks = sorted([p for p in all_players if get_pos_int(p) == 0], 
+                        key=lambda x: x.get('overall', 0), reverse=True)
+            side_backs = sorted([p for p in all_players if get_pos_int(p) in [4, 6]], 
+                               key=lambda x: x.get('overall', 0), reverse=True)
+            centre_backs = sorted([p for p in all_players if get_pos_int(p) in [2, 3]], 
+                                 key=lambda x: x.get('overall', 0), reverse=True)
+            centre_mids = sorted([p for p in all_players if get_pos_int(p) in [5, 7, 9]], 
+                                key=lambda x: x.get('overall', 0), reverse=True)
+            side_mids = sorted([p for p in all_players if get_pos_int(p) in [8, 10]], 
+                              key=lambda x: x.get('overall', 0), reverse=True)
+            forwards = sorted([p for p in all_players if get_pos_int(p) in [11, 12]], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            
+            selected_players = []
+            if gks:
+                selected_players.append(gks[0])
+            for sb in side_backs[:2]:
+                selected_players.append(sb)
+            for cb in centre_backs[:2]:
+                selected_players.append(cb)
+            for cm in centre_mids[:2]:
+                selected_players.append(cm)
+            for sm in side_mids[:2]:
+                selected_players.append(sm)
+            for fwd in forwards[:2]:
+                selected_players.append(fwd)
+            
+            # Fill remaining slots
+            used_ids = {p.get('id') for p in selected_players}
+            available = sorted([p for p in all_players if p.get('id') not in used_ids 
+                              and get_pos_int(p) != 0], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            needed = 11 - len(selected_players)
+            for p in available[:needed]:
+                selected_players.append(p)
+            
+            # Add substitutes (up to 7 more players, prioritizing best overall)
+            remaining = sorted([p for p in all_players if p.get('id') not in {sp.get('id') for sp in selected_players}],
+                              key=lambda x: x.get('overall', 0), reverse=True)
+            selected_players.extend(remaining[:7])
+            
+            # Calculate total salary
+            total_salary = sum(p.get('salary', 0) or 0 for p in selected_players)
+            salary_cap = 100000000  # 100M
+            
+            # If over cap, remove players starting from lowest overall
+            if total_salary > salary_cap:
+                selected_players.sort(key=lambda x: x.get('overall', 0))
+                while total_salary > salary_cap and len(selected_players) > 11:
+                    removed = selected_players.pop(0)
+                    total_salary -= removed.get('salary', 0) or 0
+            
+            selected_ids = [p.get('id') for p in selected_players]
+            
+            # Delete existing squad for this round and team
+            cur.execute("""
+                DELETE FROM inter_leagues_user_squads
+                WHERE competition_id = ? AND round_id = ? AND team_id = ?
+            """, (competition_id, round_id, team_id))
+            
+            # Insert auto-selected squad
+            for player_id in selected_ids:
+                cur.execute("""
+                    INSERT INTO inter_leagues_user_squads (competition_id, round_id, team_id, player_id)
+                    VALUES (?, ?, ?, ?)
+                """, (competition_id, round_id, team_id, player_id))
+            
+            db_helper.commit()
+            flash(f'CPU squad auto-selected for {team_name}! ({len(selected_ids)} players, €{total_salary:,} total salary)', 'success')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # For user teams, show selection interface
+        # Get players from this specific team
+        cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+        club_row = cur.fetchone()
+        if not club_row:
+            flash('Team not found in database', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        club_id = club_row['id']
+        
+        cur.execute("""
+            SELECT p.id, p.player_name, p.game_position, p.salary, p.overall, p.registered_position,
+                   COALESCE(p.InterLeague_YC, 0) as InterLeague_YC,
+                   COALESCE(p.InterLeague_RC, 0) as InterLeague_RC,
+                   COALESCE(p.InterLeague_Injury, 0) as InterLeague_Injury
+            FROM players p
+            WHERE p.club_id = ?
+            ORDER BY
+                CASE CAST(p.registered_position AS INTEGER)
+                    WHEN 0 THEN 1  -- GK
+                    WHEN 2 THEN 2  -- SW/CB
+                    WHEN 3 THEN 2
+                    WHEN 4 THEN 3  -- SB/WB
+                    WHEN 6 THEN 3
+                    WHEN 5 THEN 4  -- Midfield
+                    WHEN 7 THEN 4
+                    WHEN 8 THEN 4
+                    WHEN 9 THEN 4
+                    WHEN 10 THEN 5 -- WF
+                    WHEN 11 THEN 6 -- Forwards
+                    WHEN 12 THEN 6
+                    ELSE 7
+                END,
+                p.overall DESC,
+                p.salary DESC
+        """, (club_id,))
+        all_players = [dict(row) for row in cur.fetchall()]
+        
+        # Filter out players who cannot play (RC > 1 or Injury > 0)
+        # Note: RC = 1 will be decreased to 0 when round starts, so they CAN be selected (serving suspension)
+        # Only filter out RC > 1 (shouldn't happen, but just in case) and Injury > 0
+        all_players = [p for p in all_players if p.get('InterLeague_RC', 0) <= 1 and p.get('InterLeague_Injury', 0) == 0]
+        
+        # Get currently selected squad for this round and team
+        cur.execute("""
+            SELECT player_id FROM inter_leagues_user_squads
+            WHERE competition_id = ? AND round_id = ? AND team_id = ?
+        """, (competition_id, round_id, team_id))
+        selected_player_ids = {row['player_id'] for row in cur.fetchall()}
+        
+        if request.method == 'POST':
+            # Get selected player IDs from form
+            selected_ids = request.form.getlist('player_ids')
+            selected_ids = [int(pid) for pid in selected_ids if pid.isdigit()]
+
+            # Ensure the user selects enough players to allow substitutions.
+            # If the team has 12+ eligible players, require at least 12 selected (bench available).
+            eligible_count = len(all_players)
+            min_required = 12 if eligible_count >= 12 else 11
+            if len(selected_ids) < min_required:
+                if min_required == 12:
+                    flash('Please select at least 12 players (11 starters + bench) so substitutions are possible.', 'warning')
+                else:
+                    flash('Please select at least 11 players to form a starting XI.', 'warning')
+                return redirect(url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team_id))
+            
+            # Validate all selected players belong to the team
+            team_player_ids = {p['id'] for p in all_players}
+            if not all(pid in team_player_ids for pid in selected_ids):
+                flash('Invalid player selection', 'danger')
+                return redirect(url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team_id))
+            
+            # Calculate total salary
+            selected_players = [p for p in all_players if p['id'] in selected_ids]
+            total_salary = sum(p['salary'] or 0 for p in selected_players)
+            salary_cap = 100000000  # 100M
+            
+            if total_salary > salary_cap:
+                flash(f'Total salary (€{total_salary:,}) exceeds the 100M salary cap!', 'danger')
+                return redirect(url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team_id))
+            # Simple mode: apply the squad to ALL rounds (group + knockout) for this competition
+            cur.execute("""
+                SELECT round_number FROM inter_leagues_rounds
+                WHERE competition_id = ?
+                ORDER BY round_number
+            """, (competition_id,))
+            target_round_numbers = [row['round_number'] for row in cur.fetchall()]
+            stage_name = "All Rounds"
+            
+            # Get all round IDs for the target rounds
+            if target_round_numbers:
+                cur.execute("""
+                    SELECT id, round_number FROM inter_leagues_rounds
+                    WHERE competition_id = ? AND round_number IN ({})
+                """.format(','.join('?' * len(target_round_numbers))), [competition_id] + target_round_numbers)
+                target_rounds = {row['round_number']: row['id'] for row in cur.fetchall()}
+                
+                # Delete existing squad for all rounds in this stage
+                for target_round_num, target_round_id in target_rounds.items():
+                    cur.execute("""
+                        DELETE FROM inter_leagues_user_squads
+                        WHERE competition_id = ? AND round_id = ? AND team_id = ?
+                    """, (competition_id, target_round_id, team_id))
+                
+                # Insert selected squad for all rounds in this stage
+                for target_round_num, target_round_id in target_rounds.items():
+                    for player_id in selected_ids:
+                        cur.execute("""
+                            INSERT INTO inter_leagues_user_squads (competition_id, round_id, team_id, player_id)
+                            VALUES (?, ?, ?, ?)
+                        """, (competition_id, target_round_id, team_id, player_id))
+            else:
+                # Fallback: just apply to the current round
+                cur.execute("""
+                    DELETE FROM inter_leagues_user_squads
+                    WHERE competition_id = ? AND round_id = ? AND team_id = ?
+                """, (competition_id, round_id, team_id))
+                for player_id in selected_ids:
+                    cur.execute("""
+                        INSERT INTO inter_leagues_user_squads (competition_id, round_id, team_id, player_id)
+                        VALUES (?, ?, ?, ?)
+                    """, (competition_id, round_id, team_id, player_id))
+            
+            db_helper.commit()
+            flash(f'Squad selected successfully for {stage_name}! ({len(selected_ids)} players, €{total_salary:,} total salary)', 'success')
+            return redirect(url_for('inter_leagues', competition_id=competition_id))
+        
+        # Calculate total salary of currently selected players
+        current_total_salary = sum(p['salary'] or 0 for p in all_players if p['id'] in selected_player_ids)
+        
+        return render_template('inter_leagues_squad_selection.html',
+                             competition_id=competition_id,
+                             competition_name=competition_name,
+                             round_id=round_id,
+                             round_info=round_info,
+                             user_team={'id': team_id, 'team_name': team_name},
+                             all_players=all_players,
+                             selected_player_ids=selected_player_ids,
+                             current_total_salary=current_total_salary,
+                             salary_cap=100000000)
+    
+    except Exception as e:
+        app.logger.error(f"Error in squad selection: {e}")
+        db_helper.get_connection().rollback()
+        flash(f'Error: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues', competition_id=competition_id))
+    finally:
+        cur.close()
+
+def _auto_select_squad(cur, competition_id, round_id, team_id, team_name):
+    """Helper function to auto-select a squad for a team"""
+    import random
+    
+    # Get team's club_id from team_name
+    cur.execute("SELECT id FROM teams WHERE club_name = ?", (team_name,))
+    club_row = cur.fetchone()
+    if not club_row:
+        return False
+    
+    club_id = club_row['id']
+    
+    # Get all players for this team (excluding suspended and injured players)
+    # Only players with RC = 0 and Injury = 0 can play
+    cur.execute("""
+        SELECT id, player_name, overall, registered_position, salary
+        FROM players
+        WHERE club_id = ? AND overall IS NOT NULL
+        AND COALESCE(InterLeague_RC, 0) = 0  -- Only players with no red card suspension
+        AND COALESCE(InterLeague_Injury, 0) = 0  -- Only players with no injury
+        ORDER BY overall DESC
+    """, (club_id,))
+    all_players = [dict(row) for row in cur.fetchall()]
+    
+    if not all_players:
+        return False
+    
+    # Ensure we have at least 11 eligible players (if team has large squad, this should be true)
+    if len(all_players) < 11:
+        # Not enough players - log warning but continue with what we have
+        app.logger.warning(f"Team {team_name} only has {len(all_players)} eligible players (need 11)")
+    
+    # Auto-select squad using CPU logic
+    def get_pos_int(p):
+        pos = p.get('registered_position')
+        try:
+            return int(pos) if pos is not None else -1
+        except (ValueError, TypeError):
+            return -1
+    
+    # Select starting 11 - prioritize by position but fill all slots
+    gks = sorted([p for p in all_players if get_pos_int(p) == 0], 
+                key=lambda x: x.get('overall', 0), reverse=True)
+    side_backs = sorted([p for p in all_players if get_pos_int(p) in [4, 6]], 
+                       key=lambda x: x.get('overall', 0), reverse=True)
+    centre_backs = sorted([p for p in all_players if get_pos_int(p) in [2, 3]], 
+                         key=lambda x: x.get('overall', 0), reverse=True)
+    centre_mids = sorted([p for p in all_players if get_pos_int(p) in [5, 7, 9]], 
+                        key=lambda x: x.get('overall', 0), reverse=True)
+    side_mids = sorted([p for p in all_players if get_pos_int(p) in [8, 10]], 
+                      key=lambda x: x.get('overall', 0), reverse=True)
+    forwards = sorted([p for p in all_players if get_pos_int(p) in [11, 12]], 
+                     key=lambda x: x.get('overall', 0), reverse=True)
+    
+    selected_players = []
+    # Select goalkeeper (required)
+    if gks:
+        selected_players.append(gks[0])
+    else:
+        # No GK available - take best overall player as emergency GK
+        if all_players:
+            selected_players.append(max(all_players, key=lambda x: x.get('overall', 0)))
+    
+    # Select players by position (up to 2 per position type)
+    for sb in side_backs[:2]:
+        if len(selected_players) < 11:
+            selected_players.append(sb)
+    for cb in centre_backs[:2]:
+        if len(selected_players) < 11:
+            selected_players.append(cb)
+    for cm in centre_mids[:2]:
+        if len(selected_players) < 11:
+            selected_players.append(cm)
+    for sm in side_mids[:2]:
+        if len(selected_players) < 11:
+            selected_players.append(sm)
+    for fwd in forwards[:2]:
+        if len(selected_players) < 11:
+            selected_players.append(fwd)
+    
+    # Fill remaining slots to ensure we have 11 players (or as many as available)
+    used_ids = {p.get('id') for p in selected_players}
+    available = sorted([p for p in all_players if p.get('id') not in used_ids], 
+                     key=lambda x: x.get('overall', 0), reverse=True)
+    needed = min(11 - len(selected_players), len(available))
+    for p in available[:needed]:
+        selected_players.append(p)
+    
+    # Add substitutes (up to 7 more players, prioritizing best overall)
+    remaining = sorted([p for p in all_players if p.get('id') not in {sp.get('id') for sp in selected_players}],
+                      key=lambda x: x.get('overall', 0), reverse=True)
+    selected_players.extend(remaining[:7])
+    
+    # Calculate total salary
+    total_salary = sum(p.get('salary', 0) or 0 for p in selected_players)
+    salary_cap = 100000000  # 100M
+    
+    # If over cap, remove players starting from lowest overall
+    if total_salary > salary_cap:
+        selected_players.sort(key=lambda x: x.get('overall', 0))
+        while total_salary > salary_cap and len(selected_players) > 11:
+            removed = selected_players.pop(0)
+            total_salary -= removed.get('salary', 0) or 0
+    
+    selected_ids = [p.get('id') for p in selected_players]
+    # Simple mode: apply the squad to ALL rounds (group + knockout) for this competition
+    cur.execute("""
+        SELECT id FROM inter_leagues_rounds
+        WHERE competition_id = ?
+        ORDER BY round_number
+    """, (competition_id,))
+    round_ids = [row['id'] for row in cur.fetchall()]
+    if not round_ids:
+        return False
+    
+    # Delete existing squad for all rounds
+    for rid in round_ids:
+        cur.execute("""
+            DELETE FROM inter_leagues_user_squads
+            WHERE competition_id = ? AND round_id = ? AND team_id = ?
+        """, (competition_id, rid, team_id))
+    
+    # Insert auto-selected squad for all rounds
+    for rid in round_ids:
+        for player_id in selected_ids:
+            cur.execute("""
+                INSERT INTO inter_leagues_user_squads (competition_id, round_id, team_id, player_id)
+                VALUES (?, ?, ?, ?)
+            """, (competition_id, rid, team_id, player_id))
+    
+    return True
+
+@app.route('/inter_leagues/simulate_game/<int:game_id>', methods=['POST'])
+@login_required
+def simulate_inter_league_game(game_id):
+    """Simulate an inter-leagues game with events"""
+    import random
+    from international_simulation import simulate_international_game_with_players
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get game details
+        cur.execute("""
+            SELECT id, competition_id, round_id, home_team_id, away_team_id,
+                   home_team_name, away_team_name, is_played,
+                   ilt_home.user_id as home_user_id, ilt_away.user_id as away_user_id
+            FROM inter_leagues_games
+            LEFT JOIN inter_leagues_teams ilt_home ON inter_leagues_games.home_team_id = ilt_home.id
+            LEFT JOIN inter_leagues_teams ilt_away ON inter_leagues_games.away_team_id = ilt_away.id
+            WHERE id = ?
+        """, (game_id,))
+        game = cur.fetchone()
+        
+        if not game:
+            flash('Game not found', 'danger')
+            return redirect(url_for('inter_leagues'))
+        
+        game = dict(game)
+        
+        if game['is_played']:
+            flash('Game has already been played', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=game['competition_id']))
+        
+        # Get squads for both teams from inter_leagues_user_squads
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+            FROM players p
+            JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+            WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+            AND p.overall IS NOT NULL
+        """, (game['competition_id'], game['round_id'], game['home_team_id']))
+        home_players = [dict(row) for row in cur.fetchall()]
+        
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+            FROM players p
+            JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+            WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+            AND p.overall IS NOT NULL
+        """, (game['competition_id'], game['round_id'], game['away_team_id']))
+        away_players = [dict(row) for row in cur.fetchall()]
+        
+        # Auto-select squads if missing
+        if not home_players:
+            is_user_team = game.get('home_user_id') is not None and int(game.get('home_user_id')) != 1
+            if is_user_team:
+                flash(f"Missing squad for {game['home_team_name']}. Please select a 100M squad.", 'danger')
+                return redirect(url_for('inter_leagues', competition_id=game['competition_id']))
+            app.logger.info(f"Auto-selecting squad for home team {game['home_team_id']}")
+            _auto_select_squad(cur, game['competition_id'], game['round_id'], game['home_team_id'], game['home_team_name'])
+            # Re-fetch home players
+            cur.execute("""
+                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+                FROM players p
+                JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                AND p.overall IS NOT NULL
+            """, (game['competition_id'], game['round_id'], game['home_team_id']))
+            home_players = [dict(row) for row in cur.fetchall()]
+        
+        if not away_players:
+            is_user_team = game.get('away_user_id') is not None and int(game.get('away_user_id')) != 1
+            if is_user_team:
+                flash(f"Missing squad for {game['away_team_name']}. Please select a 100M squad.", 'danger')
+                return redirect(url_for('inter_leagues', competition_id=game['competition_id']))
+            app.logger.info(f"Auto-selecting squad for away team {game['away_team_id']}")
+            _auto_select_squad(cur, game['competition_id'], game['round_id'], game['away_team_id'], game['away_team_name'])
+            # Re-fetch away players
+            cur.execute("""
+                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+                FROM players p
+                JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                AND p.overall IS NOT NULL
+            """, (game['competition_id'], game['round_id'], game['away_team_id']))
+            away_players = [dict(row) for row in cur.fetchall()]
+        
+        if not home_players or not away_players:
+            flash('Failed to auto-select squads. Please select squads manually.', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=game['competition_id']))
+        
+        # Simulate the game
+        simulation_result = simulate_international_game_with_players(home_players, away_players)
+        
+        home_score = simulation_result['home_score']
+        away_score = simulation_result['away_score']
+        player_stats = simulation_result['player_stats']
+        mvp_player_id = simulation_result.get('mvp_player_id')
+        game_events = simulation_result.get('events', [])  # Cards and injuries events
+        
+        # Update game in database
+        cur.execute("""
+            UPDATE inter_leagues_games
+            SET home_score = ?, away_score = ?, game_date = datetime('now'), is_played = 1, mvp_player_id = ?
+            WHERE id = ?
+        """, (home_score, away_score, mvp_player_id, game_id))
+        
+        # Insert player stats
+        for stat in player_stats:
+            team_id = game['home_team_id'] if stat.get('team_id') == 'home' else game['away_team_id']
+            cur.execute("""
+                INSERT INTO inter_leagues_player_stats
+                (game_id, player_id, team_id, player_name, goals, assists, minutes_played, is_starter, yellow_cards, red_cards, injuries)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (game_id, stat['player_id'], team_id, stat['player_name'],
+                  stat.get('goals', 0), stat.get('assists', 0),
+                  stat.get('minutes_played', 90), stat.get('is_starter', 1),
+                  stat.get('yellow_cards', 0), stat.get('red_cards', 0), stat.get('injuries', 0)))
+            
+            # Update player's Inter-League suspension and injury counters
+            player_id = stat['player_id']
+            yellow_cards = stat.get('yellow_cards', 0)
+            red_cards = stat.get('red_cards', 0)
+            injuries = stat.get('injuries', 0)
+            
+            if yellow_cards > 0:
+                cur.execute("""
+                    UPDATE players 
+                    SET InterLeague_YC = InterLeague_YC + ?
+                    WHERE id = ?
+                """, (yellow_cards, player_id))
+            
+            if red_cards > 0:
+                cur.execute("""
+                    UPDATE players 
+                    SET InterLeague_RC = InterLeague_RC + ?
+                    WHERE id = ?
+                """, (red_cards, player_id))
+            
+            if injuries > 0:
+                cur.execute("""
+                    UPDATE players 
+                    SET InterLeague_Injury = ?
+                    WHERE id = ?
+                """, (injuries, player_id))
+        
+        # Update standings (team-based)
+        # Home team
+        cur.execute("SELECT id FROM inter_leagues_standings WHERE competition_id = ? AND team_id = ?",
+                   (game['competition_id'], game['home_team_id']))
+        if cur.fetchone():
+            # Update existing standing
+            if home_score > away_score:
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = games_played + 1,
+                        wins = wins + 1,
+                        goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ? - ?,
+                        points = points + 3,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (home_score, away_score, home_score, away_score,
+                      game['competition_id'], game['home_team_id']))
+            elif home_score == away_score:
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = games_played + 1,
+                        draws = draws + 1,
+                        goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ? - ?,
+                        points = points + 1,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (home_score, away_score, home_score, away_score,
+                      game['competition_id'], game['home_team_id']))
+            else:
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = games_played + 1,
+                        losses = losses + 1,
+                        goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ? - ?,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (home_score, away_score, home_score, away_score,
+                      game['competition_id'], game['home_team_id']))
+        else:
+            # Create new standing
+            cur.execute("""
+                INSERT INTO inter_leagues_standings
+                (competition_id, team_id, team_name, games_played, wins, draws, losses,
+                 goals_for, goals_against, goal_difference, points)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+            """, (game['competition_id'], game['home_team_id'], game['home_team_name'],
+                  (1 if home_score > away_score else 0),
+                  (1 if home_score == away_score else 0),
+                  (1 if home_score < away_score else 0),
+                  home_score, away_score, home_score - away_score,
+                  (3 if home_score > away_score else (1 if home_score == away_score else 0))))
+        
+        # Away team
+        cur.execute("SELECT id FROM inter_leagues_standings WHERE competition_id = ? AND team_id = ?",
+                   (game['competition_id'], game['away_team_id']))
+        if cur.fetchone():
+            # Update existing standing
+            if away_score > home_score:
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = games_played + 1,
+                        wins = wins + 1,
+                        goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ? - ?,
+                        points = points + 3,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (away_score, home_score, away_score, home_score,
+                      game['competition_id'], game['away_team_id']))
+            elif away_score == home_score:
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = games_played + 1,
+                        draws = draws + 1,
+                        goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ? - ?,
+                        points = points + 1,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (away_score, home_score, away_score, home_score,
+                      game['competition_id'], game['away_team_id']))
+            else:
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = games_played + 1,
+                        losses = losses + 1,
+                        goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ? - ?,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (away_score, home_score, away_score, home_score,
+                      game['competition_id'], game['away_team_id']))
+        else:
+            # Create new standing
+            cur.execute("""
+                INSERT INTO inter_leagues_standings
+                (competition_id, team_id, team_name, games_played, wins, draws, losses,
+                 goals_for, goals_against, goal_difference, points)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+            """, (game['competition_id'], game['away_team_id'], game['away_team_name'],
+                  (1 if away_score > home_score else 0),
+                  (1 if away_score == home_score else 0),
+                  (1 if away_score < home_score else 0),
+                  away_score, home_score, away_score - home_score,
+                  (3 if away_score > home_score else (1 if away_score == home_score else 0))))
+        
+        db_helper.commit()
+        
+        # Redirect to game view page to display events
+        return redirect(url_for('view_inter_league_game', game_id=game_id))
+    
+    except Exception as e:
+        app.logger.error(f"Error simulating inter-leagues game: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        db_helper.get_connection().rollback()
+        flash(f'Error simulating game: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/simulate_all_round/<int:round_number>', methods=['GET', 'POST'])
+@app.route('/inter_leagues/simulate_all_round1', methods=['GET', 'POST'])
+@login_required
+def simulate_all_round1(round_number=None):
+    """Simulate all games from a specific round across all competitions simultaneously (Elifoot style)"""
+    import random
+    from international_simulation import simulate_international_game_with_players
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Default to round 1 if not specified
+        if round_number is None:
+            round_number = 1
+        
+        # Get all games from the specified round from all 3 competitions (including user_id for teams)
+        cur.execute("""
+            SELECT ilg.id, ilg.competition_id, ilg.round_id, ilg.home_team_id, ilg.away_team_id,
+                   ilg.home_team_name, ilg.away_team_name, ilg.is_played,
+                   ilc.name as competition_name, ilr.round_number, ilg.round_type,
+                   ilt_home.user_id as home_user_id, ilt_away.user_id as away_user_id
+            FROM inter_leagues_games ilg
+            JOIN inter_leagues_competitions ilc ON ilg.competition_id = ilc.id
+            JOIN inter_leagues_rounds ilr ON ilg.round_id = ilr.id
+            LEFT JOIN inter_leagues_teams ilt_home ON ilg.home_team_id = ilt_home.id
+            LEFT JOIN inter_leagues_teams ilt_away ON ilg.away_team_id = ilt_away.id
+            WHERE ilr.round_number = ?
+            AND ilg.is_played = 0
+            ORDER BY ilc.id, ilg.id
+        """, (round_number,))
+        games = [dict(row) for row in cur.fetchall()]
+        
+        if not games:
+            flash(f'No Round {round_number} games found to simulate', 'info')
+            return redirect(url_for('inter_leagues'))
+        
+        if request.method == 'POST':
+            # Round 1 requirement: every non-CPU team must have a squad selected before we start
+            if int(round_number) == 1:
+                missing = []
+                checked = set()
+                
+                for g in games:
+                    # Home team
+                    if g.get('home_user_id') is not None and int(g.get('home_user_id')) != 1:
+                        key = (g['competition_id'], g['round_id'], g['home_team_id'])
+                        if key not in checked:
+                            checked.add(key)
+                            cur.execute("""
+                                SELECT COUNT(*) AS cnt
+                                FROM inter_leagues_user_squads
+                                WHERE competition_id = ? AND round_id = ? AND team_id = ?
+                            """, (g['competition_id'], g['round_id'], g['home_team_id']))
+                            row = cur.fetchone()
+                            cnt = row['cnt'] if row else 0
+                            if cnt < 11:
+                                missing.append(f"{g['home_team_name']} ({g['competition_name']})")
+                    
+                    # Away team
+                    if g.get('away_user_id') is not None and int(g.get('away_user_id')) != 1:
+                        key = (g['competition_id'], g['round_id'], g['away_team_id'])
+                        if key not in checked:
+                            checked.add(key)
+                            cur.execute("""
+                                SELECT COUNT(*) AS cnt
+                                FROM inter_leagues_user_squads
+                                WHERE competition_id = ? AND round_id = ? AND team_id = ?
+                            """, (g['competition_id'], g['round_id'], g['away_team_id']))
+                            row = cur.fetchone()
+                            cnt = row['cnt'] if row else 0
+                            if cnt < 11:
+                                missing.append(f"{g['away_team_name']} ({g['competition_name']})")
+                
+                if missing:
+                    missing_str = ", ".join(sorted(set(missing)))
+                    flash(f'Please select your 100M squad before starting Round 1. Missing squads for: {missing_str}', 'danger')
+                    return redirect(url_for('inter_leagues'))
+
+            # Inter-Leagues kickoff reset:
+            # When starting a fresh Inter-Leagues run (before any game is played),
+            # clear all inter-league cards/injuries so Round 1 starts clean.
+            if int(round_number) == 1:
+                cur.execute("SELECT COUNT(*) AS played FROM inter_leagues_games WHERE is_played = 1")
+                played_row = cur.fetchone()
+                played_count = played_row['played'] if played_row else 0
+                if played_count == 0:
+                    cur.execute("""
+                        UPDATE players
+                        SET InterLeague_YC = 0,
+                            InterLeague_RC = 0,
+                            InterLeague_Injury = 0
+                    """)
+
+            # Before simulation: decrease suspension/injury counters for all players
+            # Decrease InterLeague_RC by 1 if it's 1 (player serves suspension)
+            cur.execute("""
+                UPDATE players 
+                SET InterLeague_RC = InterLeague_RC - 1
+                WHERE InterLeague_RC = 1
+            """)
+            
+            # Decrease InterLeague_Injury by 1 if it's > 0
+            cur.execute("""
+                UPDATE players 
+                SET InterLeague_Injury = InterLeague_Injury - 1
+                WHERE InterLeague_Injury > 0
+            """)
+            
+            # Simulate all games
+            simulated_games = []
+            for game in games:
+                # Auto-select squads if needed (suspension/injury checks happen in queries)
+                # After decreasing counters above, only players with RC = 0 and Injury = 0 can play
+                cur.execute("""
+                    SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+                    FROM players p
+                    JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                    WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                    AND p.overall IS NOT NULL
+                    AND COALESCE(p.InterLeague_RC, 0) = 0  -- Only players with no red card suspension (after decrease)
+                    AND COALESCE(p.InterLeague_Injury, 0) = 0  -- Only players with no injury (after decrease)
+                """, (game['competition_id'], game['round_id'], game['home_team_id']))
+                home_players = [dict(row) for row in cur.fetchall()]
+                
+                cur.execute("""
+                    SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+                    FROM players p
+                    JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                    WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                    AND p.overall IS NOT NULL
+                    AND COALESCE(p.InterLeague_RC, 0) = 0  -- Only players with no red card suspension (after decrease)
+                    AND COALESCE(p.InterLeague_Injury, 0) = 0  -- Only players with no injury (after decrease)
+                """, (game['competition_id'], game['round_id'], game['away_team_id']))
+                away_players = [dict(row) for row in cur.fetchall()]
+                
+                # Auto-select if missing
+                if not home_players:
+                    is_user_team = game.get('home_user_id') is not None and int(game.get('home_user_id')) != 1
+                    if is_user_team:
+                        flash(f"Missing squad for {game['home_team_name']} ({game['competition_name']}). Please select a 100M squad.", 'danger')
+                        return redirect(url_for('inter_leagues'))
+                    _auto_select_squad(cur, game['competition_id'], game['round_id'],
+                                     game['home_team_id'], game['home_team_name'])
+                    cur.execute("""
+                        SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+                        FROM players p
+                        JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                        WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                        AND p.overall IS NOT NULL
+                    """, (game['competition_id'], game['round_id'], game['home_team_id']))
+                    home_players = [dict(row) for row in cur.fetchall()]
+                
+                if not away_players:
+                    is_user_team = game.get('away_user_id') is not None and int(game.get('away_user_id')) != 1
+                    if is_user_team:
+                        flash(f"Missing squad for {game['away_team_name']} ({game['competition_name']}). Please select a 100M squad.", 'danger')
+                        return redirect(url_for('inter_leagues'))
+                    _auto_select_squad(cur, game['competition_id'], game['round_id'],
+                                     game['away_team_id'], game['away_team_name'])
+                    cur.execute("""
+                        SELECT p.id, p.player_name, p.overall, p.registered_position, p.age
+                        FROM players p
+                        JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                        WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                        AND p.overall IS NOT NULL
+                    """, (game['competition_id'], game['round_id'], game['away_team_id']))
+                    away_players = [dict(row) for row in cur.fetchall()]
+                
+                if not home_players or not away_players:
+                    continue
+
+                # Build a "playing XI" (used for simulation + event selection)
+                def _pos_int(p):
+                    try:
+                        return int(p.get('registered_position')) if p.get('registered_position') is not None else -1
+                    except (TypeError, ValueError):
+                        return -1
+
+                def _pick_playing_xi(players):
+                    """Pick 11 players by position buckets (simple PES-style XI)."""
+                    if not players:
+                        return []
+                    # Sort by overall desc (fallback to 0)
+                    by_overall = sorted(players, key=lambda x: x.get('overall') or 0, reverse=True)
+
+                    gks = [p for p in by_overall if _pos_int(p) == 0]
+                    defs = [p for p in by_overall if _pos_int(p) in (2, 3, 4, 6)]
+                    mids = [p for p in by_overall if _pos_int(p) in (5, 7, 8, 9, 10)]
+                    fwds = [p for p in by_overall if _pos_int(p) in (11, 12)]
+
+                    selected = []
+                    used = set()
+
+                    def take(lst, n):
+                        for p in lst:
+                            if p['id'] in used:
+                                continue
+                            selected.append(p)
+                            used.add(p['id'])
+                            if len(selected) >= n:
+                                return
+
+                    # 1 GK, 4 DEF, 4 MID, 2 FWD
+                    take(gks, 1)
+                    take(defs, 5)  # keep selecting until selected size reaches 5 total (1+4)
+                    take(mids, 9)  # until 9 total (1+4+4)
+                    take(fwds, 11) # until 11 total
+
+                    # Fill any missing slots with best available
+                    for p in by_overall:
+                        if len(selected) >= 11:
+                            break
+                        if p['id'] in used:
+                            continue
+                        selected.append(p)
+                        used.add(p['id'])
+
+                    return selected[:11]
+
+                # Pick a "best XI" mainly for UI/special-event player selection,
+                # but simulate using the full available squad so substitutions are possible.
+                home_playing = _pick_playing_xi(home_players)
+                away_playing = _pick_playing_xi(away_players)
+
+                # Need at least a full XI available to simulate properly
+                if len(home_players) < 11 or len(away_players) < 11:
+                    continue
+                
+                # Check if teams are user teams
+                home_is_user_team = game.get('home_user_id') and game.get('home_user_id') != 1
+                away_is_user_team = game.get('away_user_id') and game.get('away_user_id') != 1
+                
+                # Simulate the game
+                simulation_result = simulate_international_game_with_players(home_players, away_players)
+                home_score = simulation_result['home_score']
+                away_score = simulation_result['away_score']
+                player_stats = simulation_result['player_stats'].copy()  # Make a copy so we can modify it
+                mvp_player_id = simulation_result.get('mvp_player_id')
+                penalty_events = simulation_result.get('penalty_events', [])
+                hail_mary_events = simulation_result.get('hail_mary_events', [])
+                free_kick_events = simulation_result.get('free_kick_events', [])
+                
+                # Combine all special events (penalties, hail-mary corners, free-kicks)
+                all_special_events = []
+                for event in penalty_events:
+                    event['event_type'] = 'penalty'
+                    all_special_events.append(event)
+                for event in hail_mary_events:
+                    event['event_type'] = 'hail_mary_corner'
+                    all_special_events.append(event)
+                for event in free_kick_events:
+                    event['event_type'] = 'dangerous_free_kick'
+                    all_special_events.append(event)
+                
+                # Check if any special events need user input (mark all events with game info)
+                pending_special_events = []
+                for event in all_special_events:
+                    # Add game info to all events
+                    event['game_id'] = game['id']
+                    event['team_name'] = game['home_team_name'] if event['team'] == 'home' else game['away_team_name']
+                    event['team_id'] = game['home_team_id'] if event['team'] == 'home' else game['away_team_id']
+                    
+                    # Check if it's a user team
+                    is_user_team = (event['team'] == 'home' and home_is_user_team) or (event['team'] == 'away' and away_is_user_team)
+                    if is_user_team:
+                        event['needs_user_input'] = True
+                        pending_special_events.append(event)
+                    else:
+                        # CPU team - mark as not needing user input
+                        event['needs_user_input'] = False
+                        pending_special_events.append(event)  # Still add so it appears in events
+                
+                # Process CPU team special events immediately (select player, determine success, update stats)
+                # User team events will be handled in the frontend
+                for event in pending_special_events:
+                    if not event.get('needs_user_input', False):
+                        # CPU team - auto-select player and resolve
+                        team_players = home_playing if event['team'] == 'home' else away_playing
+                        player_ids = [p['id'] for p in team_players if p.get('registered_position') != 0]
+                        if player_ids:
+                            placeholders = ','.join('?' * len(player_ids))
+                            
+                            # Fetch appropriate attributes based on event type
+                            if event['event_type'] == 'penalty':
+                                cur.execute(f"""
+                                    SELECT id, player_name, penalties, shot_accuracy, shot_power, overall, registered_position
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                players_data = [dict(row) for row in cur.fetchall()]
+                            elif event['event_type'] == 'hail_mary_corner':
+                                cur.execute(f"""
+                                    SELECT id, player_name, free_kick_accuracy, swerve, long_pass_accuracy, overall, registered_position
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                players_data = [dict(row) for row in cur.fetchall()]
+                                # Also get team averages for heading and jump
+                                cur.execute(f"""
+                                    SELECT AVG(heading) as avg_heading, AVG(jump) as avg_jump
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                avg_row = cur.fetchone()
+                                avg_heading = avg_row['avg_heading'] if avg_row and avg_row['avg_heading'] else 50
+                                avg_jump = avg_row['avg_jump'] if avg_row and avg_row['avg_jump'] else 50
+                                # Add averages to each player dict
+                                for p in players_data:
+                                    p['avg_heading'] = avg_heading
+                                    p['avg_jump'] = avg_jump
+                            elif event['event_type'] == 'dangerous_free_kick':
+                                cur.execute(f"""
+                                    SELECT id, player_name, free_kick_accuracy, swerve, shot_power, shot_accuracy, overall, registered_position
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                players_data = [dict(row) for row in cur.fetchall()]
+                            else:
+                                cur.execute(f"""
+                                    SELECT id, player_name, overall, registered_position
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                players_data = [dict(row) for row in cur.fetchall()]
+                            
+                            # Weight players by event suitability
+                            import random
+                            weights = []
+                            for p in players_data:
+                                if event['event_type'] == 'penalty':
+                                    penalties_skill = p.get('penalties', 0)
+                                    shot_acc = p.get('shot_accuracy', 50)
+                                    shot_pow = p.get('shot_power', 50)
+                                    weight = (penalties_skill * 50) + shot_acc + shot_pow
+                                elif event['event_type'] == 'hail_mary_corner':
+                                    fk_acc = p.get('free_kick_accuracy', 50)
+                                    swerve_val = p.get('swerve', 50)
+                                    lpa = p.get('long_pass_accuracy', 50)
+                                    avg_heading = p.get('avg_heading', 50)
+                                    avg_jump = p.get('avg_jump', 50)
+                                    weight = (fk_acc * 0.4) + (swerve_val * 0.3) + (lpa * 0.3) + ((avg_heading + avg_jump) / 2 * 0.2)
+                                elif event['event_type'] == 'dangerous_free_kick':
+                                    fk_acc = p.get('free_kick_accuracy', 50)
+                                    swerve_val = p.get('swerve', 50)
+                                    shot_pow = p.get('shot_power', 50)
+                                    shot_acc = p.get('shot_accuracy', 50)
+                                    weight = (fk_acc * 0.4) + (swerve_val * 0.3) + (shot_pow * 0.15) + (shot_acc * 0.15)
+                                else:
+                                    weight = p.get('overall', 50)
+                                weights.append((p, weight))
+                            
+                            if weights:
+                                total_weight = sum(w for _, w in weights)
+                                r = random.random() * total_weight
+                                cumsum = 0
+                                selected_player = None
+                                for p, w in weights:
+                                    cumsum += w
+                                    if r <= cumsum:
+                                        selected_player = p
+                                        break
+                                
+                                if selected_player:
+                                    event['selected_player_id'] = selected_player['id']
+                                    event['selected_player_name'] = selected_player['player_name']
+                                    
+                                    # Determine success based on event type
+                                    import random
+                                    is_successful = False
+                                    
+                                    if event['event_type'] == 'penalty':
+                                        penalties_skill = selected_player.get('penalties', 0)
+                                        shot_acc = selected_player.get('shot_accuracy', 50)
+                                        shot_pow = selected_player.get('shot_power', 50)
+                                        base_chance = 60 + (penalties_skill * 15) + ((shot_acc - 50) * 0.3) + ((shot_pow - 50) * 0.2)
+                                        success_chance = min(95, max(60, base_chance))
+                                        is_successful = random.random() * 100 < success_chance
+                                    elif event['event_type'] == 'hail_mary_corner':
+                                        fk_acc = selected_player.get('free_kick_accuracy', 50)
+                                        swerve_val = selected_player.get('swerve', 50)
+                                        lpa = selected_player.get('long_pass_accuracy', 50)
+                                        avg_heading = selected_player.get('avg_heading', 50)
+                                        avg_jump = selected_player.get('avg_jump', 50)
+                                        base_chance = 25 + ((fk_acc - 50) * 0.4) + ((swerve_val - 50) * 0.3) + ((lpa - 50) * 0.3) + (((avg_heading + avg_jump) / 2 - 50) * 0.2)
+                                        success_chance = min(70, max(10, base_chance))
+                                        is_successful = random.random() * 100 < success_chance
+                                    elif event['event_type'] == 'dangerous_free_kick':
+                                        fk_acc = selected_player.get('free_kick_accuracy', 50)
+                                        swerve_val = selected_player.get('swerve', 50)
+                                        shot_pow = selected_player.get('shot_power', 50)
+                                        shot_acc = selected_player.get('shot_accuracy', 50)
+                                        base_chance = 50 + ((fk_acc - 50) * 0.4) + ((swerve_val - 50) * 0.3) + ((shot_pow - 50) * 0.15) + ((shot_acc - 50) * 0.15)
+                                        success_chance = min(85, max(40, base_chance))
+                                        is_successful = random.random() * 100 < success_chance
+                                    
+                                    event['is_successful'] = is_successful
+                                    
+                                    # If successful, add goal to player stats and update score
+                                    if is_successful:
+                                        team_id_str = 'home' if event['team'] == 'home' else 'away'
+                                        player_found = False
+                                        for stat in player_stats:
+                                            if stat['player_id'] == selected_player['id']:
+                                                stat['goals'] = stat.get('goals', 0) + 1
+                                                player_found = True
+                                                break
+                                        
+                                        if not player_found:
+                                            player_stats.append({
+                                                'player_id': selected_player['id'],
+                                                'player_name': selected_player['player_name'],
+                                                'team_id': team_id_str,
+                                                'goals': 1,
+                                                'assists': 0,
+                                                'minutes_played': 90,
+                                                'is_starter': 1,
+                                                'yellow_cards': 0,
+                                                'red_cards': 0,
+                                                'injuries': 0
+                                            })
+                                        
+                                        # Update score
+                                        if event['team'] == 'home':
+                                            home_score += 1
+                                        else:
+                                            away_score += 1
+                
+                # Check if this is a knockout game (quarter-final, semi-final, or final)
+                is_knockout = game.get('round_type') in ('quarter_final', 'semi_final', 'final')
+                
+                # If knockout game and draw, simulate extra time and penalties
+                if is_knockout and home_score == away_score:
+                    import random
+                    # Extra time: 30 minutes (2 periods of 15 minutes)
+                    # Reduced expected goals (about 30% of normal)
+                    home_strength = sum(p['overall'] for p in home_players) / len(home_players) if home_players else 50
+                    away_strength = sum(p['overall'] for p in away_players) / len(away_players) if away_players else 50
+                    strength_diff = (home_strength - away_strength) / 10
+                    home_et_expected = max(0.1, (1.5 + strength_diff * 1.75) * 0.3)
+                    away_et_expected = max(0.1, (1.5 - strength_diff * 1.75) * 0.3)
+                    
+                    # Generate extra time goals
+                    home_et_goals = max(0, min(2, int(random.gauss(home_et_expected, 0.5))))
+                    away_et_goals = max(0, min(2, int(random.gauss(away_et_expected, 0.5))))
+                    
+                    home_score += home_et_goals
+                    away_score += away_et_goals
+                    
+                    # If still tied after extra time, go to penalty shootout
+                    if home_score == away_score:
+                        # Penalty shootout: each team takes 5 penalties
+                        home_penalties = sum(1 for _ in range(5) if random.random() < 0.75)  # 75% conversion rate
+                        away_penalties = sum(1 for _ in range(5) if random.random() < 0.75)
+                        
+                        # If still tied after 5 penalties each, sudden death
+                        while home_penalties == away_penalties:
+                            # Home takes penalty
+                            home_scores = random.random() < 0.75
+                            if home_scores:
+                                home_penalties += 1
+                            
+                            # Away takes penalty
+                            away_scores = random.random() < 0.75
+                            if away_scores:
+                                away_penalties += 1
+                            
+                            # If one scored and the other didn't, we have a winner
+                            if home_scores and not away_scores:
+                                break
+                            elif away_scores and not home_scores:
+                                break
+                            # If both scored or both missed, continue to next round
+                        
+                        # Determine winner based on penalties - adjust score to reflect penalty winner
+                        if home_penalties > away_penalties:
+                            # Home wins on penalties - add 1 to home score for display
+                            home_score += 1
+                        else:
+                            # Away wins on penalties - add 1 to away score for display
+                            away_score += 1
+                
+                # Update game
+                cur.execute("""
+                    UPDATE inter_leagues_games
+                    SET home_score = ?, away_score = ?, game_date = datetime('now'), is_played = 1, mvp_player_id = ?
+                    WHERE id = ?
+                """, (home_score, away_score, mvp_player_id, game['id']))
+                
+                # Insert player stats
+                for stat in player_stats:
+                    team_id = game['home_team_id'] if stat.get('team_id') == 'home' else game['away_team_id']
+                    cur.execute("""
+                        INSERT INTO inter_leagues_player_stats
+                        (game_id, player_id, team_id, player_name, goals, assists, minutes_played, is_starter, yellow_cards, red_cards, injuries)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (game['id'], stat['player_id'], team_id, stat['player_name'],
+                          stat.get('goals', 0), stat.get('assists', 0),
+                          stat.get('minutes_played', 90), stat.get('is_starter', 1),
+                          stat.get('yellow_cards', 0), stat.get('red_cards', 0), stat.get('injuries', 0)))
+                    
+                    # Update player's Inter-League suspension and injury counters
+                    player_id = stat['player_id']
+                    yellow_cards = stat.get('yellow_cards', 0)
+                    red_cards = stat.get('red_cards', 0)
+                    injuries = stat.get('injuries', 0)
+                    
+                    if yellow_cards > 0:
+                        cur.execute("""
+                            UPDATE players 
+                            SET InterLeague_YC = InterLeague_YC + ?
+                            WHERE id = ?
+                        """, (yellow_cards, player_id))
+                    
+                    if red_cards > 0:
+                        cur.execute("""
+                            UPDATE players 
+                            SET InterLeague_RC = InterLeague_RC + ?
+                            WHERE id = ?
+                        """, (red_cards, player_id))
+                    
+                    if injuries > 0:
+                        cur.execute("""
+                            UPDATE players 
+                            SET InterLeague_Injury = ?
+                            WHERE id = ?
+                        """, (injuries, player_id))
+                
+                # Update standings (simplified - just update goals and points)
+                # Home team
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = games_played + 1,
+                        goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ? - ?,
+                        wins = wins + CASE WHEN ? > ? THEN 1 ELSE 0 END,
+                        draws = draws + CASE WHEN ? = ? THEN 1 ELSE 0 END,
+                        losses = losses + CASE WHEN ? < ? THEN 1 ELSE 0 END,
+                        points = points + CASE 
+                            WHEN ? > ? THEN 3
+                            WHEN ? = ? THEN 1
+                            ELSE 0
+                        END,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (home_score, away_score, home_score, away_score,
+                      home_score, away_score, home_score, away_score, home_score, away_score,
+                      home_score, away_score, home_score, away_score,
+                      game['competition_id'], game['home_team_id']))
+                
+                # Away team
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = games_played + 1,
+                        goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ? - ?,
+                        wins = wins + CASE WHEN ? > ? THEN 1 ELSE 0 END,
+                        draws = draws + CASE WHEN ? = ? THEN 1 ELSE 0 END,
+                        losses = losses + CASE WHEN ? < ? THEN 1 ELSE 0 END,
+                        points = points + CASE 
+                            WHEN ? > ? THEN 3
+                            WHEN ? = ? THEN 1
+                            ELSE 0
+                        END,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (away_score, home_score, away_score, home_score,
+                      away_score, home_score, away_score, home_score, away_score, home_score,
+                      away_score, home_score, away_score, home_score,
+                      game['competition_id'], game['away_team_id']))
+                
+                # Get eligible players data for special events (for user teams, to show in popup)
+                # Only include players who are actually playing (have stats entries)
+                special_events_players_data = {}
+                for event in pending_special_events:
+                    if event.get('needs_user_input', False):  # Only get players for user teams
+                        # Only allow selection from the actual playing XI (exclude GK)
+                        playing_players = [p for p in (home_playing if event['team'] == 'home' else away_playing)
+                                          if p.get('registered_position') != 0]
+                        
+                        if playing_players:
+                            player_ids = [p['id'] for p in playing_players]
+                            placeholders = ','.join('?' * len(player_ids))
+                            
+                            # Fetch appropriate attributes based on event type
+                            players_data = []
+                            if event['event_type'] == 'penalty':
+                                cur.execute(f"""
+                                    SELECT id, player_name, penalties, shot_accuracy, shot_power, overall, registered_position
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                players_data = [dict(row) for row in cur.fetchall()]
+                            elif event['event_type'] == 'hail_mary_corner':
+                                cur.execute(f"""
+                                    SELECT id, player_name, free_kick_accuracy, swerve, long_pass_accuracy, overall, registered_position
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                players_data = [dict(row) for row in cur.fetchall()]
+                                # Also get team averages for heading and jump
+                                cur.execute(f"""
+                                    SELECT AVG(heading) as avg_heading, AVG(jump) as avg_jump
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                avg_row = cur.fetchone()
+                                avg_heading = avg_row['avg_heading'] if avg_row and avg_row['avg_heading'] else 50
+                                avg_jump = avg_row['avg_jump'] if avg_row and avg_row['avg_jump'] else 50
+                                # Add averages to each player dict
+                                for p in players_data:
+                                    p['avg_heading'] = avg_heading
+                                    p['avg_jump'] = avg_jump
+                            elif event['event_type'] == 'dangerous_free_kick':
+                                cur.execute(f"""
+                                    SELECT id, player_name, free_kick_accuracy, swerve, shot_power, shot_accuracy, overall, registered_position
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                players_data = [dict(row) for row in cur.fetchall()]
+                            else:
+                                cur.execute(f"""
+                                    SELECT id, player_name, overall, registered_position
+                                    FROM players
+                                    WHERE id IN ({placeholders})
+                                """, player_ids)
+                                players_data = [dict(row) for row in cur.fetchall()]
+                            
+                            if event['game_id'] not in special_events_players_data:
+                                special_events_players_data[event['game_id']] = {}
+                            special_events_players_data[event['game_id']][event.get('minute', 0)] = {
+                                'team': event['team'],
+                                'event_type': event['event_type'],
+                                'players': players_data
+                            }
+                
+                # Get special events players for this game (for user teams only)
+                game_special_events_players = {}
+                if game['id'] in special_events_players_data:
+                    game_special_events_players = special_events_players_data[game['id']]
+                
+                simulated_games.append({
+                    'id': game['id'],
+                    'competition_name': game['competition_name'],
+                    'home_team_name': game['home_team_name'],
+                    'away_team_name': game['away_team_name'],
+                    'home_score': home_score,
+                    'away_score': away_score,
+                    'mvp_player_id': mvp_player_id,
+                    'home_is_user_team': home_is_user_team,
+                    'away_is_user_team': away_is_user_team,
+                    'penalty_events': [e for e in pending_special_events if e['event_type'] == 'penalty'],  # All penalties (user and CPU)
+                    'hail_mary_events': [e for e in pending_special_events if e['event_type'] == 'hail_mary_corner'],  # All hail-mary corners
+                    'free_kick_events': [e for e in pending_special_events if e['event_type'] == 'dangerous_free_kick'],  # All free-kicks
+                    'special_events_players': game_special_events_players,  # Only for user teams
+                    'had_extra_time': game.get('had_extra_time', False),
+                    'went_to_penalties': game.get('went_to_penalties', False),
+                    'home_et_goals': game.get('home_et_goals', 0),
+                    'away_et_goals': game.get('away_et_goals', 0),
+                    'home_penalties': game.get('home_penalties', 0),
+                    'away_penalties': game.get('away_penalties', 0)
+                })
+            
+            db_helper.commit()
+            
+            # Generate events for all simulated games (for Elifoot-style display)
+            all_games_with_events = []
+            for sim_game in simulated_games:
+                game_id = sim_game['id']
+                # Get player stats for this game (including cards and injuries)
+                cur.execute("""
+                    SELECT ips.player_id, ips.player_name, ips.goals, ips.assists,
+                           ips.team_id, ips.yellow_cards, ips.red_cards, ips.injuries,
+                           ilg.home_team_id, ilg.away_team_id
+                    FROM inter_leagues_player_stats ips
+                    JOIN inter_leagues_games ilg ON ips.game_id = ilg.id
+                    WHERE ips.game_id = ?
+                """, (game_id,))
+                player_stats = [dict(row) for row in cur.fetchall()]
+                
+                # Separate home and away stats
+                cur.execute("SELECT home_team_id, away_team_id FROM inter_leagues_games WHERE id = ?", (game_id,))
+                game_teams = cur.fetchone()
+                home_team_id = game_teams['home_team_id']
+                away_team_id = game_teams['away_team_id']
+                
+                home_stats = [s for s in player_stats if s['team_id'] == home_team_id]
+                away_stats = [s for s in player_stats if s['team_id'] == away_team_id]
+                
+                # Generate events (goals, cards, injuries)
+                events = []
+                for stat in home_stats:
+                    # Goals
+                    for _ in range(stat.get('goals', 0)):
+                        minute = random.randint(1, 90)
+                        events.append({
+                            'type': 'goal',
+                            'minute': minute,
+                            'team': 'home',
+                            'player_id': stat['player_id'],
+                            'player_name': stat['player_name'],
+                            'assist_player_id': None,
+                            'assist_player_name': None
+                        })
+                    # Yellow cards
+                    for _ in range(stat.get('yellow_cards', 0)):
+                        minute = random.randint(1, 90)
+                        events.append({
+                            'type': 'yellow_card',
+                            'minute': minute,
+                            'team': 'home',
+                            'player_id': stat['player_id'],
+                            'player_name': stat['player_name']
+                        })
+                    # Red cards
+                    for _ in range(stat.get('red_cards', 0)):
+                        minute = random.randint(1, 90)
+                        events.append({
+                            'type': 'red_card',
+                            'minute': minute,
+                            'team': 'home',
+                            'player_id': stat['player_id'],
+                            'player_name': stat['player_name']
+                        })
+                    # Injuries
+                    if stat.get('injuries', 0) > 0:
+                        minute = random.randint(1, 90)
+                        events.append({
+                            'type': 'injury',
+                            'minute': minute,
+                            'team': 'home',
+                            'player_id': stat['player_id'],
+                            'player_name': stat['player_name'],
+                            'weeks': stat.get('injuries', 0)
+                        })
+                
+                for stat in away_stats:
+                    # Goals
+                    for _ in range(stat.get('goals', 0)):
+                        minute = random.randint(1, 90)
+                        events.append({
+                            'type': 'goal',
+                            'minute': minute,
+                            'team': 'away',
+                            'player_id': stat['player_id'],
+                            'player_name': stat['player_name'],
+                            'assist_player_id': None,
+                            'assist_player_name': None
+                        })
+                    # Yellow cards
+                    for _ in range(stat.get('yellow_cards', 0)):
+                        minute = random.randint(1, 90)
+                        events.append({
+                            'type': 'yellow_card',
+                            'minute': minute,
+                            'team': 'away',
+                            'player_id': stat['player_id'],
+                            'player_name': stat['player_name']
+                        })
+                    # Red cards
+                    for _ in range(stat.get('red_cards', 0)):
+                        minute = random.randint(1, 90)
+                        events.append({
+                            'type': 'red_card',
+                            'minute': minute,
+                            'team': 'away',
+                            'player_id': stat['player_id'],
+                            'player_name': stat['player_name']
+                        })
+                    # Injuries
+                    if stat.get('injuries', 0) > 0:
+                        minute = random.randint(1, 90)
+                        events.append({
+                            'type': 'injury',
+                            'minute': minute,
+                            'team': 'away',
+                            'player_id': stat['player_id'],
+                            'player_name': stat['player_name'],
+                            'weeks': stat.get('injuries', 0)
+                        })
+                
+                # Add extra time and penalty shootout events for knockout games
+                if sim_game.get('had_extra_time', False):
+                    # Add extra time start event (at 90')
+                    events.append({
+                        'type': 'extra_time',
+                        'minute': 90,
+                        'team': 'both',
+                        'game_id': sim_game['id'],
+                        'player_id': None,
+                        'player_name': None
+                    })
+                    
+                    # Add extra time goals if any (at 105' for display)
+                    if sim_game.get('home_et_goals', 0) > 0:
+                        for _ in range(sim_game['home_et_goals']):
+                            events.append({
+                                'type': 'goal',
+                                'minute': 105,
+                                'team': 'home',
+                                'game_id': sim_game['id'],
+                                'player_id': None,
+                                'player_name': 'Extra Time Goal',
+                                'assist_player_id': None,
+                                'assist_player_name': None
+                            })
+                    if sim_game.get('away_et_goals', 0) > 0:
+                        for _ in range(sim_game['away_et_goals']):
+                            events.append({
+                                'type': 'goal',
+                                'minute': 105,
+                                'team': 'away',
+                                'game_id': sim_game['id'],
+                                'player_id': None,
+                                'player_name': 'Extra Time Goal',
+                                'assist_player_id': None,
+                                'assist_player_name': None
+                            })
+                    
+                    # Add penalty shootout event if went to penalties (at 120')
+                    if sim_game.get('went_to_penalties', False):
+                        events.append({
+                            'type': 'penalty_shootout',
+                            'minute': 120,
+                            'team': 'both',
+                            'game_id': sim_game['id'],
+                            'player_id': None,
+                            'player_name': None,
+                            'home_penalties': sim_game.get('home_penalties', 0),
+                            'away_penalties': sim_game.get('away_penalties', 0)
+                        })
+                
+                # Add special events (penalties, hail-mary corners, free-kicks) if any (add before sorting)
+                # Penalties
+                if 'penalty_events' in sim_game and sim_game['penalty_events']:
+                    for penalty in sim_game['penalty_events']:
+                        penalty_data = {
+                            'type': 'penalty',
+                            'minute': penalty['minute'],
+                            'team': penalty['team'],
+                            'game_id': sim_game['id'],
+                            'team_name': penalty.get('team_name', ''),
+                            'needs_user_input': penalty.get('needs_user_input', False),
+                            'player_id': penalty.get('selected_player_id'),  # CPU teams have selected player
+                            'player_name': penalty.get('selected_player_name'),  # CPU teams have selected player
+                            'is_successful': penalty.get('is_successful')  # CPU teams have result pre-determined
+                        }
+                        # Add players data if needed (for user teams)
+                        if penalty.get('needs_user_input') and 'special_events_players' in sim_game:
+                            special_events_players = sim_game['special_events_players']
+                            if penalty['minute'] in special_events_players and special_events_players[penalty['minute']]['event_type'] == 'penalty':
+                                penalty_data['players'] = special_events_players[penalty['minute']]['players']
+                            else:
+                                penalty_data['players'] = []
+                        else:
+                            penalty_data['players'] = []
+                        events.append(penalty_data)
+                
+                # Hail-Mary Corners
+                if 'hail_mary_events' in sim_game and sim_game['hail_mary_events']:
+                    for event in sim_game['hail_mary_events']:
+                        event_data = {
+                            'type': 'hail_mary_corner',
+                            'minute': event['minute'],
+                            'team': event['team'],
+                            'game_id': sim_game['id'],
+                            'team_name': event.get('team_name', ''),
+                            'needs_user_input': event.get('needs_user_input', False),
+                            'player_id': event.get('selected_player_id'),
+                            'player_name': event.get('selected_player_name'),
+                            'is_successful': event.get('is_successful')
+                        }
+                        if event.get('needs_user_input') and 'special_events_players' in sim_game:
+                            special_events_players = sim_game['special_events_players']
+                            if event['minute'] in special_events_players and special_events_players[event['minute']]['event_type'] == 'hail_mary_corner':
+                                event_data['players'] = special_events_players[event['minute']]['players']
+                            else:
+                                event_data['players'] = []
+                        else:
+                            event_data['players'] = []
+                        events.append(event_data)
+                
+                # Dangerous Free-Kicks
+                if 'free_kick_events' in sim_game and sim_game['free_kick_events']:
+                    for event in sim_game['free_kick_events']:
+                        event_data = {
+                            'type': 'dangerous_free_kick',
+                            'minute': event['minute'],
+                            'team': event['team'],
+                            'game_id': sim_game['id'],
+                            'team_name': event.get('team_name', ''),
+                            'needs_user_input': event.get('needs_user_input', False),
+                            'player_id': event.get('selected_player_id'),
+                            'player_name': event.get('selected_player_name'),
+                            'is_successful': event.get('is_successful')
+                        }
+                        if event.get('needs_user_input') and 'special_events_players' in sim_game:
+                            special_events_players = sim_game['special_events_players']
+                            if event['minute'] in special_events_players and special_events_players[event['minute']]['event_type'] == 'dangerous_free_kick':
+                                event_data['players'] = special_events_players[event['minute']]['players']
+                            else:
+                                event_data['players'] = []
+                        else:
+                            event_data['players'] = []
+                        events.append(event_data)
+                
+                # Add extra time and penalty shootout events for knockout games
+                if 'had_extra_time' in sim_game and sim_game['had_extra_time']:
+                    # Add extra time start event
+                    events.append({
+                        'type': 'extra_time',
+                        'minute': 90,
+                        'team': 'both',
+                        'game_id': sim_game['id'],
+                        'player_id': None,
+                        'player_name': None
+                    })
+                    
+                    # Add extra time goals if any
+                    if sim_game.get('home_et_goals', 0) > 0 or sim_game.get('away_et_goals', 0) > 0:
+                        if sim_game.get('home_et_goals', 0) > 0:
+                            events.append({
+                                'type': 'goal',
+                                'minute': 105,  # Approximate extra time minute
+                                'team': 'home',
+                                'game_id': sim_game['id'],
+                                'player_id': None,
+                                'player_name': 'Extra Time Goal'
+                            })
+                        if sim_game.get('away_et_goals', 0) > 0:
+                            events.append({
+                                'type': 'goal',
+                                'minute': 105,
+                                'team': 'away',
+                                'game_id': sim_game['id'],
+                                'player_id': None,
+                                'player_name': 'Extra Time Goal'
+                            })
+                    
+                    # Add penalty shootout event if went to penalties
+                    if sim_game.get('went_to_penalties', False):
+                        events.append({
+                            'type': 'penalty_shootout',
+                            'minute': 120,
+                            'team': 'both',
+                            'game_id': sim_game['id'],
+                            'player_id': None,
+                            'player_name': None,
+                            'home_penalties': sim_game.get('home_penalties', 0),
+                            'away_penalties': sim_game.get('away_penalties', 0)
+                        })
+                
+                # Sort events by minute
+                events.sort(key=lambda x: x['minute'])
+                
+                # Match assists to goals (ensuring scorer != assist provider for same goal)
+                home_assists = [(s['player_id'], s['player_name'], s['assists']) for s in home_stats if s['assists'] > 0]
+                away_assists = [(s['player_id'], s['player_name'], s['assists']) for s in away_stats if s['assists'] > 0]
+                
+                # Match assists to home goals
+                assist_idx = 0
+                for event in events:
+                    if event['team'] == 'home' and event.get('type') == 'goal' and assist_idx < len(home_assists):
+                        scorer_id = event.get('player_id')
+                        # Find an assist provider who is NOT the scorer
+                        found_assist = False
+                        for i in range(assist_idx, len(home_assists)):
+                            assist_player_id, assist_player_name, assist_count = home_assists[i]
+                            if assist_player_id != scorer_id and assist_count > 0:
+                                event['assist_player_id'] = assist_player_id
+                                event['assist_player_name'] = assist_player_name
+                                home_assists[i] = (assist_player_id, assist_player_name, assist_count - 1)
+                                if assist_count - 1 == 0:
+                                    assist_idx = i + 1
+                                found_assist = True
+                                break
+                        if not found_assist and assist_idx < len(home_assists):
+                            # If no suitable assist found, skip this assist entry
+                            assist_idx += 1
+                
+                # Match assists to away goals
+                assist_idx = 0
+                for event in events:
+                    if event['team'] == 'away' and event.get('type') == 'goal' and assist_idx < len(away_assists):
+                        scorer_id = event.get('player_id')
+                        # Find an assist provider who is NOT the scorer
+                        found_assist = False
+                        for i in range(assist_idx, len(away_assists)):
+                            assist_player_id, assist_player_name, assist_count = away_assists[i]
+                            if assist_player_id != scorer_id and assist_count > 0:
+                                event['assist_player_id'] = assist_player_id
+                                event['assist_player_name'] = assist_player_name
+                                away_assists[i] = (assist_player_id, assist_player_name, assist_count - 1)
+                                if assist_count - 1 == 0:
+                                    assist_idx = i + 1
+                                found_assist = True
+                                break
+                        if not found_assist and assist_idx < len(away_assists):
+                            # If no suitable assist found, skip this assist entry
+                            assist_idx += 1
+                
+                all_games_with_events.append({
+                    **sim_game,
+                    'events': events
+                })
+            
+            # Group games by competition for template
+            games_by_competition = {}
+            for game_data in all_games_with_events:
+                comp_name = game_data['competition_name']
+                if comp_name not in games_by_competition:
+                    games_by_competition[comp_name] = []
+                games_by_competition[comp_name].append(game_data)
+            
+            # Check if there's a next round
+            next_round_number = None
+            cur.execute("""
+                SELECT MIN(round_number) as next_round
+                FROM inter_leagues_rounds
+                WHERE competition_id IN (SELECT id FROM inter_leagues_competitions)
+                AND round_number > ?
+                AND id IN (
+                    SELECT DISTINCT round_id FROM inter_leagues_games WHERE is_played = 0
+                )
+            """, (round_number,))
+            next_round_result = cur.fetchone()
+            if next_round_result and next_round_result['next_round']:
+                next_round_number = next_round_result['next_round']
+            
+            return render_template('inter_leagues_simulate_all.html',
+                                 games_by_competition=games_by_competition,
+                                 total_games=len(all_games_with_events),
+                                 games_simulated=True,
+                                 round_number=round_number,
+                                 next_round_number=next_round_number)
+        
+        # GET request - show the simulation page
+        # Group games by competition
+        games_by_competition = {}
+        for game in games:
+            comp_name = game['competition_name']
+            if comp_name not in games_by_competition:
+                games_by_competition[comp_name] = []
+            games_by_competition[comp_name].append(game)
+        
+        return render_template('inter_leagues_simulate_all.html',
+                             games_by_competition=games_by_competition,
+                             total_games=len(games),
+                             games_simulated=False,
+                             round_number=round_number,
+                             next_round_number=None)
+    
+    except Exception as e:
+        app.logger.error(f"Error in simulate_all_round1: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        db_helper.get_connection().rollback()
+        flash(f'Error simulating games: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/complete_auto_setup', methods=['POST'])
+@login_required
+def complete_auto_setup_inter_leagues():
+    """Complete auto-setup: Fill all 3 competitions, create groups, assign teams, generate schedules"""
+    import random
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get all 3 competitions
+        cur.execute("SELECT id, name FROM inter_leagues_competitions ORDER BY id")
+        competitions = [dict(row) for row in cur.fetchall()]
+        
+        if len(competitions) != 3:
+            flash('Expected 3 competitions (Champions League, Masters League, Conference League)', 'danger')
+            return redirect(url_for('inter_leagues'))
+        
+        # Process each competition
+        for comp_idx, competition in enumerate(competitions):
+            competition_id = competition['id']
+            
+            # Get existing teams for this competition (preserve ALL existing teams)
+            cur.execute("""
+                SELECT id, team_name, user_id FROM inter_leagues_teams
+                WHERE competition_id = ?
+            """, (competition_id,))
+            existing_teams = [dict(row) for row in cur.fetchall()]
+            
+            # Count how many teams we need to add (max 16 per competition)
+            teams_needed = 16 - len(existing_teams)
+            
+            if teams_needed > 0:
+                # Get available CPU teams (excluding those already in ANY competition and "No Club")
+                cur.execute("""
+                    SELECT lt.team_name, lt.user_id
+                    FROM league_teams lt
+                    JOIN teams t ON lt.team_name = t.club_name
+                    WHERE lt.user_id = 1
+                    AND t.id != 141
+                    AND t.club_name != 'No Club'
+                    AND lt.team_name NOT IN (
+                        SELECT team_name FROM inter_leagues_teams
+                    )
+                    ORDER BY RANDOM()
+                    LIMIT ?
+                """, (teams_needed,))
+                cpu_teams_to_add = [dict(row) for row in cur.fetchall()]
+                
+                if len(cpu_teams_to_add) < teams_needed:
+                    flash(f'Competition {competition["name"]}: Not enough CPU teams available. Need {teams_needed}, have {len(cpu_teams_to_add)}', 'warning')
+                
+                # Add only the needed CPU teams
+                for team in cpu_teams_to_add:
+                    cur.execute("""
+                        INSERT INTO inter_leagues_teams (competition_id, user_id, team_name)
+                        VALUES (?, ?, ?)
+                    """, (competition_id, team['user_id'], team['team_name']))
+                    team_id = cur.lastrowid
+                    cur.execute("""
+                        INSERT INTO inter_leagues_standings (competition_id, team_id, team_name)
+                        VALUES (?, ?, ?)
+                    """, (competition_id, team_id, team['team_name']))
+            
+            # Clear games, schedules, groups, rounds (will be regenerated) - but preserve teams
+            cur.execute("DELETE FROM inter_leagues_player_stats WHERE game_id IN (SELECT id FROM inter_leagues_games WHERE competition_id = ?)", (competition_id,))
+            cur.execute("DELETE FROM inter_leagues_user_squads WHERE competition_id = ?", (competition_id,))
+            cur.execute("DELETE FROM inter_leagues_games WHERE competition_id = ?", (competition_id,))
+            cur.execute("DELETE FROM inter_leagues_standings WHERE competition_id = ?", (competition_id,))
+            cur.execute("DELETE FROM inter_leagues_rounds WHERE competition_id = ?", (competition_id,))
+            cur.execute("DELETE FROM inter_leagues_groups WHERE competition_id = ?", (competition_id,))
+            
+            # Re-create standings for all teams (existing + new)
+            cur.execute("""
+                SELECT id, team_name FROM inter_leagues_teams WHERE competition_id = ?
+            """, (competition_id,))
+            all_teams_for_comp = [dict(row) for row in cur.fetchall()]
+            for team in all_teams_for_comp:
+                cur.execute("""
+                    INSERT INTO inter_leagues_standings (competition_id, team_id, team_name)
+                    VALUES (?, ?, ?)
+                """, (competition_id, team['id'], team['team_name']))
+            
+            # Create groups A, B, C, D
+            for group_letter in ['A', 'B', 'C', 'D']:
+                cur.execute("""
+                    INSERT INTO inter_leagues_groups (competition_id, group_letter)
+                    VALUES (?, ?)
+                """, (competition_id, group_letter))
+            
+            # Assign teams to groups (4 teams per group)
+            cur.execute("SELECT id, team_name FROM inter_leagues_teams WHERE competition_id = ? ORDER BY RANDOM()", (competition_id,))
+            all_teams = [dict(row) for row in cur.fetchall()]
+            
+            groups = ['A', 'B', 'C', 'D']
+            for i, team in enumerate(all_teams):
+                group_letter = groups[i // 4]
+                cur.execute("""
+                    UPDATE inter_leagues_teams
+                    SET group_letter = ?
+                    WHERE id = ?
+                """, (group_letter, team['id']))
+            
+            # Generate schedule using existing function logic
+            cur.execute("SELECT id, group_letter FROM inter_leagues_groups WHERE competition_id = ? ORDER BY group_letter", (competition_id,))
+            groups_list = [dict(row) for row in cur.fetchall()]
+            
+            # Create rounds 1-6 (check if they exist first)
+            for round_num in range(1, 7):
+                cur.execute("""
+                    SELECT id FROM inter_leagues_rounds
+                    WHERE competition_id = ? AND round_number = ?
+                """, (competition_id, round_num))
+                existing_round = cur.fetchone()
+                if not existing_round:
+                    cur.execute("""
+                        INSERT INTO inter_leagues_rounds (competition_id, round_number, status)
+                        VALUES (?, ?, 'pending')
+                    """, (competition_id, round_num))
+            
+            cur.execute("""
+                SELECT id, round_number FROM inter_leagues_rounds
+                WHERE competition_id = ? AND round_number BETWEEN 1 AND 6
+                ORDER BY round_number
+            """, (competition_id,))
+            round_ids = {row['round_number']: row['id'] for row in cur.fetchall()}
+            
+            # Generate schedule for each group
+            fixture_pattern = [
+                [(0, 1), (2, 3)],
+                [(0, 2), (1, 3)],
+                [(0, 3), (1, 2)],
+                [(1, 0), (3, 2)],
+                [(2, 0), (3, 1)],
+                [(3, 0), (2, 1)],
+            ]
+            
+            for group in groups_list:
+                group_letter = group['group_letter']
+                cur.execute("""
+                    SELECT id, team_name FROM inter_leagues_teams
+                    WHERE competition_id = ? AND group_letter = ?
+                    ORDER BY team_name
+                """, (competition_id, group_letter))
+                teams = [dict(row) for row in cur.fetchall()]
+                
+                if len(teams) != 4:
+                    continue
+                
+                for round_num in range(1, 7):
+                    round_id = round_ids.get(round_num)
+                    if not round_id:
+                        continue
+                    
+                    matches = fixture_pattern[round_num - 1]
+                    for home_idx, away_idx in matches:
+                        cur.execute("""
+                            INSERT INTO inter_leagues_games
+                            (competition_id, round_id, home_team_id, away_team_id, home_team_name, away_team_name, 
+                             group_id, round_type, is_played)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, 'group_stage', 0)
+                        """, (competition_id, round_id, teams[home_idx]['id'], teams[away_idx]['id'],
+                              teams[home_idx]['team_name'], teams[away_idx]['team_name'], group['id']))
+        
+        db_helper.commit()
+        flash('Complete auto-setup completed! All 3 competitions filled, groups created, teams assigned, and schedules generated.', 'success')
+        return redirect(url_for('inter_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error in complete auto-setup: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        db_helper.get_connection().rollback()
+        flash(f'Error in auto-setup: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/reset_all', methods=['POST'])
+@login_required
+def reset_all_inter_leagues():
+    """Reset all inter-leagues data: remove all teams, games, standings, etc."""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Delete all data in correct order (respecting foreign keys)
+        cur.execute("DELETE FROM inter_leagues_player_stats")
+        cur.execute("DELETE FROM inter_leagues_user_squads")
+        cur.execute("DELETE FROM inter_leagues_games")
+        cur.execute("DELETE FROM inter_leagues_standings")
+        cur.execute("DELETE FROM inter_leagues_teams")
+        cur.execute("DELETE FROM inter_leagues_rounds")
+        cur.execute("DELETE FROM inter_leagues_groups")
+        # Keep competitions (they are predefined)
+        
+        db_helper.commit()
+        flash('All inter-leagues data has been reset successfully!', 'success')
+        return redirect(url_for('inter_leagues'))
+    
+    except Exception as e:
+        app.logger.error(f"Error resetting inter-leagues: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        db_helper.get_connection().rollback()
+        flash(f'Error resetting inter-leagues: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/prematch/<int:game_id>')
+@login_required
+def view_inter_league_prematch(game_id):
+    """View pre-match lineups for an inter-leagues game"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get game details
+        cur.execute("""
+            SELECT ilg.id, ilg.competition_id, ilg.round_id, ilg.home_team_id, ilg.away_team_id,
+                   ilg.home_team_name, ilg.away_team_name, ilg.is_played,
+                   ilc.name as competition_name, ilr.round_number
+            FROM inter_leagues_games ilg
+            JOIN inter_leagues_competitions ilc ON ilg.competition_id = ilc.id
+            JOIN inter_leagues_rounds ilr ON ilg.round_id = ilr.id
+            WHERE ilg.id = ?
+        """, (game_id,))
+        game = cur.fetchone()
+        
+        if not game:
+            flash('Game not found', 'danger')
+            return redirect(url_for('inter_leagues'))
+        
+        game = dict(game)
+        
+        # Get squads for this specific game/round from inter_leagues_user_squads
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, p.profile_image
+            FROM players p
+            JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+            WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+            AND p.overall IS NOT NULL
+            ORDER BY p.registered_position, p.overall DESC
+        """, (game['competition_id'], game['round_id'], game['home_team_id']))
+        home_squad = [dict(row) for row in cur.fetchall()]
+        
+        # Auto-select if missing
+        if not home_squad:
+            _auto_select_squad(cur, game['competition_id'], game['round_id'], 
+                             game['home_team_id'], game['home_team_name'])
+            db_helper.commit()
+            cur.execute("""
+                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, p.profile_image
+                FROM players p
+                JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                AND p.overall IS NOT NULL
+                ORDER BY p.registered_position, p.overall DESC
+            """, (game['competition_id'], game['round_id'], game['home_team_id']))
+            home_squad = [dict(row) for row in cur.fetchall()]
+        
+        cur.execute("""
+            SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, p.profile_image
+            FROM players p
+            JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+            WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+            AND p.overall IS NOT NULL
+            ORDER BY p.registered_position, p.overall DESC
+        """, (game['competition_id'], game['round_id'], game['away_team_id']))
+        away_squad = [dict(row) for row in cur.fetchall()]
+        
+        # Auto-select if missing
+        if not away_squad:
+            _auto_select_squad(cur, game['competition_id'], game['round_id'], 
+                             game['away_team_id'], game['away_team_name'])
+            db_helper.commit()
+            cur.execute("""
+                SELECT p.id, p.player_name, p.overall, p.registered_position, p.age, p.profile_image
+                FROM players p
+                JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                AND p.overall IS NOT NULL
+                ORDER BY p.registered_position, p.overall DESC
+            """, (game['competition_id'], game['round_id'], game['away_team_id']))
+            away_squad = [dict(row) for row in cur.fetchall()]
+        
+        # Organize squads into slot-based lineup (like preferred lineup format)
+        def organize_squad_to_lineup(squad):
+            """Organize squad players into slot-based lineup for field display"""
+            def get_pos_int(p):
+                pos = p.get('registered_position')
+                try:
+                    return int(pos) if pos is not None else -1
+                except (ValueError, TypeError):
+                    return -1
+            
+            # Group by position
+            gks = sorted([p for p in squad if get_pos_int(p) == 0], 
+                        key=lambda x: x.get('overall', 0), reverse=True)
+            centre_backs = sorted([p for p in squad if get_pos_int(p) in [2, 3]], 
+                                 key=lambda x: x.get('overall', 0), reverse=True)
+            side_backs = sorted([p for p in squad if get_pos_int(p) in [4, 6]], 
+                              key=lambda x: x.get('overall', 0), reverse=True)
+            centre_mids = sorted([p for p in squad if get_pos_int(p) in [5, 7, 9]], 
+                                key=lambda x: x.get('overall', 0), reverse=True)
+            side_mids = sorted([p for p in squad if get_pos_int(p) in [8, 10]], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            forwards = sorted([p for p in squad if get_pos_int(p) in [11, 12]], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            
+            # Create slot-based lineup (same format as preferred_lineup: slot_number, player data)
+            lineup = []
+            used_player_ids = set()
+            
+            # Slot 1: Goalkeeper
+            if gks:
+                lineup.append((1, 'GK', gks[0]['id'], gks[0]['player_name'], gks[0]['registered_position'], gks[0]['overall'], gks[0].get('profile_image')))
+                used_player_ids.add(gks[0]['id'])
+            
+            # Slots 2-5: Defenders (SB/WB, CB/SW, CB/SW, SB/WB)
+            slot = 2
+            if side_backs and side_backs[0]['id'] not in used_player_ids:
+                lineup.append((slot, 'SB/WB', side_backs[0]['id'], side_backs[0]['player_name'], side_backs[0]['registered_position'], side_backs[0]['overall'], side_backs[0].get('profile_image')))
+                used_player_ids.add(side_backs[0]['id'])
+            slot += 1
+            
+            for i in range(2):
+                if i < len(centre_backs) and centre_backs[i]['id'] not in used_player_ids:
+                    lineup.append((slot, 'CB/SW', centre_backs[i]['id'], centre_backs[i]['player_name'], centre_backs[i]['registered_position'], centre_backs[i]['overall'], centre_backs[i].get('profile_image')))
+                    used_player_ids.add(centre_backs[i]['id'])
+                    slot += 1
+            
+            if len(side_backs) > 1 and side_backs[1]['id'] not in used_player_ids:
+                lineup.append((slot, 'SB/WB', side_backs[1]['id'], side_backs[1]['player_name'], side_backs[1]['registered_position'], side_backs[1]['overall'], side_backs[1].get('profile_image')))
+                used_player_ids.add(side_backs[1]['id'])
+                slot += 1
+            
+            # Slots 6-9: Midfielders (WF/SMF, CMF, CMF, WF/SMF)
+            if side_mids and side_mids[0]['id'] not in used_player_ids:
+                lineup.append((6, 'SM', side_mids[0]['id'], side_mids[0]['player_name'], side_mids[0]['registered_position'], side_mids[0]['overall'], side_mids[0].get('profile_image')))
+                used_player_ids.add(side_mids[0]['id'])
+            
+            for i in range(2):
+                if i < len(centre_mids) and centre_mids[i]['id'] not in used_player_ids:
+                    lineup.append((7 + i, 'CM', centre_mids[i]['id'], centre_mids[i]['player_name'], centre_mids[i]['registered_position'], centre_mids[i]['overall'], centre_mids[i].get('profile_image')))
+                    used_player_ids.add(centre_mids[i]['id'])
+            
+            if len(side_mids) > 1 and side_mids[1]['id'] not in used_player_ids:
+                lineup.append((9, 'SM', side_mids[1]['id'], side_mids[1]['player_name'], side_mids[1]['registered_position'], side_mids[1]['overall'], side_mids[1].get('profile_image')))
+                used_player_ids.add(side_mids[1]['id'])
+            
+            # Slots 10-11: Forwards
+            for i in range(2):
+                if i < len(forwards) and forwards[i]['id'] not in used_player_ids:
+                    lineup.append((10 + i, 'FWD', forwards[i]['id'], forwards[i]['player_name'], forwards[i]['registered_position'], forwards[i]['overall'], forwards[i].get('profile_image')))
+                    used_player_ids.add(forwards[i]['id'])
+            
+            # Fill remaining slots with best available
+            assigned_slots = {s[0] for s in lineup}
+            missing_slots = sorted(list(set(range(1, 12)) - assigned_slots))
+            available = sorted([p for p in squad if p['id'] not in used_player_ids], 
+                             key=lambda x: x.get('overall', 0), reverse=True)
+            
+            for slot_num in missing_slots:
+                if not available:
+                    break
+                p = available.pop(0)
+                lineup.append((slot_num, 'FILL', p['id'], p['player_name'], p['registered_position'], p['overall'], p.get('profile_image')))
+            
+            # Sort by slot
+            lineup.sort(key=lambda x: x[0])
+            return lineup
+        
+        home_lineup = organize_squad_to_lineup(home_squad)
+        away_lineup = organize_squad_to_lineup(away_squad)
+        
+        return render_template('inter_leagues_prematch.html',
+                             game=game,
+                             home_lineup=home_lineup,
+                             away_lineup=away_lineup)
+    
+    except Exception as e:
+        app.logger.error(f"Error viewing pre-match: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        flash(f'Error loading pre-match: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/save_penalty_result', methods=['POST'])
+@app.route('/inter_leagues/save_special_event_result', methods=['POST'])
+@login_required
+def save_penalty_result():
+    """Save user special event result (penalty, hail-mary corner, free-kick) and update game score"""
+    import json
+    cur = db_helper.get_cursor()
+    
+    try:
+        data = request.get_json()
+        game_id = data.get('game_id')
+        player_id = data.get('player_id')
+        team = data.get('team')
+        is_successful = data.get('is_successful', False)
+        event_type = data.get('event_type', 'penalty')  # 'penalty', 'hail_mary_corner', 'dangerous_free_kick'
+        
+        if not game_id or not player_id:
+            return jsonify({'success': False, 'error': 'Missing game_id or player_id'}), 400
+        
+        # Get game details
+        cur.execute("""
+            SELECT id, competition_id, round_type, home_team_id, away_team_id, home_score, away_score, is_played
+            FROM inter_leagues_games
+            WHERE id = ?
+        """, (game_id,))
+        game = cur.fetchone()
+        
+        if not game:
+            return jsonify({'success': False, 'error': 'Game not found'}), 404
+        
+        game = dict(game)
+        home_score = int(game['home_score'] or 0)
+        away_score = int(game['away_score'] or 0)
+
+        def _outcome(h, a):
+            if h > a:
+                return 'home'
+            if a > h:
+                return 'away'
+            return 'draw'
+        
+        # Update score if successful
+        if is_successful:
+            old_home_score = home_score
+            old_away_score = away_score
+            old_outcome = _outcome(old_home_score, old_away_score)
+
+            if team == 'home':
+                home_score += 1
+            else:
+                away_score += 1
+
+            new_outcome = _outcome(home_score, away_score)
+            
+            # Update game score
+            cur.execute("""
+                UPDATE inter_leagues_games
+                SET home_score = ?, away_score = ?
+                WHERE id = ?
+            """, (home_score, away_score, game_id))
+            
+            # Update player stats - add goal to penalty taker
+            team_id = game['home_team_id'] if team == 'home' else game['away_team_id']
+            
+            # Check if player already has stats for this game
+            cur.execute("""
+                SELECT id, goals FROM inter_leagues_player_stats
+                WHERE game_id = ? AND player_id = ?
+            """, (game_id, player_id))
+            existing_stat = cur.fetchone()
+            
+            if existing_stat:
+                # Update existing stat
+                cur.execute("""
+                    UPDATE inter_leagues_player_stats
+                    SET goals = goals + 1
+                    WHERE game_id = ? AND player_id = ?
+                """, (game_id, player_id))
+            else:
+                # Create new stat entry
+                cur.execute("SELECT player_name FROM players WHERE id = ?", (player_id,))
+                player_row = cur.fetchone()
+                player_name = player_row['player_name'] if player_row else 'Unknown'
+                
+                cur.execute("""
+                    INSERT INTO inter_leagues_player_stats
+                    (game_id, player_id, team_id, player_name, goals, assists, minutes_played, is_starter, yellow_cards, red_cards, injuries)
+                    VALUES (?, ?, ?, ?, 1, 0, 90, 1, 0, 0, 0)
+                """, (game_id, player_id, team_id, player_name))
+            
+            # Update standings (group-stage only). Knockout games should not affect standings.
+            competition_id = game.get('competition_id')
+            if competition_id is not None and game.get('round_type') == 'group_stage':
+                # Goal deltas
+                home_gf = 1 if team == 'home' else 0
+                home_ga = 1 if team == 'away' else 0
+                away_gf = 1 if team == 'away' else 0
+                away_ga = 1 if team == 'home' else 0
+
+                # Outcome deltas (only possible transitions with a single added goal)
+                home_w = home_d = home_l = home_p = 0
+                away_w = away_d = away_l = away_p = 0
+
+                if old_outcome != new_outcome:
+                    if old_outcome == 'draw' and new_outcome == 'home':
+                        home_d -= 1
+                        home_w += 1
+                        home_p += 2   # 1 -> 3
+                        away_d -= 1
+                        away_l += 1
+                        away_p -= 1   # 1 -> 0
+                    elif old_outcome == 'draw' and new_outcome == 'away':
+                        home_d -= 1
+                        home_l += 1
+                        home_p -= 1   # 1 -> 0
+                        away_d -= 1
+                        away_w += 1
+                        away_p += 2   # 1 -> 3
+                    elif old_outcome == 'home' and new_outcome == 'draw':
+                        home_w -= 1
+                        home_d += 1
+                        home_p -= 2   # 3 -> 1
+                        away_l -= 1
+                        away_d += 1
+                        away_p += 1   # 0 -> 1
+                    elif old_outcome == 'away' and new_outcome == 'draw':
+                        home_l -= 1
+                        home_d += 1
+                        home_p += 1   # 0 -> 1
+                        away_w -= 1
+                        away_d += 1
+                        away_p -= 2   # 3 -> 1
+
+                # Apply to home standings row
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ?,
+                        wins = wins + ?,
+                        draws = draws + ?,
+                        losses = losses + ?,
+                        points = points + ?,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (
+                    home_gf, home_ga, (home_gf - home_ga),
+                    home_w, home_d, home_l, home_p,
+                    competition_id, game['home_team_id']
+                ))
+
+                # Apply to away standings row
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET goals_for = goals_for + ?,
+                        goals_against = goals_against + ?,
+                        goal_difference = goal_difference + ?,
+                        wins = wins + ?,
+                        draws = draws + ?,
+                        losses = losses + ?,
+                        points = points + ?,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ? AND team_id = ?
+                """, (
+                    away_gf, away_ga, (away_gf - away_ga),
+                    away_w, away_d, away_l, away_p,
+                    competition_id, game['away_team_id']
+                ))
+
+                # Hard refresh standings from game scores to guarantee consistency
+                # (covers any missed/duplicated deltas during special-event goals).
+                cur.execute("""
+                    UPDATE inter_leagues_standings
+                    SET games_played = 0,
+                        wins = 0,
+                        draws = 0,
+                        losses = 0,
+                        goals_for = 0,
+                        goals_against = 0,
+                        goal_difference = 0,
+                        points = 0,
+                        updated_at = datetime('now')
+                    WHERE competition_id = ?
+                """, (competition_id,))
+
+                cur.execute("""
+                    WITH matches AS (
+                        SELECT home_team_id AS team_id, home_score AS gf, away_score AS ga
+                        FROM inter_leagues_games
+                        WHERE competition_id = ? AND round_type = 'group_stage' AND is_played = 1
+                        UNION ALL
+                        SELECT away_team_id AS team_id, away_score AS gf, home_score AS ga
+                        FROM inter_leagues_games
+                        WHERE competition_id = ? AND round_type = 'group_stage' AND is_played = 1
+                    ),
+                    agg AS (
+                        SELECT team_id,
+                               COUNT(*) AS games_played,
+                               SUM(CASE WHEN gf > ga THEN 1 ELSE 0 END) AS wins,
+                               SUM(CASE WHEN gf = ga THEN 1 ELSE 0 END) AS draws,
+                               SUM(CASE WHEN gf < ga THEN 1 ELSE 0 END) AS losses,
+                               SUM(gf) AS goals_for,
+                               SUM(ga) AS goals_against
+                        FROM matches
+                        GROUP BY team_id
+                    )
+                    SELECT * FROM agg
+                """, (competition_id, competition_id))
+
+                for row in cur.fetchall():
+                    cur.execute("""
+                        UPDATE inter_leagues_standings
+                        SET games_played = ?,
+                            wins = ?,
+                            draws = ?,
+                            losses = ?,
+                            goals_for = ?,
+                            goals_against = ?,
+                            goal_difference = ?,
+                            points = ?,
+                            updated_at = datetime('now')
+                        WHERE competition_id = ? AND team_id = ?
+                    """, (
+                        row['games_played'],
+                        row['wins'],
+                        row['draws'],
+                        row['losses'],
+                        row['goals_for'],
+                        row['goals_against'],
+                        (row['goals_for'] - row['goals_against']),
+                        (row['wins'] * 3 + row['draws']),
+                        competition_id, row['team_id']
+                    ))
+        
+        db_helper.commit()
+        return jsonify({'success': True, 'home_score': home_score, 'away_score': away_score})
+        
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        app.logger.error(f"Error saving penalty result: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/inter_leagues/betting')
+@login_required
+def inter_leagues_betting():
+    """View available bets for the next round"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    # Initialize betting tables if needed
+    init_betting_tables()
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get or create betting account for user
+        cur.execute("""
+            SELECT balance FROM inter_leagues_betting_accounts
+            WHERE user_id = ?
+        """, (current_user.id,))
+        account = cur.fetchone()
+        
+        if not account:
+            # Create betting account with 0 balance
+            cur.execute("""
+                INSERT INTO inter_leagues_betting_accounts (user_id, balance)
+                VALUES (?, 0)
+            """, (current_user.id,))
+            db_helper.commit()
+            balance = 0
+        else:
+            balance = account['balance']
+        
+        # Find the next pending round across all competitions
+        cur.execute("""
+            SELECT MIN(ilr.round_number) as next_round
+            FROM inter_leagues_rounds ilr
+            JOIN inter_leagues_games ilg ON ilr.id = ilg.round_id
+            WHERE ilg.is_played = 0
+            ORDER BY ilr.round_number ASC
+        """)
+        result = cur.fetchone()
+        
+        if not result or not result['next_round']:
+            return render_template('inter_leagues_betting.html',
+                                 balance=balance,
+                                 available_games=[],
+                                 next_round=None,
+                                 user_bets=[])
+        
+        next_round_number = result['next_round']
+        
+        # Get all games from the next pending round (across all competitions)
+        cur.execute("""
+            SELECT ilg.id, ilg.competition_id, ilg.round_id, ilg.home_team_id, ilg.away_team_id,
+                   ilg.home_team_name, ilg.away_team_name, ilg.is_played,
+                   ilc.name as competition_name, ilr.round_number, ilg.round_type
+            FROM inter_leagues_games ilg
+            JOIN inter_leagues_rounds ilr ON ilg.round_id = ilr.id
+            JOIN inter_leagues_competitions ilc ON ilg.competition_id = ilc.id
+            WHERE ilr.round_number = ? AND ilg.is_played = 0
+            ORDER BY ilc.id, ilg.id
+        """, (next_round_number,))
+        games = [dict(row) for row in cur.fetchall()]
+        
+        # Calculate odds for each game
+        available_games = []
+        for game in games:
+            # Get team strengths (average overall of players in squad)
+            # For home team
+            cur.execute("""
+                SELECT AVG(p.overall) as avg_overall
+                FROM players p
+                JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                AND p.overall IS NOT NULL
+            """, (game['competition_id'], game['round_id'], game['home_team_id']))
+            home_strength_row = cur.fetchone()
+            home_strength = home_strength_row['avg_overall'] if home_strength_row and home_strength_row['avg_overall'] else 50
+            
+            # For away team
+            cur.execute("""
+                SELECT AVG(p.overall) as avg_overall
+                FROM players p
+                JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                AND p.overall IS NOT NULL
+            """, (game['competition_id'], game['round_id'], game['away_team_id']))
+            away_strength_row = cur.fetchone()
+            away_strength = away_strength_row['avg_overall'] if away_strength_row and away_strength_row['avg_overall'] else 50
+            
+            # Calculate probabilities (approximate, not 100% accurate)
+            strength_diff = (home_strength - away_strength) / 10
+            # Base probabilities with home advantage
+            home_prob = 0.40 + (strength_diff * 0.02) + 0.05  # Home advantage + strength
+            away_prob = 0.40 - (strength_diff * 0.02) - 0.05  # Away disadvantage - strength
+            draw_prob = 0.20
+            
+            # Normalize probabilities
+            total_prob = home_prob + draw_prob + away_prob
+            home_prob /= total_prob
+            draw_prob /= total_prob
+            away_prob /= total_prob
+            
+            # Add some randomness to make odds approximate (not perfect)
+            import random
+            home_prob += random.uniform(-0.05, 0.05)
+            draw_prob += random.uniform(-0.03, 0.03)
+            away_prob += random.uniform(-0.05, 0.05)
+            
+            # Re-normalize
+            total_prob = home_prob + draw_prob + away_prob
+            home_prob /= total_prob
+            draw_prob /= total_prob
+            away_prob /= total_prob
+            
+            # Convert probabilities to decimal odds (with bookmaker margin ~5%)
+            margin = 1.05
+            home_odds = round((1.0 / home_prob) * margin, 2)
+            draw_odds = round((1.0 / draw_prob) * margin, 2)
+            away_odds = round((1.0 / away_prob) * margin, 2)
+            
+            available_games.append({
+                'id': game['id'],
+                'competition_name': game['competition_name'],
+                'home_team_name': game['home_team_name'],
+                'away_team_name': game['away_team_name'],
+                'round_number': game['round_number'],
+                'round_type': game['round_type'],
+                'home_odds': home_odds,
+                'draw_odds': draw_odds,
+                'away_odds': away_odds
+            })
+        
+        # Get user's existing bets for these games
+        if games:
+            game_ids = [g['id'] for g in games]
+            placeholders = ','.join('?' * len(game_ids))
+            cur.execute(f"""
+                SELECT id, game_id, bet_type, amount, odds, potential_payout, status, created_at
+                FROM inter_leagues_bets
+                WHERE user_id = ? AND game_id IN ({placeholders})
+                ORDER BY created_at DESC
+            """, [current_user.id] + game_ids)
+            user_bets = [dict(row) for row in cur.fetchall()]
+        else:
+            user_bets = []
+        
+        # Get betslip from session and enrich with game info
+        betslip = session.get('betslip', [])
+        enriched_betslip = []
+        for bet in betslip:
+            # Find game info
+            game = next((g for g in games if g['id'] == bet['game_id']), None)
+            if game and not game['is_played']:
+                bet_with_info = bet.copy()
+                bet_with_info['game_info'] = {
+                    'competition_name': game['competition_name'],
+                    'round_number': game['round_number']
+                }
+                enriched_betslip.append(bet_with_info)
+        
+        return render_template('inter_leagues_betting.html',
+                             balance=balance,
+                             available_games=available_games,
+                             next_round=next_round_number,
+                             user_bets=user_bets,
+                             betslip=enriched_betslip)
+        
+    except Exception as e:
+        app.logger.error(f"Error loading betting page: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        flash(f'Error loading betting page: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/add_to_betslip', methods=['POST'])
+@login_required
+def add_to_betslip():
+    """Add a bet to the betslip"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    data = request.get_json()
+    game_id = data.get('game_id')
+    bet_type = data.get('bet_type')
+    odds = data.get('odds')
+    home_team = data.get('home_team')
+    away_team = data.get('away_team')
+    
+    if not all([game_id, bet_type, odds, home_team, away_team]):
+        return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+    
+    # Initialize betslip in session if it doesn't exist
+    if 'betslip' not in session:
+        session['betslip'] = []
+    
+    # Check if this exact bet already exists in betslip
+    betslip = session['betslip']
+    for bet in betslip:
+        if bet['game_id'] == game_id and bet['bet_type'] == bet_type:
+            return jsonify({'success': False, 'error': 'This bet is already in your betslip'}), 400
+    
+    # Add bet to betslip
+    bet_entry = {
+        'game_id': game_id,
+        'bet_type': bet_type,
+        'odds': float(odds),
+        'home_team': home_team,
+        'away_team': away_team,
+        'amount': 100  # Default amount
+    }
+    betslip.append(bet_entry)
+    session['betslip'] = betslip
+    session.modified = True
+    
+    return jsonify({'success': True, 'betslip_count': len(betslip)})
+
+@app.route('/inter_leagues/remove_from_betslip', methods=['POST'])
+@login_required
+def remove_from_betslip():
+    """Remove a bet from the betslip"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    data = request.get_json()
+    game_id = data.get('game_id')
+    bet_type = data.get('bet_type')
+    
+    if not game_id or not bet_type:
+        return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+    
+    if 'betslip' not in session:
+        return jsonify({'success': False, 'error': 'Betslip is empty'}), 400
+    
+    betslip = session['betslip']
+    betslip = [b for b in betslip if not (b['game_id'] == game_id and b['bet_type'] == bet_type)]
+    session['betslip'] = betslip
+    session.modified = True
+    
+    return jsonify({'success': True, 'betslip_count': len(betslip)})
+
+@app.route('/inter_leagues/betslip')
+@login_required
+def betslip():
+    """View and manage betslip"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    # Initialize betting tables if needed
+    init_betting_tables()
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get betting account balance
+        cur.execute("""
+            SELECT balance FROM inter_leagues_betting_accounts
+            WHERE user_id = ?
+        """, (current_user.id,))
+        account = cur.fetchone()
+        balance = account['balance'] if account else 0
+        
+        # Get betslip from session
+        betslip = session.get('betslip', [])
+        
+        # Enrich betslip with game information
+        enriched_betslip = []
+        valid_betslip = []
+        for bet in betslip:
+            cur.execute("""
+                SELECT ilg.id, ilg.home_team_name, ilg.away_team_name, ilg.is_played,
+                       ilc.name as competition_name, ilr.round_number
+                FROM inter_leagues_games ilg
+                JOIN inter_leagues_competitions ilc ON ilg.competition_id = ilc.id
+                JOIN inter_leagues_rounds ilr ON ilg.round_id = ilr.id
+                WHERE ilg.id = ?
+            """, (bet['game_id'],))
+            game = cur.fetchone()
+            
+            if game and not game['is_played']:
+                # Create a copy of bet with game info for template
+                enriched_bet = bet.copy()
+                enriched_bet['game_info'] = {
+                    'competition_name': game['competition_name'],
+                    'round_number': game['round_number']
+                }
+                enriched_betslip.append(enriched_bet)
+                # Keep original bet structure for session (without game_info)
+                valid_betslip.append(bet)
+        
+        # Update session with valid bets only (without game_info)
+        session['betslip'] = valid_betslip
+        session.modified = True
+        
+        return render_template('inter_leagues_betslip.html',
+                             balance=balance,
+                             betslip=enriched_betslip)
+        
+    except Exception as e:
+        app.logger.error(f"Error loading betslip: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        flash(f'Error loading betslip: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues_betting'))
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/place_betslip', methods=['POST'])
+@login_required
+def place_betslip():
+    """Place all bets from betslip"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    # Initialize betting tables if needed
+    init_betting_tables()
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        data = request.get_json()
+        bets = data.get('bets', [])  # List of {game_id, bet_type, amount}
+        
+        if not bets:
+            return jsonify({'success': False, 'error': 'No bets to place'}), 400
+        
+        # Get betting account balance
+        cur.execute("""
+            SELECT balance FROM inter_leagues_betting_accounts
+            WHERE user_id = ?
+        """, (current_user.id,))
+        account = cur.fetchone()
+        
+        if not account:
+            cur.execute("""
+                INSERT INTO inter_leagues_betting_accounts (user_id, balance)
+                VALUES (?, 0)
+            """, (current_user.id,))
+            balance = 0
+        else:
+            balance = account['balance']
+        
+        # Calculate total amount
+        total_amount = sum(bet['amount'] for bet in bets)
+        
+        # For multiple bets (accumulator), use combined odds
+        is_multiple = len(bets) > 1
+        combined_odds = 1.0
+        
+        if is_multiple:
+            # For accumulator, user places one stake (use first bet amount)
+            total_amount = bets[0]['amount']
+        
+        if balance < total_amount:
+            return jsonify({'success': False, 'error': f'Insufficient balance. Need €{total_amount:,.0f}, have €{balance:,.0f}'}), 400
+        
+        # Validate all bets and calculate odds
+        placed_bets = []
+        for bet_data in bets:
+            game_id = bet_data['game_id']
+            bet_type = bet_data['bet_type']
+            amount = bet_data['amount']
+            
+            # Validate game
+            cur.execute("""
+                SELECT id, is_played, competition_id, round_id, home_team_id, away_team_id
+                FROM inter_leagues_games
+                WHERE id = ?
+            """, (game_id,))
+            game = cur.fetchone()
+            
+            if not game:
+                continue
+            if game['is_played']:
+                continue
+            
+            # Calculate odds (same logic as before)
+            cur.execute("""
+                SELECT AVG(p.overall) as avg_overall
+                FROM players p
+                JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                AND p.overall IS NOT NULL
+            """, (game['competition_id'], game['round_id'], game['home_team_id']))
+            home_strength_row = cur.fetchone()
+            home_strength = home_strength_row['avg_overall'] if home_strength_row and home_strength_row['avg_overall'] else 50
+            
+            cur.execute("""
+                SELECT AVG(p.overall) as avg_overall
+                FROM players p
+                JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+                WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+                AND p.overall IS NOT NULL
+            """, (game['competition_id'], game['round_id'], game['away_team_id']))
+            away_strength_row = cur.fetchone()
+            away_strength = away_strength_row['avg_overall'] if away_strength_row and away_strength_row['avg_overall'] else 50
+            
+            strength_diff = (home_strength - away_strength) / 10
+            home_prob = 0.40 + (strength_diff * 0.02) + 0.05
+            away_prob = 0.40 - (strength_diff * 0.02) - 0.05
+            draw_prob = 0.20
+            
+            total_prob = home_prob + draw_prob + away_prob
+            home_prob /= total_prob
+            draw_prob /= total_prob
+            away_prob /= total_prob
+            
+            import random
+            home_prob += random.uniform(-0.05, 0.05)
+            draw_prob += random.uniform(-0.03, 0.03)
+            away_prob += random.uniform(-0.05, 0.05)
+            
+            total_prob = home_prob + draw_prob + away_prob
+            home_prob /= total_prob
+            draw_prob /= total_prob
+            away_prob /= total_prob
+            
+            margin = 1.05
+            home_odds = (1.0 / home_prob) * margin
+            draw_odds = (1.0 / draw_prob) * margin
+            away_odds = (1.0 / away_prob) * margin
+            
+            if bet_type == 'home_win':
+                odds = round(home_odds, 2)
+            elif bet_type == 'draw':
+                odds = round(draw_odds, 2)
+            else:
+                odds = round(away_odds, 2)
+            
+            combined_odds *= odds
+            
+            placed_bets.append({
+                'game_id': game_id,
+                'bet_type': bet_type,
+                'amount': amount,
+                'odds': odds
+            })
+        
+        # For accumulator, calculate final payout and create bets with combined odds
+        if is_multiple:
+            # Use first bet amount as stake for accumulator
+            stake_amount = bets[0]['amount']
+            final_payout = round(stake_amount * combined_odds, 2)
+            
+            # Insert all bets first with individual odds, then update with combined payout
+            bet_ids = []
+            for bet in placed_bets:
+                cur.execute("""
+                    INSERT INTO inter_leagues_bets (user_id, game_id, bet_type, amount, odds, potential_payout, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                """, (current_user.id, bet['game_id'], bet['bet_type'], stake_amount, bet['odds'], final_payout))
+                bet_ids.append(cur.lastrowid)
+        else:
+            # Single bet - insert with individual payout
+            for bet in placed_bets:
+                game_id = bet['game_id']
+                bet_type = bet['bet_type']
+                amount = bet['amount']
+                odds = bet['odds']
+                potential_payout = round(amount * odds, 2)
+                
+                cur.execute("""
+                    INSERT INTO inter_leagues_bets (user_id, game_id, bet_type, amount, odds, potential_payout, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                """, (current_user.id, game_id, bet_type, amount, odds, potential_payout))
+        
+        # Deduct total amount from balance
+        new_balance = balance - total_amount
+        cur.execute("""
+            UPDATE inter_leagues_betting_accounts
+            SET balance = ?, updated_at = datetime('now')
+            WHERE user_id = ?
+        """, (new_balance, current_user.id))
+        
+        db_helper.commit()
+        
+        # Clear betslip
+        session['betslip'] = []
+        session.modified = True
+        
+        return jsonify({
+            'success': True,
+            'new_balance': new_balance,
+            'placed_bets': placed_bets,
+            'total_amount': total_amount,
+            'is_multiple': is_multiple,
+            'combined_odds': round(combined_odds, 2) if is_multiple else None
+        })
+        
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        app.logger.error(f"Error placing betslip: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/get_betslip_count')
+@login_required
+def get_betslip_count():
+    """Get the number of bets in betslip"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    betslip = session.get('betslip', [])
+    return jsonify({'count': len(betslip)})
+
+@app.route('/inter_leagues/place_bet', methods=['POST'])
+@login_required
+def place_bet():
+    """Place a bet on an inter-leagues game"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    # Initialize betting tables if needed
+    init_betting_tables()
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        data = request.get_json()
+        game_id = data.get('game_id')
+        bet_type = data.get('bet_type')  # 'home_win', 'draw', 'away_win'
+        amount = data.get('amount', type=int)
+        
+        if not game_id or not bet_type or not amount:
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        if bet_type not in ['home_win', 'draw', 'away_win']:
+            return jsonify({'success': False, 'error': 'Invalid bet type'}), 400
+        
+        if amount <= 0:
+            return jsonify({'success': False, 'error': 'Bet amount must be positive'}), 400
+        
+        # Check if game exists and is not played
+        cur.execute("""
+            SELECT id, is_played, home_team_name, away_team_name
+            FROM inter_leagues_games
+            WHERE id = ?
+        """, (game_id,))
+        game = cur.fetchone()
+        
+        if not game:
+            return jsonify({'success': False, 'error': 'Game not found'}), 404
+        
+        if game['is_played']:
+            return jsonify({'success': False, 'error': 'Game has already been played'}), 400
+        
+        # Get or create betting account
+        cur.execute("""
+            SELECT balance FROM inter_leagues_betting_accounts
+            WHERE user_id = ?
+        """, (current_user.id,))
+        account = cur.fetchone()
+        
+        if not account:
+            cur.execute("""
+                INSERT INTO inter_leagues_betting_accounts (user_id, balance)
+                VALUES (?, 0)
+            """, (current_user.id,))
+            balance = 0
+        else:
+            balance = account['balance']
+        
+        if balance < amount:
+            return jsonify({'success': False, 'error': 'Insufficient balance'}), 400
+        
+        # Get game odds (recalculate to ensure consistency)
+        cur.execute("""
+            SELECT ilg.competition_id, ilg.round_id, ilg.home_team_id, ilg.away_team_id
+            FROM inter_leagues_games ilg
+            WHERE ilg.id = ?
+        """, (game_id,))
+        game_info = cur.fetchone()
+        
+        # Calculate odds (same logic as betting page)
+        cur.execute("""
+            SELECT AVG(p.overall) as avg_overall
+            FROM players p
+            JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+            WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+            AND p.overall IS NOT NULL
+        """, (game_info['competition_id'], game_info['round_id'], game_info['home_team_id']))
+        home_strength_row = cur.fetchone()
+        home_strength = home_strength_row['avg_overall'] if home_strength_row and home_strength_row['avg_overall'] else 50
+        
+        cur.execute("""
+            SELECT AVG(p.overall) as avg_overall
+            FROM players p
+            JOIN inter_leagues_user_squads ius ON p.id = ius.player_id
+            WHERE ius.competition_id = ? AND ius.round_id = ? AND ius.team_id = ?
+            AND p.overall IS NOT NULL
+        """, (game_info['competition_id'], game_info['round_id'], game_info['away_team_id']))
+        away_strength_row = cur.fetchone()
+        away_strength = away_strength_row['avg_overall'] if away_strength_row and away_strength_row['avg_overall'] else 50
+        
+        strength_diff = (home_strength - away_strength) / 10
+        home_prob = 0.40 + (strength_diff * 0.02) + 0.05
+        away_prob = 0.40 - (strength_diff * 0.02) - 0.05
+        draw_prob = 0.20
+        
+        total_prob = home_prob + draw_prob + away_prob
+        home_prob /= total_prob
+        draw_prob /= total_prob
+        away_prob /= total_prob
+        
+        # Add randomness for approximate odds
+        import random
+        home_prob += random.uniform(-0.05, 0.05)
+        draw_prob += random.uniform(-0.03, 0.03)
+        away_prob += random.uniform(-0.05, 0.05)
+        
+        total_prob = home_prob + draw_prob + away_prob
+        home_prob /= total_prob
+        draw_prob /= total_prob
+        away_prob /= total_prob
+        
+        margin = 1.05
+        home_odds = (1.0 / home_prob) * margin
+        draw_odds = (1.0 / draw_prob) * margin
+        away_odds = (1.0 / away_prob) * margin
+        
+        # Get odds for selected bet type
+        if bet_type == 'home_win':
+            odds = round(home_odds, 2)
+        elif bet_type == 'draw':
+            odds = round(draw_odds, 2)
+        else:  # away_win
+            odds = round(away_odds, 2)
+        
+        potential_payout = round(amount * odds, 2)
+        
+        # Deduct amount from balance
+        new_balance = balance - amount
+        cur.execute("""
+            UPDATE inter_leagues_betting_accounts
+            SET balance = ?, updated_at = datetime('now')
+            WHERE user_id = ?
+        """, (new_balance, current_user.id))
+        
+        # Create bet
+        cur.execute("""
+            INSERT INTO inter_leagues_bets (user_id, game_id, bet_type, amount, odds, potential_payout, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending')
+        """, (current_user.id, game_id, bet_type, amount, odds, potential_payout))
+        
+        db_helper.commit()
+        return jsonify({
+            'success': True,
+            'new_balance': new_balance,
+            'bet_id': cur.lastrowid,
+            'odds': odds,
+            'potential_payout': potential_payout
+        })
+        
+    except Exception as e:
+        db_helper.get_connection().rollback()
+        app.logger.error(f"Error placing bet: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/betting_history')
+@login_required
+def betting_history():
+    """View betting history and account balance"""
+    if not INTER_LEAGUES_BETTING_ENABLED:
+        abort(404)
+    # Initialize betting tables if needed
+    init_betting_tables()
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get betting account
+        cur.execute("""
+            SELECT balance FROM inter_leagues_betting_accounts
+            WHERE user_id = ?
+        """, (current_user.id,))
+        account = cur.fetchone()
+        balance = account['balance'] if account else 0
+        
+        # Get all bets
+        cur.execute("""
+            SELECT b.id, b.game_id, b.bet_type, b.amount, b.odds, b.potential_payout,
+                   b.status, b.created_at, b.settled_at,
+                   ilg.home_team_name, ilg.away_team_name, ilg.home_score, ilg.away_score,
+                   ilc.name as competition_name, ilr.round_number
+            FROM inter_leagues_bets b
+            JOIN inter_leagues_games ilg ON b.game_id = ilg.id
+            JOIN inter_leagues_competitions ilc ON ilg.competition_id = ilc.id
+            JOIN inter_leagues_rounds ilr ON ilg.round_id = ilr.id
+            WHERE b.user_id = ?
+            ORDER BY b.created_at DESC
+        """, (current_user.id,))
+        bets = [dict(row) for row in cur.fetchall()]
+        
+        return render_template('inter_leagues_betting_history.html',
+                             balance=balance,
+                             bets=bets)
+        
+    except Exception as e:
+        app.logger.error(f"Error loading betting history: {e}")
+        flash(f'Error loading betting history: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
+    finally:
+        cur.close()
+
+def settle_bets_for_round(round_number):
+    """Settle all bets for a completed round, handling accumulator bets"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Initialize betting tables if needed
+        init_betting_tables()
+        
+        # Get all games from this round
+        cur.execute("""
+            SELECT ilg.id, ilg.home_score, ilg.away_score, ilg.is_played
+            FROM inter_leagues_games ilg
+            JOIN inter_leagues_rounds ilr ON ilg.round_id = ilr.id
+            WHERE ilr.round_number = ? AND ilg.is_played = 1
+        """, (round_number,))
+        games = {g['id']: g for g in [dict(row) for row in cur.fetchall()]}
+        
+        if not games:
+            return  # No games in this round
+        
+        # Get all pending bets for games in this round
+        game_ids = list(games.keys())
+        if not game_ids:
+            return
+        
+        placeholders = ','.join('?' * len(game_ids))
+        cur.execute(f"""
+            SELECT b.id, b.user_id, b.game_id, b.bet_type, b.amount, b.odds, b.potential_payout, 
+                   datetime(b.created_at) as created_at_str
+            FROM inter_leagues_bets b
+            JOIN inter_leagues_games ilg ON b.game_id = ilg.id
+            JOIN inter_leagues_rounds ilr ON ilg.round_id = ilr.id
+            WHERE b.game_id IN ({placeholders}) AND b.status = 'pending'
+            AND ilr.round_number = ?
+            ORDER BY b.user_id, b.created_at, b.id
+        """, game_ids + [round_number])
+        all_bets = [dict(row) for row in cur.fetchall()]
+        
+        if not all_bets:
+            return  # No pending bets
+        
+        # Group bets by user and creation time to identify accumulators
+        # Accumulator bets are those placed at the same time (same created_at timestamp)
+        # and have the same potential_payout (for accumulator bets, all bets share the combined payout)
+        bets_by_user_time_payout = {}
+        for bet in all_bets:
+            user_id = bet['user_id']
+            created_at_str = bet['created_at_str']
+            potential_payout = bet['potential_payout']
+            # Group by user, creation time (rounded to second), and potential payout
+            # Accumulator bets will have the same potential_payout
+            key = (user_id, created_at_str[:19] if created_at_str else None, potential_payout)
+            if key not in bets_by_user_time_payout:
+                bets_by_user_time_payout[key] = []
+            bets_by_user_time_payout[key].append(bet)
+        
+        # Process bets for each user/time/payout group
+        for (user_id, created_at_key, payout), bet_group in bets_by_user_time_payout.items():
+            is_accumulator = len(bet_group) > 1
+            
+            if is_accumulator:
+                # Accumulator: all selections must win
+                all_won = True
+                for bet in bet_group:
+                    game = games.get(bet['game_id'])
+                    if not game:
+                        all_won = False
+                        break
+                    
+                    # Determine winning bet type for this game
+                    if game['home_score'] > game['away_score']:
+                        winning_bet_type = 'home_win'
+                    elif game['away_score'] > game['home_score']:
+                        winning_bet_type = 'away_win'
+                    else:
+                        winning_bet_type = 'draw'
+                    
+                    if bet['bet_type'] != winning_bet_type:
+                        all_won = False
+                        break
+                
+                # Settle accumulator bets
+                payout_paid = False
+                for bet in bet_group:
+                    if all_won:
+                        # All selections won - pay out (only pay once per accumulator)
+                        if not payout_paid:
+                            cur.execute("""
+                                UPDATE inter_leagues_betting_accounts
+                                SET balance = balance + ?, updated_at = datetime('now')
+                                WHERE user_id = ?
+                            """, (bet['potential_payout'], user_id))
+                            payout_paid = True
+                        
+                        cur.execute("""
+                            UPDATE inter_leagues_bets
+                            SET status = 'won', settled_at = datetime('now')
+                            WHERE id = ?
+                        """, (bet['id'],))
+                    else:
+                        # At least one selection lost - accumulator loses
+                        cur.execute("""
+                            UPDATE inter_leagues_bets
+                            SET status = 'lost', settled_at = datetime('now')
+                            WHERE id = ?
+                        """, (bet['id'],))
+            else:
+                # Single bet - process normally
+                bet = bet_group[0]
+                game = games.get(bet['game_id'])
+                if not game:
+                    continue
+                
+                # Determine winning bet type
+                if game['home_score'] > game['away_score']:
+                    winning_bet_type = 'home_win'
+                elif game['away_score'] > game['home_score']:
+                    winning_bet_type = 'away_win'
+                else:
+                    winning_bet_type = 'draw'
+                
+                if bet['bet_type'] == winning_bet_type:
+                    # Bet won
+                    cur.execute("""
+                        UPDATE inter_leagues_betting_accounts
+                        SET balance = balance + ?, updated_at = datetime('now')
+                        WHERE user_id = ?
+                    """, (bet['potential_payout'], user_id))
+                    
+                    cur.execute("""
+                        UPDATE inter_leagues_bets
+                        SET status = 'won', settled_at = datetime('now')
+                        WHERE id = ?
+                    """, (bet['id'],))
+                else:
+                    # Bet lost
+                    cur.execute("""
+                        UPDATE inter_leagues_bets
+                        SET status = 'lost', settled_at = datetime('now')
+                        WHERE id = ?
+                    """, (bet['id'],))
+        
+        db_helper.commit()
+        
+    except Exception as e:
+        app.logger.error(f"Error settling bets for round {round_number}: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        db_helper.get_connection().rollback()
+    finally:
+        cur.close()
+
+def settle_bets_for_game(game_id):
+    """Settle all bets for a completed game"""
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get game result
+        cur.execute("""
+            SELECT id, home_score, away_score, is_played
+            FROM inter_leagues_games
+            WHERE id = ?
+        """, (game_id,))
+        game = cur.fetchone()
+        
+        if not game or not game['is_played']:
+            return  # Game not played yet
+        
+        # Determine winner
+        if game['home_score'] > game['away_score']:
+            winning_bet_type = 'home_win'
+        elif game['away_score'] > game['home_score']:
+            winning_bet_type = 'away_win'
+        else:
+            winning_bet_type = 'draw'
+        
+        # Get all pending bets for this game
+        cur.execute("""
+            SELECT id, user_id, bet_type, amount, odds, potential_payout
+            FROM inter_leagues_bets
+            WHERE game_id = ? AND status = 'pending'
+        """, (game_id,))
+        bets = [dict(row) for row in cur.fetchall()]
+        
+        for bet in bets:
+            if bet['bet_type'] == winning_bet_type:
+                # Bet won - add payout to account
+                cur.execute("""
+                    UPDATE inter_leagues_betting_accounts
+                    SET balance = balance + ?, updated_at = datetime('now')
+                    WHERE user_id = ?
+                """, (bet['potential_payout'], bet['user_id']))
+                
+                # Update bet status
+                cur.execute("""
+                    UPDATE inter_leagues_bets
+                    SET status = 'won', settled_at = datetime('now')
+                    WHERE id = ?
+                """, (bet['id'],))
+            else:
+                # Bet lost
+                cur.execute("""
+                    UPDATE inter_leagues_bets
+                    SET status = 'lost', settled_at = datetime('now')
+                    WHERE id = ?
+                """, (bet['id'],))
+        
+        db_helper.commit()
+        
+    except Exception as e:
+        app.logger.error(f"Error settling bets for game {game_id}: {e}")
+        db_helper.get_connection().rollback()
+    finally:
+        cur.close()
+
+@app.route('/inter_leagues/view_game/<int:game_id>')
+@login_required
+def view_inter_league_game(game_id):
+    """View inter-leagues game simulation with events displayed in blog-style"""
+    import random
+    
+    cur = db_helper.get_cursor()
+    
+    try:
+        # Get game details
+        cur.execute("""
+            SELECT id, competition_id, round_id, home_team_id, away_team_id,
+                   home_team_name, away_team_name, home_score, away_score,
+                   game_date, is_played, mvp_player_id
+            FROM inter_leagues_games
+            WHERE id = ?
+        """, (game_id,))
+        game = cur.fetchone()
+        
+        if not game:
+            flash('Game not found', 'danger')
+            return redirect(url_for('inter_leagues'))
+        
+        game = dict(game)
+        
+        if not game['is_played']:
+            flash('Game has not been played yet', 'danger')
+            return redirect(url_for('inter_leagues', competition_id=game['competition_id']))
+        
+        # Get player stats with minutes and starter info (including cards and injuries)
+        cur.execute("""
+            SELECT ips.player_id, ips.player_name, ips.goals, ips.assists,
+                   ips.team_id, ips.minutes_played, ips.is_starter,
+                   ips.yellow_cards, ips.red_cards, ips.injuries,
+                   p.registered_position,
+                   g.home_team_id, g.away_team_id
+            FROM inter_leagues_player_stats ips
+            JOIN inter_leagues_games g ON ips.game_id = g.id
+            LEFT JOIN players p ON ips.player_id = p.id
+            WHERE ips.game_id = ?
+            ORDER BY 
+                CASE p.registered_position
+                    WHEN 0 THEN 1
+                    WHEN 2 THEN 2
+                    WHEN 3 THEN 2
+                    WHEN 4 THEN 2
+                    WHEN 6 THEN 2
+                    WHEN 5 THEN 3
+                    WHEN 7 THEN 3
+                    WHEN 8 THEN 3
+                    WHEN 9 THEN 3
+                    WHEN 10 THEN 3
+                    WHEN 11 THEN 4
+                    WHEN 12 THEN 4
+                    ELSE 5
+                END,
+                p.registered_position,
+                ips.goals DESC, ips.assists DESC
+        """, (game_id,))
+        player_stats = [dict(row) for row in cur.fetchall()]
+        
+        # Separate home and away stats
+        home_stats = [s for s in player_stats if s['team_id'] == game['home_team_id']]
+        away_stats = [s for s in player_stats if s['team_id'] == game['away_team_id']]
+        
+        # Generate events (goals, cards, injuries with minutes)
+        events = []
+        
+        # Home events
+        for stat in home_stats:
+            # Goals
+            for goal_num in range(stat.get('goals', 0)):
+                minute = random.randint(1, 90)
+                events.append({
+                    'type': 'goal',
+                    'minute': minute,
+                    'team': 'home',
+                    'player_id': stat['player_id'],
+                    'player_name': stat['player_name'],
+                    'assist_player_id': None,
+                    'assist_player_name': None
+                })
+            # Yellow cards
+            for _ in range(stat.get('yellow_cards', 0)):
+                minute = random.randint(1, 90)
+                events.append({
+                    'type': 'yellow_card',
+                    'minute': minute,
+                    'team': 'home',
+                    'player_id': stat['player_id'],
+                    'player_name': stat['player_name']
+                })
+            # Red cards
+            for _ in range(stat.get('red_cards', 0)):
+                minute = random.randint(1, 90)
+                events.append({
+                    'type': 'red_card',
+                    'minute': minute,
+                    'team': 'home',
+                    'player_id': stat['player_id'],
+                    'player_name': stat['player_name']
+                })
+            # Injuries
+            if stat.get('injuries', 0) > 0:
+                minute = random.randint(1, 90)
+                events.append({
+                    'type': 'injury',
+                    'minute': minute,
+                    'team': 'home',
+                    'player_id': stat['player_id'],
+                    'player_name': stat['player_name'],
+                    'weeks': stat.get('injuries', 0)
+                })
+        
+        # Away events
+        for stat in away_stats:
+            # Goals
+            for goal_num in range(stat.get('goals', 0)):
+                minute = random.randint(1, 90)
+                events.append({
+                    'type': 'goal',
+                    'minute': minute,
+                    'team': 'away',
+                    'player_id': stat['player_id'],
+                    'player_name': stat['player_name'],
+                    'assist_player_id': None,
+                    'assist_player_name': None
+                })
+            # Yellow cards
+            for _ in range(stat.get('yellow_cards', 0)):
+                minute = random.randint(1, 90)
+                events.append({
+                    'type': 'yellow_card',
+                    'minute': minute,
+                    'team': 'away',
+                    'player_id': stat['player_id'],
+                    'player_name': stat['player_name']
+                })
+            # Red cards
+            for _ in range(stat.get('red_cards', 0)):
+                minute = random.randint(1, 90)
+                events.append({
+                    'type': 'red_card',
+                    'minute': minute,
+                    'team': 'away',
+                    'player_id': stat['player_id'],
+                    'player_name': stat['player_name']
+                })
+            # Injuries
+            if stat.get('injuries', 0) > 0:
+                minute = random.randint(1, 90)
+                events.append({
+                    'type': 'injury',
+                    'minute': minute,
+                    'team': 'away',
+                    'player_id': stat['player_id'],
+                    'player_name': stat['player_name'],
+                    'weeks': stat.get('injuries', 0)
+                })
+        
+        # Sort events by minute
+        events.sort(key=lambda x: x['minute'])
+        
+        # Try to match assists to goals (match assists to goals in the same team)
+        # We'll match assists to the closest goal in time from the same team
+        home_assists = [(s['player_id'], s['player_name'], s['assists']) for s in home_stats if s['assists'] > 0]
+        away_assists = [(s['player_id'], s['player_name'], s['assists']) for s in away_stats if s['assists'] > 0]
+        
+        # Match home assists to home goals
+        assist_idx = 0
+        for event in events:
+            if event['team'] == 'home' and assist_idx < len(home_assists):
+                player_id, player_name, assist_count = home_assists[assist_idx]
+                if assist_count > 0:
+                    event['assist_player_id'] = player_id
+                    event['assist_player_name'] = player_name
+                    home_assists[assist_idx] = (player_id, player_name, assist_count - 1)
+                    if assist_count - 1 == 0:
+                        assist_idx += 1
+        
+        # Match away assists to away goals
+        assist_idx = 0
+        for event in events:
+            if event['team'] == 'away' and assist_idx < len(away_assists):
+                player_id, player_name, assist_count = away_assists[assist_idx]
+                if assist_count > 0:
+                    event['assist_player_id'] = player_id
+                    event['assist_player_name'] = player_name
+                    away_assists[assist_idx] = (player_id, player_name, assist_count - 1)
+                    if assist_count - 1 == 0:
+                        assist_idx += 1
+        
+        # Get competition name
+        cur.execute("SELECT name FROM inter_leagues_competitions WHERE id = ?", (game['competition_id'],))
+        comp_row = cur.fetchone()
+        competition_name = comp_row['name'] if comp_row else 'Inter-Leagues'
+        
+        # Get usernames from teams
+        cur.execute("""
+            SELECT u.username FROM inter_leagues_teams ilt
+            LEFT JOIN users u ON ilt.user_id = u.id
+            WHERE ilt.id = ?
+        """, (game['home_team_id'],))
+        home_user_row = cur.fetchone()
+        home_username = home_user_row['username'] if home_user_row and home_user_row['username'] else 'CPU'
+        
+        cur.execute("""
+            SELECT u.username FROM inter_leagues_teams ilt
+            LEFT JOIN users u ON ilt.user_id = u.id
+            WHERE ilt.id = ?
+        """, (game['away_team_id'],))
+        away_user_row = cur.fetchone()
+        away_username = away_user_row['username'] if away_user_row and away_user_row['username'] else 'CPU'
+        
+        # Get MVP player name if exists
+        mvp_player_name = None
+        if game.get('mvp_player_id'):
+            cur.execute("SELECT player_name FROM players WHERE id = ?", (game['mvp_player_id'],))
+            mvp_row = cur.fetchone()
+            mvp_player_name = mvp_row['player_name'] if mvp_row else None
+        
+        return render_template('inter_leagues_game_simulation.html',
+                             game=game,
+                             competition_name=competition_name,
+                             home_username=home_username,
+                             away_username=away_username,
+                             events=events,
+                             mvp_player_id=game.get('mvp_player_id'),
+                             mvp_player_name=mvp_player_name,
+                             home_player_stats=home_stats,
+                             away_player_stats=away_stats)
+    
+    except Exception as e:
+        app.logger.error(f"Error viewing inter-leagues game: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        flash(f'Error loading game: {str(e)}', 'danger')
+        return redirect(url_for('inter_leagues'))
     finally:
         cur.close()
 
@@ -16037,7 +21390,7 @@ def simulate_international_game(game_id):
         from international_simulation import simulate_international_game_with_players
         import random
         # Pass fake_player_ids to simulation so it can exclude them from MVP selection
-        simulation_result = simulate_international_game_with_players(home_players, away_players, fake_player_ids)
+        simulation_result = simulate_international_game_with_players(home_players, away_players, fake_player_ids, for_international=True)
         
         # Map team_id strings back to actual international team IDs for stats
         # Ensure we extract scalar values from game dict
@@ -16321,7 +21674,7 @@ def simulate_international_game(game_id):
                     SET international_assists = international_assists + ?,
                         current_international_assists = current_international_assists + ?
                     WHERE id = ?
-                """, (assists, player_id))
+                """, (assists, assists, player_id))
         
         # Delete fake players from temp_players table after simulation
         for fake_id in fake_player_ids:

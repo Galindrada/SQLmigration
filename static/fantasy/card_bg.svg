@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500" viewBox="0 0 400 500">
+  <defs>
+    <pattern id="cardPattern" x="0" y="0" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M0 40 Q20 20 40 40 T80 40" stroke="rgba(0,0,0,0.04)" fill="none" stroke-width="1"/>
+      <path d="M40 0 Q60 20 40 40 T40 80" stroke="rgba(0,0,0,0.04)" fill="none" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="cardBgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5f5f0"/>
+      <stop offset="50%" style="stop-color:#ebe8e0"/>
+      <stop offset="100%" style="stop-color:#e0ddd5"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="500" fill="url(#cardBgGrad)"/>
+  <rect width="400" height="500" fill="url(#cardPattern)"/>
+</svg>

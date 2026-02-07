@@ -4,7 +4,7 @@ International game simulation that works with player lists directly
 """
 import random
 
-def simulate_international_game_with_players(home_players, away_players, fake_player_ids=None):
+def simulate_international_game_with_players(home_players, away_players, fake_player_ids=None, for_international=False):
     """
     Simulate an international game using player lists directly.
     Works exactly like simulate_cpu_game but accepts player lists instead of querying by club_id.
@@ -14,6 +14,8 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
         home_players: List of player dicts for home team
         away_players: List of player dicts for away team
         fake_player_ids: Set/list of fake player IDs to exclude from MVP selection
+        for_international: If True, international rules: goals + assists only. No YC/RC, no injuries,
+                          no penalty/hail-mary/free-kick. Those are inter-leagues only.
     """
     if fake_player_ids is None:
         fake_player_ids = set()
@@ -207,6 +209,56 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
     home_score = max(0, min(6, int(random.gauss(home_expected, 0.9))))
     away_score = max(0, min(6, int(random.gauss(away_expected, 0.9))))
     
+    # Cards, injuries, penalties, hail-mary, free-kicks: INTER-LEAGUES ONLY.
+    # International games: goals + assists only. No YC/RC, no injuries, no special events.
+    home_events = []
+    away_events = []
+    penalty_events = []
+    hail_mary_events = []
+    free_kick_events = []
+    
+    if not for_international:
+        # Inter-leagues only: cards, injuries, red-card score reduction, special events
+        def _gen_cards_injuries(lineup_final, minutes_dict, team_id, team_strength, is_weaker):
+            ev = []
+            eligible = [p for p in lineup_final if minutes_dict.get(p.get('id'), 0) > 0]
+            if not eligible:
+                return ev
+            base_y = 0.12 + (max(0, min(1, (50 - team_strength) / 30)) * 0.03) if is_weaker else 0.10 - (max(0, min(1, (team_strength - 50) / 30)) * 0.02)
+            for p in eligible:
+                if random.random() < base_y:
+                    ev.append({'type': 'yellow_card', 'minute': random.randint(1, 90), 'player_id': p.get('id'), 'player_name': p.get('player_name'), 'team_id': team_id})
+            if random.random() < 0.10:
+                rp = random.choice(eligible)
+                m = random.randint(1, 90)
+                ev.append({'type': 'red_card', 'minute': m, 'player_id': rp.get('id'), 'player_name': rp.get('player_name'), 'team_id': team_id})
+                if not any(e['type'] == 'yellow_card' and e['player_id'] == rp.get('id') for e in ev):
+                    ev.append({'type': 'yellow_card', 'minute': m, 'player_id': rp.get('id'), 'player_name': rp.get('player_name'), 'team_id': team_id})
+            ni = random.choices([0, 1, 2], weights=[80, 15, 5])[0]
+            if ni > 0:
+                for p in random.sample(eligible, min(ni, len(eligible))):
+                    ev.append({'type': 'injury', 'minute': random.randint(1, 90), 'player_id': p.get('id'), 'player_name': p.get('player_name'), 'team_id': team_id, 'weeks': random.randint(1, 8)})
+            return ev
+        is_hw = home_strength < away_strength
+        is_aw = away_strength < home_strength
+        home_events = _gen_cards_injuries(home_lineup_final, home_minutes, 'home', home_strength, is_hw)
+        away_events = _gen_cards_injuries(away_lineup_final, away_minutes, 'away', away_strength, is_aw)
+        for _ in range(sum(1 for e in home_events if e['type'] == 'red_card')):
+            home_score = max(0, home_score - 1)
+        for _ in range(sum(1 for e in away_events if e['type'] == 'red_card')):
+            away_score = max(0, away_score - 1)
+        num_penalties = random.choices([0, 1, 2], weights=[85, 12, 3])[0]
+        for _ in range(num_penalties):
+            penalty_events.append({'type': 'penalty', 'minute': random.randint(1, 90), 'team': 'home' if random.random() < 0.5 else 'away', 'needs_user_input': False})
+        if home_score < away_score and away_score - home_score == 1 and random.random() < 0.15:
+            hail_mary_events.append({'type': 'hail_mary_corner', 'minute': random.randint(85, 90), 'team': 'home', 'needs_user_input': False})
+        elif away_score < home_score and home_score - away_score == 1 and random.random() < 0.15:
+            hail_mary_events.append({'type': 'hail_mary_corner', 'minute': random.randint(85, 90), 'team': 'away', 'needs_user_input': False})
+        elif home_score == away_score and random.random() < 0.10:
+            hail_mary_events.append({'type': 'hail_mary_corner', 'minute': random.randint(85, 90), 'team': 'home' if random.random() < 0.5 else 'away', 'needs_user_input': False})
+        if random.random() < 0.05:
+            free_kick_events.append({'type': 'dangerous_free_kick', 'minute': random.randint(1, 90), 'team': 'home' if random.random() < 0.5 else 'away', 'needs_user_input': False})
+    
     # Player stats
     player_stats = []
     stats_dict = {}
@@ -220,7 +272,10 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
                 'goals': 0,
                 'assists': 0,
                 'minutes_played': 90,
-                'is_starter': 1
+                'is_starter': 1,
+                'yellow_cards': 0,
+                'red_cards': 0,
+                'injuries': 0
             }
             player_stats.append(stats_dict[player_id])
         return stats_dict[player_id]
@@ -526,10 +581,25 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
                 # Only fake players available - set MVP to None
                 mvp_player_id = None
     
+    # Update player stats with cards and injuries (inter-leagues only; international has no events)
+    for event in home_events + away_events:
+        player_id = event['player_id']
+        if player_id in stats_dict:
+            if event['type'] == 'yellow_card':
+                stats_dict[player_id]['yellow_cards'] = stats_dict[player_id].get('yellow_cards', 0) + 1
+            elif event['type'] == 'red_card':
+                stats_dict[player_id]['red_cards'] = stats_dict[player_id].get('red_cards', 0) + 1
+            elif event['type'] == 'injury':
+                stats_dict[player_id]['injuries'] = event.get('weeks', 1)
+    
     return {
         'home_score': home_score,
         'away_score': away_score,
         'player_stats': player_stats,
-        'mvp_player_id': mvp_player_id
+        'mvp_player_id': mvp_player_id,
+        'events': home_events + away_events,  # Include cards and injuries in events
+        'penalty_events': penalty_events,  # Penalties that may need user input
+        'hail_mary_events': hail_mary_events,  # Hail-Mary corners that may need user input
+        'free_kick_events': free_kick_events  # Dangerous free-kicks that may need user input
     }
 

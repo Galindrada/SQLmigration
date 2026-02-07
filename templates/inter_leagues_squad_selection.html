@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block title %}Select Squad - Round {{ round_info.round_number }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <h1>👥 Select Squad - {{ competition_name }} - Round {{ round_info.round_number }}</h1>
+    <p><a href="{{ url_for('inter_leagues', competition_id=competition_id) }}">← Back to Inter-Leagues</a></p>
+    
+    <!-- Squad Selection Info -->
+    <div class="section" style="margin-top: 20px;">
+        <div class="alert alert-info">
+            <h4>💰 Salary Cap: €100,000,000 (100M)</h4>
+            <p>Select players from all your teams. Total salary of selected players must not exceed 100M.</p>
+        </div>
+    </div>
+    
+    <!-- Current Selection Summary -->
+    <div class="section" style="margin-top: 20px;">
+        <h3>📊 Selection Summary</h3>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5>Current Total Salary</h5>
+                        <p id="totalSalary" style="font-size: 1.5em; font-weight: bold; color: {% if current_total_salary > salary_cap %}red{% elif current_total_salary > salary_cap * 0.9 %}orange{% else %}green{% endif %};">
+                            €{{ "{:,.0f}".format(current_total_salary) }}
+                        </p>
+                        <p>Salary Cap: €{{ "{:,.0f}".format(salary_cap) }}</p>
+                        <p>Remaining: <span id="remainingCap" style="font-weight: bold;">€{{ "{:,.0f}".format(salary_cap - current_total_salary) }}</span></p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5>Selected Players</h5>
+                        <p id="selectedCount" style="font-size: 1.5em; font-weight: bold;">
+                            {{ selected_player_ids|length }}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Player Selection Form -->
+    <form method="POST" id="squadForm">
+        <div class="section" style="margin-top: 30px;">
+            <h3>👥 Available Players</h3>
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Select</th>
+                            <th>Player</th>
+                            <th>Position</th>
+                            <th>Team</th>
+                            <th>Overall</th>
+                            <th>Salary</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for player in all_players %}
+                        <tr {% if player.InterLeague_RC == 1 %}style="background-color: #ffe6e6;"{% elif player.InterLeague_YC > 0 %}style="background-color: #fff9e6;"{% endif %}>
+                            <td>
+                                <input type="checkbox" 
+                                       name="player_ids" 
+                                       value="{{ player.id }}" 
+                                       {% if player.id in selected_player_ids %}checked{% endif %}
+                                       data-salary="{{ player.salary or 0 }}"
+                                       onchange="updateSalaryTotal()"
+                                       class="player-checkbox"
+                                       {% if player.InterLeague_RC == 1 %}title="Serving suspension (will be cleared when round starts)"{% endif %}>
+                            </td>
+                            <td>
+                                <a href="{{ url_for('pes6_player_details', player_id=player.id) }}">
+                                    {{ player.player_name }}
+                                </a>
+                            </td>
+                            <td>{{ player.game_position }}</td>
+                            <td>{{ player.team_name }}</td>
+                            <td><strong>{{ player.overall or 'N/A' }}</strong></td>
+                            <td>€{{ "{:,.0f}".format(player.salary or 0) }}</td>
+                            <td>
+                                {% if player.InterLeague_RC == 1 %}
+                                    <span class="badge badge-danger" title="Serving 1-game suspension (will be cleared when round starts)">🔴 Suspended (1 game)</span>
+                                {% elif player.InterLeague_YC > 0 %}
+                                    <span class="badge badge-warning" title="Yellow cards: {{ player.InterLeague_YC }}">🟡 {{ player.InterLeague_YC }} YC</span>
+                                {% else %}
+                                    <span class="badge badge-success">✅ Available</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="section" style="margin-top: 30px; margin-bottom: 30px;">
+            <button type="submit" class="btn btn-success btn-lg" id="submitBtn">Save Squad Selection</button>
+            <a href="{{ url_for('inter_leagues', competition_id=competition_id) }}" class="btn btn-secondary btn-lg">Cancel</a>
+            <button type="button" class="btn btn-info btn-lg" id="autoSelectBtn" onclick="autoSelectSquad()">
+                🤖 Auto-Select Squad
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+function updateSalaryTotal() {
+    let total = 0;
+    let selectedCount = 0;
+    const salaryCap = {{ salary_cap }};
+    
+    document.querySelectorAll('.player-checkbox:checked').forEach(checkbox => {
+        total += parseInt(checkbox.dataset.salary) || 0;
+        selectedCount++;
+    });
+    
+    // Update display
+    document.getElementById('totalSalary').textContent = '€' + total.toLocaleString('en-US');
+    document.getElementById('selectedCount').textContent = selectedCount;
+    
+    const remaining = salaryCap - total;
+    const remainingElement = document.getElementById('remainingCap');
+    remainingElement.textContent = '€' + remaining.toLocaleString('en-US');
+    
+    // Update colors
+    const totalElement = document.getElementById('totalSalary');
+    if (total > salaryCap) {
+        totalElement.style.color = 'red';
+        remainingElement.style.color = 'red';
+        document.getElementById('submitBtn').disabled = true;
+        document.getElementById('submitBtn').textContent = 'Total Exceeds Salary Cap!';
+    } else if (total > salaryCap * 0.9) {
+        totalElement.style.color = 'orange';
+        remainingElement.style.color = 'orange';
+        document.getElementById('submitBtn').disabled = false;
+        document.getElementById('submitBtn').textContent = 'Save Squad Selection';
+    } else {
+        totalElement.style.color = 'green';
+        remainingElement.style.color = 'green';
+        document.getElementById('submitBtn').disabled = false;
+        document.getElementById('submitBtn').textContent = 'Save Squad Selection';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    updateSalaryTotal();
+    
+    // Validate on form submit
+    document.getElementById('squadForm').addEventListener('submit', function(e) {
+        let total = 0;
+        document.querySelectorAll('.player-checkbox:checked').forEach(checkbox => {
+            total += parseInt(checkbox.dataset.salary) || 0;
+        });
+        
+        if (total > {{ salary_cap }}) {
+            e.preventDefault();
+            alert('Total salary (€' + total.toLocaleString('en-US') + ') exceeds the 100M salary cap!');
+            return false;
+        }
+    });
+});
+
+function autoSelectSquad() {
+    if (!confirm('This will replace your current squad selection with an auto-selected squad. Continue?')) {
+        return;
+    }
+    
+    const autoSelectBtn = document.getElementById('autoSelectBtn');
+    autoSelectBtn.disabled = true;
+    autoSelectBtn.textContent = 'Auto-Selecting...';
+    
+    // Get team_id from user_team object passed to template
+    const teamId = {{ user_team.id }};
+    
+    fetch(`/inter_leagues/auto_select_squad/{{ competition_id }}/{{ round_id }}/${teamId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        if (response.redirected) {
+            window.location.href = response.url;
+        } else {
+            return response.json();
+        }
+    })
+    .then(data => {
+        if (data && data.error) {
+            alert('Error: ' + data.error);
+            autoSelectBtn.disabled = false;
+            autoSelectBtn.textContent = '🤖 Auto-Select Squad';
+        } else {
+            // Reload page to show new selection
+            window.location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error auto-selecting squad. Please try again.');
+        autoSelectBtn.disabled = false;
+        autoSelectBtn.textContent = '🤖 Auto-Select Squad';
+    });
+}
+</script>
+
+<style>
+.player-checkbox {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.table th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.card {
+    margin-bottom: 20px;
+}
+
+.alert-info {
+    background-color: #d1ecf1;
+    border-color: #bee5eb;
+    color: #0c5460;
+}
+</style>
+{% endblock %}

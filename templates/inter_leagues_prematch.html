@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+
+{% block title %}Pre-match: {{ game.home_team_name }} vs {{ game.away_team_name }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>📋 Pre-match: {{ game.competition_name }}</h1>
+    <h2>{{ game.home_team_name }} vs {{ game.away_team_name }}</h2>
+    <p class="text-muted">Round {{ game.round_number }}</p>
+    
+    <!-- Home Team Lineup -->
+    {% if home_lineup and home_lineup|length > 0 %}
+    <div class="preferred-lineup-section" style="margin-bottom: 30px;">
+        <div class="card" style="background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 2px solid #dee2e6; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+            <div class="card-header" style="background: linear-gradient(145deg, #28a745, #20c997); color: white; border-bottom: 2px solid #28a745; border-radius: 8px 8px 0 0;">
+                <h4 style="margin: 0; text-align: center; font-weight: bold;">
+                    <i class="fas fa-futbol"></i> {{ game.home_team_name }} - Starting 11 (4-4-2 Formation)
+                </h4>
+            </div>
+            <div class="card-body" style="padding: 20px;">
+                <div class="soccer-field-container">
+                    <div class="soccer-field">
+                        <!-- Forwards (2) - Slots 10-11 - TOP ROW (CF - CF/SS) -->
+                        <div class="forward-line">
+                            {% for slot_num in [10, 11] %}
+                                <div class="player-position fwd-position" data-slot="{{ slot_num }}">
+                                    {% for player in home_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                     alt="{{ player[3] }}" 
+                                                     class="player-image"
+                                                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Midfielders (4) - Slots 6-9 - SECOND ROW (WF/SMF - CMF - CMF - WF/SMF) -->
+                        <div class="midfield-line">
+                            {% for slot_num in [6, 7, 8, 9] %}
+                                <div class="player-position mid-position" data-slot="{{ slot_num }}">
+                                    {% for player in home_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                     alt="{{ player[3] }}" 
+                                                     class="player-image"
+                                                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Defenders (4) - Slots 2-5 - THIRD ROW (SB/WB - CB/SW - CB/SW - SB/WB) -->
+                        <div class="defense-line">
+                            {% for slot_num in [2, 3, 4, 5] %}
+                                <div class="player-position def-position" data-slot="{{ slot_num }}">
+                                    {% for player in home_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                     alt="{{ player[3] }}" 
+                                                     class="player-image"
+                                                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Goalkeeper - Slot 1 - BOTTOM ROW -->
+                        <div class="player-position gk-position" data-slot="1">
+                            {% for player in home_lineup %}
+                                {% if player[0] == 1 %}
+                                    <div class="player-card">
+                                        <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                             alt="{{ player[3] }}" 
+                                             class="player-image"
+                                             onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                        <div class="player-name">{{ player[3] }}</div>
+                                        <div class="player-overall">{{ player[5] }}</div>
+                                    </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Away Team Lineup -->
+    {% if away_lineup and away_lineup|length > 0 %}
+    <div class="preferred-lineup-section" style="margin-bottom: 30px;">
+        <div class="card" style="background: linear-gradient(145deg, #f8f9fa, #e9ecef); border: 2px solid #dee2e6; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+            <div class="card-header" style="background: linear-gradient(145deg, #dc3545, #fd7e14); color: white; border-bottom: 2px solid #dc3545; border-radius: 8px 8px 0 0;">
+                <h4 style="margin: 0; text-align: center; font-weight: bold;">
+                    <i class="fas fa-futbol"></i> {{ game.away_team_name }} - Starting 11 (4-4-2 Formation)
+                </h4>
+            </div>
+            <div class="card-body" style="padding: 20px;">
+                <div class="soccer-field-container">
+                    <div class="soccer-field">
+                        <!-- Forwards (2) - Slots 10-11 - TOP ROW (CF - CF/SS) -->
+                        <div class="forward-line">
+                            {% for slot_num in [10, 11] %}
+                                <div class="player-position fwd-position" data-slot="{{ slot_num }}">
+                                    {% for player in away_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                     alt="{{ player[3] }}" 
+                                                     class="player-image"
+                                                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Midfielders (4) - Slots 6-9 - SECOND ROW (WF/SMF - CMF - CMF - WF/SMF) -->
+                        <div class="midfield-line">
+                            {% for slot_num in [6, 7, 8, 9] %}
+                                <div class="player-position mid-position" data-slot="{{ slot_num }}">
+                                    {% for player in away_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                     alt="{{ player[3] }}" 
+                                                     class="player-image"
+                                                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Defenders (4) - Slots 2-5 - THIRD ROW (SB/WB - CB/SW - CB/SW - SB/WB) -->
+                        <div class="defense-line">
+                            {% for slot_num in [2, 3, 4, 5] %}
+                                <div class="player-position def-position" data-slot="{{ slot_num }}">
+                                    {% for player in away_lineup %}
+                                        {% if player[0] == slot_num %}
+                                            <div class="player-card">
+                                                <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                                     alt="{{ player[3] }}" 
+                                                     class="player-image"
+                                                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                                <div class="player-name">{{ player[3] }}</div>
+                                                <div class="player-overall">{{ player[5] }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Goalkeeper - Slot 1 - BOTTOM ROW -->
+                        <div class="player-position gk-position" data-slot="1">
+                            {% for player in away_lineup %}
+                                {% if player[0] == 1 %}
+                                    <div class="player-card">
+                                        <img src="{{ url_for('serve_player_image_by_id', player_id=player[2]) }}" 
+                                             alt="{{ player[3] }}" 
+                                             class="player-image"
+                                             onerror="this.onerror=null; this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                        <div class="player-name">{{ player[3] }}</div>
+                                        <div class="player-overall">{{ player[5] }}</div>
+                                    </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div style="text-align: center; margin-top: 30px;">
+        <a href="javascript:history.back()" class="btn btn-secondary">← Back</a>
+    </div>
+</div>
+
+<style>
+    .preferred-lineup-section {
+        margin-bottom: 30px;
+    }
+
+    .soccer-field-container {
+        width: 100%;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .soccer-field {
+        position: relative;
+        width: 100%;
+        height: 600px;
+        background: linear-gradient(90deg, #2d5016 0%, #3a6b1f 50%, #2d5016 100%);
+        border: 4px solid #fff;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        overflow: hidden;
+    }
+
+    .soccer-field::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-image: 
+            repeating-linear-gradient(0deg, transparent, transparent 29px, rgba(255,255,255,0.1) 29px, rgba(255,255,255,0.1) 30px),
+            repeating-linear-gradient(90deg, transparent, transparent 29px, rgba(255,255,255,0.1) 29px, rgba(255,255,255,0.1) 30px);
+    }
+
+    /* Center circle */
+    .soccer-field::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 200px;
+        height: 200px;
+        border: 3px solid rgba(255,255,255,0.5);
+        border-radius: 50%;
+    }
+
+    .player-position {
+        position: absolute;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .player-card {
+        text-align: center;
+        background: rgba(255,255,255,0.95);
+        border: 2px solid #333;
+        border-radius: 8px;
+        padding: 5px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        transition: transform 0.2s, box-shadow 0.2s;
+        cursor: pointer;
+        min-width: 70px;
+    }
+
+    .player-card:hover {
+        transform: scale(1.1);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        z-index: 10;
+    }
+
+    .player-image {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid #333;
+        display: block;
+        margin: 0 auto 3px;
+    }
+
+    .player-name {
+        font-size: 10px;
+        font-weight: bold;
+        color: #333;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 70px;
+    }
+
+    .player-overall {
+        font-size: 12px;
+        font-weight: bold;
+        color: #28a745;
+        margin-top: 2px;
+    }
+
+    /* Goalkeeper position */
+    .gk-position {
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    /* Defense line (4-4-2) */
+    .defense-line {
+        position: absolute;
+        bottom: 120px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: space-around;
+        padding: 0 10%;
+    }
+
+    .def-position {
+        position: relative;
+    }
+
+    /* Midfield line (4-4-2) */
+    .midfield-line {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        transform: translateY(-50%);
+        display: flex;
+        justify-content: space-around;
+        padding: 0 10%;
+    }
+
+    .mid-position {
+        position: relative;
+    }
+
+    /* Attack line (4-4-2) */
+    .forward-line {
+        position: absolute;
+        top: 120px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: space-around;
+        padding: 0 25%;
+    }
+
+    .fwd-position {
+        position: relative;
+    }
+</style>
+{% endblock %}

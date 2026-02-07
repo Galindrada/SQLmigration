@@ -2017,6 +2017,18 @@ class TeamManager:
                 player_id
             ))
             
+            # Reset international statistics for the new regen (they should start with clean records)
+            cursor.execute("""
+                UPDATE players 
+                SET international_caps_total = 0,
+                    international_goals = 0,
+                    international_assists = 0,
+                    current_season_caps = 0,
+                    current_international_goals = 0,
+                    current_international_assists = 0
+                WHERE id = ?
+            """, (player_id,))
+            
             # Clear individual achievements for the new regen
             cursor.execute("DELETE FROM player_individual_achievements WHERE player_id = ?", (player_id,))
             

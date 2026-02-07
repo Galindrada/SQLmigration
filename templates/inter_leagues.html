@@ -1,0 +1,582 @@
+{% extends "base.html" %}
+
+{% block title %}Inter-Leagues{% endblock %}
+
+{% block head %}
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <h1>🌍 Inter-Leagues</h1>
+    
+    {# Betting feature removed/disabled #}
+    
+    <!-- Global Actions -->
+    <div class="section" style="margin-bottom: 20px;">
+        <form method="POST" action="{{ url_for('complete_auto_setup_inter_leagues') }}" style="display: inline; margin-right: 10px;" onsubmit="return confirm('This will fill all 3 competitions with CPU teams, create groups, assign teams to groups, and generate schedules. Continue?');">
+            <button type="submit" class="btn btn-success btn-sm">🚀 Complete Auto-Setup (Fill + Group + Schedule)</button>
+        </form>
+        <form method="POST" action="{{ url_for('reset_all_inter_leagues') }}" style="display: inline; margin-right: 10px;" onsubmit="return confirm('⚠️ WARNING: This will DELETE ALL inter-leagues data (teams, games, standings, schedules). This cannot be undone! Continue?');">
+            <button type="submit" class="btn btn-danger btn-sm">🗑️ Reset All Inter-Leagues</button>
+        </form>
+            {% if next_pending_round %}
+            <a href="{{ url_for('simulate_all_round1', round_number=next_pending_round) }}" class="btn btn-primary btn-sm">⚽ Simulate Round {{ next_pending_round }} (Elifoot Style)</a>
+            {% else %}
+            <span class="btn btn-secondary btn-sm disabled">⚽ All Rounds Completed</span>
+            {% endif %}
+    </div>
+    
+    <!-- Competition Selection -->
+    {% if competitions %}
+    <div class="section">
+        <h2>🏆 Competitions</h2>
+        <div class="league-selector">
+            {% for comp in competitions %}
+            <a href="{{ url_for('inter_leagues', competition_id=comp.id) }}" 
+               class="btn btn-sm {% if selected_competition and selected_competition.id == comp.id %}btn-primary{% else %}btn-secondary{% endif %}"
+               style="margin: 5px;">
+                {{ comp.name }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+        <!-- Selected Competition Details -->
+        {% if selected_competition %}
+        <div class="section">
+            <h2>🏆 {{ selected_competition.name }}</h2>
+            {% if selected_competition.description %}
+            <p class="text-muted">{{ selected_competition.description }}</p>
+            {% endif %}
+            
+            <!-- Squad Selection Section - Prominent placement -->
+        {% if current_user.is_authenticated and selected_competition %}
+            {% set user_teams_in_comp = [] %}
+            {% for team in teams %}
+                {% if team.user_id and team.user_id != 1 %}
+                    {% set _ = user_teams_in_comp.append(team) %}
+                {% endif %}
+            {% endfor %}
+            
+            <div class="section" style="margin-top: 30px; border: 2px solid #007bff; border-radius: 8px; padding: 20px; background-color: #f8f9fa; box-shadow: 0 2px 10px rgba(0,123,255,0.2);">
+                <h3 style="color: #007bff; font-weight: bold;">👥 Squad Selection (100M Salary Cap)</h3>
+                
+                {% if user_teams_in_comp|length > 0 %}
+                    <p class="text-muted"><strong>Select squads for user teams below. In simple mode, the squad you select applies to all rounds (group stage + knockout stage).</strong></p>
+                    
+                    {% if rounds and rounds|length > 0 %}
+                        {% set first_round = rounds|first %}
+                        <div style="margin-bottom: 20px; margin-top: 20px; padding: 15px; background-color: white; border-radius: 5px; border-left: 4px solid #007bff;">
+                            <h5 style="color: #007bff;">✅ Simple Mode (All Rounds)</h5>
+                            <p class="text-muted mb-2">Select a squad for each user team. This squad will be used for every inter-league match (group + knockout).</p>
+                            <div style="margin-top: 10px;">
+                                {% for team in user_teams_in_comp %}
+                                <a href="{{ url_for('select_inter_league_squad', competition_id=selected_competition.id, round_id=first_round.id, team_id=team.id) }}" 
+                                   class="btn btn-primary" style="margin-right: 10px; margin-bottom: 5px;">
+                                    📋 Select Squad for {{ team.team_name }} {% if team.username %}({{ team.username }}){% endif %}
+                                </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning" style="margin-top: 15px;">
+                            <strong>⚠️ Schedule Required:</strong> The group stage schedule must be generated first before you can select your squad. Please use the "Complete Auto-Setup" or "Generate Group Stage Schedule" button to create the schedule, then return here to select your squad.
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="alert alert-info" style="margin-top: 15px;">
+                        <strong>ℹ️ No User Teams:</strong> There are no user teams in this competition yet. Add user team(s) using the "Add Team" button above, then return here to select squads.
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+        
+        <!-- Groups Management -->
+        <div style="margin-top: 30px;">
+            <h3 style="color: black;">📋 Groups</h3>
+            {% if not groups %}
+            <form method="POST" action="{{ url_for('create_inter_league_groups', competition_id=selected_competition.id) }}" style="display: inline;">
+                <button type="submit" class="btn btn-primary btn-sm" style="margin-bottom: 15px;">➕ Create Groups (A, B, C, D)</button>
+            </form>
+            {% else %}
+            <div class="row">
+                {% for group in groups %}
+                <div class="col-md-3" style="margin-bottom: 20px;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Group {{ group.group_letter }}</h5>
+                        </div>
+                        <div class="card-body">
+                            {% set group_teams = teams|selectattr('group_letter', 'equalto', group.group_letter)|list %}
+                            {% if group_teams %}
+                            <ul class="list-group list-group-flush">
+                                {% for team in group_teams %}
+                                <li class="list-group-item">{{ team.team_name }} ({{ team.username }})</li>
+                                {% endfor %}
+                            </ul>
+                            {% else %}
+                            <p class="text-muted">No teams assigned</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        
+        <!-- Schedule Generation -->
+        {% if groups and teams|length == 16 %}
+        <div style="margin-top: 30px;">
+            <h3>📅 Schedule Generation</h3>
+            {% set has_group_games = games|selectattr('round_type', 'equalto', 'group_stage')|list|length > 0 if games else false %}
+            {% if not has_group_games %}
+            <form method="POST" action="{{ url_for('generate_inter_league_group_stage_schedule', competition_id=selected_competition.id) }}" style="display: inline;">
+                <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Generate group stage schedule? This will create all group stage fixtures (6 rounds, home/away for each group).');">📅 Generate Group Stage Schedule</button>
+            </form>
+            {% endif %}
+            {% if can_proceed_to_knockout %}
+            <form method="POST" action="{{ url_for('generate_inter_league_knockout_schedule') }}" style="display: inline; margin-left: 10px;">
+                <button type="submit" class="btn btn-primary btn-sm" onclick="return confirm('Generate knockout stage schedules for ALL 3 competitions? This will create quarter-final fixtures (top 2 teams from each group advance) for Champions, Masters, and Conference leagues simultaneously.');">🏆 Proceed to Knockout Stage (All Competitions)</button>
+            </form>
+            {% endif %}
+            {% if can_advance_knockout %}
+            <form method="POST" action="{{ url_for('advance_inter_league_knockout_round') }}" style="display: inline; margin-left: 10px;">
+                <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Advance ALL competitions to next knockout round? This will determine winners from {{ current_knockout_round_type.replace("_", " ").title() if current_knockout_round_type else "" }} and create {{ "Semi-Finals" if current_knockout_round_type == "quarter_final" else "Final" if current_knockout_round_type == "semi_final" else "Next Round" }} fixtures for all 3 competitions simultaneously.');">
+                    ⏭️ Advance All to {% if current_knockout_round_type == 'quarter_final' %}Semi-Finals{% elif current_knockout_round_type == 'semi_final' %}Final{% else %}Next Round{% endif %}
+                </button>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
+        
+        <!-- Group Standings -->
+        {% if group_standings %}
+        <div style="margin-top: 30px;">
+            <h4>📊 Group Standings</h4>
+            <div class="row">
+                {% for group_letter in ['A', 'B', 'C', 'D'] %}
+                    {% if group_standings[group_letter] %}
+                    <div class="col-md-6" style="margin-bottom: 30px;">
+                        <h5>Group {{ group_letter }}</h5>
+                        <table class="table table-striped table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Pos</th>
+                                    <th>Team</th>
+                                    <th>P</th>
+                                    <th>W</th>
+                                    <th>D</th>
+                                    <th>L</th>
+                                    <th>GF</th>
+                                    <th>GA</th>
+                                    <th>GD</th>
+                                    <th>Pts</th>
+                                </tr>
+                            </thead>
+                            <tbody style="color: white;">
+                                {% for standing in group_standings[group_letter] %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            {% if standing.club_id %}
+                                            <img src="{{ url_for('serve_team_symbol', team_id=standing.club_id) }}" 
+                                                 alt="{{ standing.team_name }}"
+                                                 style="width: 30px; height: 30px; object-fit: contain; border-radius: 5px; background: white; padding: 3px; flex-shrink: 0;"
+                                                 onerror="this.style.display='none';">
+                                            {% endif %}
+                                            <strong>{{ standing.team_name }}</strong>
+                                        </div>
+                                    </td>
+                                    <td>{{ standing.games_played }}</td>
+                                    <td>{{ standing.wins }}</td>
+                                    <td>{{ standing.draws }}</td>
+                                    <td>{{ standing.losses }}</td>
+                                    <td>{{ standing.goals_for }}</td>
+                                    <td>{{ standing.goals_against }}</td>
+                                    <td>{{ standing.goal_difference }}</td>
+                                    <td><strong>{{ standing.points }}</strong></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% elif standings %}
+        <div class="standings-table" style="margin-top: 30px;">
+            <h4>📊 Overall Standings</h4>
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Pos</th>
+                        <th>Team</th>
+                        <th>P</th>
+                        <th>W</th>
+                        <th>D</th>
+                        <th>L</th>
+                        <th>GF</th>
+                        <th>GA</th>
+                        <th>GD</th>
+                        <th>Pts</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for standing in standings %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ standing.team_name }}</td>
+                        <td>{{ standing.games_played }}</td>
+                        <td>{{ standing.wins }}</td>
+                        <td>{{ standing.draws }}</td>
+                        <td>{{ standing.losses }}</td>
+                        <td>{{ standing.goals_for }}</td>
+                        <td>{{ standing.goals_against }}</td>
+                        <td>{{ standing.goal_difference }}</td>
+                        <td><strong>{{ standing.points }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted" style="margin-top: 30px;">No standings available yet.</p>
+        {% endif %}
+        
+        <!-- Scheduled and Completed Games -->
+        {% if games_by_round %}
+        <div style="margin-top: 40px;">
+            <h3>📅 Fixtures & Results</h3>
+            
+            {% for round_num in games_by_round.keys()|sort %}
+                {% set round_data = games_by_round[round_num] %}
+                {% set round_type = round_data.round_type %}
+                {% set round_name = "Round " + round_num|string if round_type == 'group_stage' else round_type.replace('_', ' ').title() %}
+                
+                <div style="margin-bottom: 30px;">
+                    <h4 style="margin-bottom: 15px;">
+                        {% if round_type == 'group_stage' %}
+                            📋 {{ round_name }}
+                        {% elif round_type == 'quarter_final' %}
+                            🏆 {{ round_name }}
+                        {% elif round_type == 'semi_final' %}
+                            🥈 {{ round_name }}
+                        {% elif round_type == 'final' %}
+                            🥇 {{ round_name }}
+                        {% else %}
+                            {{ round_name }}
+                        {% endif %}
+                    </h4>
+                    
+                    <!-- Scheduled Games -->
+                    {% if round_data.pending %}
+                    <div style="margin-bottom: 20px;">
+                        <h5 style="color: #6c757d; font-size: 1rem; margin-bottom: 10px;">⏳ Scheduled Games</h5>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered table-hover">
+                                <thead class="thead-light">
+                                    <tr>
+                                        <th style="width: 5%;">#</th>
+                                        <th style="width: 15%;">Competition</th>
+                                        <th style="width: 30%;">Home Team</th>
+                                        <th style="width: 10%;" class="text-center">vs</th>
+                                        <th style="width: 30%;">Away Team</th>
+                                        <th style="width: 10%;" class="text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for game in round_data.pending %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td><small>{{ game.competition_name }}</small></td>
+                                        <td><strong>{{ game.home_team_name }}</strong></td>
+                                        <td class="text-center">vs</td>
+                                        <td><strong>{{ game.away_team_name }}</strong></td>
+                                        <td class="text-center">
+                                            <a href="{{ url_for('view_inter_league_prematch', game_id=game.id) }}" 
+                                               class="btn btn-sm btn-outline-primary" title="View Lineups">
+                                                📋 Pre-match
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Completed Games -->
+                    {% if round_data.completed %}
+                    <div>
+                        <h5 style="color: #28a745; font-size: 1rem; margin-bottom: 10px;">✅ Completed Games</h5>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered table-hover">
+                                <thead class="thead-light">
+                                    <tr>
+                                        <th style="width: 5%;">#</th>
+                                        <th style="width: 15%;">Competition</th>
+                                        <th style="width: 25%;">Home Team</th>
+                                        <th style="width: 15%;" class="text-center">Score</th>
+                                        <th style="width: 25%;">Away Team</th>
+                                        <th style="width: 15%;" class="text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for game in round_data.completed %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td><small>{{ game.competition_name }}</small></td>
+                                        <td><strong>{{ game.home_team_name }}</strong></td>
+                                        <td class="text-center">
+                                            <strong style="font-size: 1.1rem;">
+                                                {{ game.home_score }} - {{ game.away_score }}
+                                            </strong>
+                                        </td>
+                                        <td><strong>{{ game.away_team_name }}</strong></td>
+                                        <td class="text-center">
+                                            <a href="{{ url_for('view_inter_league_game', game_id=game.id) }}" 
+                                               class="btn btn-sm btn-success" title="View Match Details">
+                                                📊 View Details
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if not round_data.pending and not round_data.completed %}
+                    <p class="text-muted"><em>No games scheduled for this round yet.</em></p>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <!-- Top Scorers and Assists -->
+        {% if top_scorers or top_assists %}
+        <div class="row" style="margin-top: 30px;">
+            {% if top_scorers %}
+            <div class="col-md-6">
+                <h4>⚽ Top Scorers</h4>
+                <table class="table table-striped table-sm">
+                    <thead>
+                        <tr>
+                            <th>Pos</th>
+                            <th>Player</th>
+                            <th>Goals</th>
+                            <th>Games</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for scorer in top_scorers %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ scorer.player_name }}</td>
+                            <td><strong>{{ scorer.total_goals }}</strong></td>
+                            <td>{{ scorer.games }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+            {% if top_assists %}
+            <div class="col-md-6">
+                <h4>🎯 Top Assists</h4>
+                <table class="table table-striped table-sm">
+                    <thead>
+                        <tr>
+                            <th>Pos</th>
+                            <th>Player</th>
+                            <th>Assists</th>
+                            <th>Games</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for assist in top_assists %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ assist.player_name }}</td>
+                            <td><strong>{{ assist.total_assists }}</strong></td>
+                            <td>{{ assist.games }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+        
+        <!-- Teams Management - Moved to bottom, hidden after first match -->
+        {% set has_completed_games = false %}
+        {% if games_by_round %}
+            {% for round_num, round_data in games_by_round.items() %}
+                {% if round_data.completed and round_data.completed|length > 0 %}
+                    {% set has_completed_games = true %}
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+        
+        {% if selected_competition and not has_completed_games %}
+        <div style="margin-top: 40px; border-top: 2px solid #dee2e6; padding-top: 30px;">
+            <h3>👥 Teams Management ({{ teams|length }}/16)</h3>
+            {% if teams|length < 16 %}
+            <button class="btn btn-success btn-sm" onclick="showAddTeamModal()" style="margin-bottom: 15px;">➕ Add Team</button>
+            <form method="POST" action="{{ url_for('auto_populate_cpu_teams', competition_id=selected_competition.id) }}" style="display: inline; margin-left: 10px;" onsubmit="return confirm('This will randomly add CPU teams to fill remaining slots. Continue?');">
+                <button type="submit" class="btn btn-info btn-sm" style="margin-bottom: 15px;">🤖 Auto-Populate CPU Teams</button>
+            </form>
+            {% endif %}
+            
+            {% if teams %}
+            <table class="table table-striped table-sm">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Team</th>
+                        <th>Group</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for team in teams %}
+                    <tr>
+                        <td>{{ team.username }}</td>
+                        <td>{{ team.team_name }}</td>
+                        <td>
+                            {% if team.group_letter %}
+                            <span class="badge badge-info">Group {{ team.group_letter }}</span>
+                            {% else %}
+                            <span class="badge badge-secondary">No Group</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not team.group_letter and groups %}
+                            <form method="POST" action="{{ url_for('assign_team_to_group') }}" style="display: inline;">
+                                <input type="hidden" name="competition_id" value="{{ selected_competition.id }}">
+                                <input type="hidden" name="team_id" value="{{ team.id }}">
+                                <select name="group_letter" onchange="this.form.submit()" class="form-control form-control-sm" style="display: inline-block; width: auto;">
+                                    <option value="">Assign to Group</option>
+                                    {% for group in groups %}
+                                    <option value="{{ group.group_letter }}">Group {{ group.group_letter }}</option>
+                                    {% endfor %}
+                                </select>
+                            </form>
+                            {% endif %}
+                            <form method="POST" action="{{ url_for('remove_team_from_inter_league', competition_id=selected_competition.id, team_id=team.id) }}" style="display: inline; margin-left: 5px;" onsubmit="return confirm('Are you sure you want to remove this team?');">
+                                <button type="submit" class="btn btn-danger btn-sm">🗑️ Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted">No teams added yet.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="section">
+        <p class="text-muted">No competitions available. Create one to get started!</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add Team Modal -->
+{% if selected_competition %}
+<div class="modal fade" id="addTeamModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Team to Competition</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form method="POST" action="{{ url_for('add_team_to_inter_league', competition_id=selected_competition.id) }}">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="userSelect">Select User:</label>
+                        <select class="form-control" id="userSelect" name="user_id" required onchange="updateTeamSelect()">
+                            <option value="">-- Select User --</option>
+                            {% for user in available_users %}
+                            <option value="{{ user.id }}" data-teams='{{ user.teams|tojson|safe }}'>{{ user.username }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="teamSelect">Select Team:</label>
+                        <select class="form-control" id="teamSelect" name="team_name" required>
+                            <option value="">-- Select Team --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Team</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+function showAddTeamModal() {
+    $('#addTeamModal').modal('show');
+}
+
+function updateTeamSelect() {
+    const userSelect = document.getElementById('userSelect');
+    const teamSelect = document.getElementById('teamSelect');
+    const selectedOption = userSelect.options[userSelect.selectedIndex];
+    
+    // Clear existing options
+    teamSelect.innerHTML = '<option value="">-- Select Team --</option>';
+    
+    if (selectedOption.value) {
+        try {
+            const teams = JSON.parse(selectedOption.getAttribute('data-teams'));
+            teams.forEach(team => {
+                const option = document.createElement('option');
+                option.value = team.team_name;
+                option.textContent = team.team_name;
+                teamSelect.appendChild(option);
+            });
+        } catch (e) {
+            console.error('Error parsing teams data:', e);
+        }
+    }
+}
+
+// Betting feature removed/disabled
+</script>
+
+{% endblock %}

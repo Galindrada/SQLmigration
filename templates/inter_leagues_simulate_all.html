@@ -1,0 +1,989 @@
+{% extends "base.html" %}
+
+{% block title %}Elifoot Style - Round Simulation{% endblock %}
+
+{% block head %}
+<style>
+    .simulation-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 2rem 0;
+        margin: -20px -15px 30px -15px;
+        text-align: center;
+    }
+    
+    .timer-display {
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin: 20px 0;
+        color: #ffd700;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        font-family: 'Courier New', monospace;
+    }
+    
+    .games-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .games-table thead {
+        background: #667eea;
+        color: white;
+    }
+    
+    .games-table th {
+        padding: 15px;
+        text-align: left;
+        font-weight: 600;
+    }
+    
+    .games-table td {
+        padding: 15px;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .games-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+    
+    .game-score {
+        font-size: 1.5rem;
+        font-weight: bold;
+        text-align: center;
+        font-family: 'Courier New', monospace;
+        min-width: 80px;
+    }
+    
+    .game-scorer-picture {
+        text-align: center;
+    }
+    
+    .game-scorer-picture img {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid #667eea;
+    }
+    
+    .game-scorers {
+        font-size: 0.9rem;
+        color: #666;
+        max-width: 200px;
+    }
+    
+    .scorer-name-time {
+        font-weight: 600;
+        color: #2c3e50;
+        margin-bottom: 3px;
+    }
+    
+    .scorer-assist {
+        font-size: 0.85rem;
+        color: #999;
+        font-style: italic;
+    }
+    
+    .scorer-minute {
+        color: #667eea;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-left: 5px;
+    }
+    
+    .lineup-container {
+        display: flex;
+        gap: 30px;
+        margin-bottom: 30px;
+        padding: 20px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .lineup-team {
+        flex: 1;
+    }
+    
+    .lineup-team h4 {
+        margin-bottom: 15px;
+        color: #2c3e50;
+        text-align: center;
+    }
+    
+    .lineup-players {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+    }
+    
+    .lineup-player {
+        text-align: center;
+    }
+    
+    .lineup-player img {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid #667eea;
+        margin-bottom: 5px;
+    }
+    
+    .lineup-player-name {
+        font-size: 0.8rem;
+        color: #666;
+    }
+    
+    .manage-btn {
+        display: none;
+    }
+    
+    .manage-btn.visible {
+        display: inline-block;
+    }
+    
+    .next-round-section {
+        margin-top: 30px;
+        padding: 20px;
+        background: white;
+        border-radius: 12px;
+        text-align: center;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="simulation-header">
+    <h1>⚽ Elifoot Style - Round {{ round_number }} Simulation</h1>
+    <div class="timer-display" id="globalTimer">0'</div>
+</div>
+
+<div class="container">
+    {% if games_simulated %}
+        <!-- Games Table -->
+        <table class="games-table">
+            <thead>
+                <tr>
+                    <th>Competition</th>
+                    <th>Home Team</th>
+                    <th>Score</th>
+                    <th>Away Team</th>
+                    <th>Picture</th>
+                    <th>Last Scorer</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="gamesTableBody">
+                {% for competition_name, games in games_by_competition.items() %}
+                    {% for game in games %}
+                    <tr data-game-id="{{ game.id }}">
+                        <td><strong>{{ competition_name }}</strong></td>
+                        <td>{{ game.home_team_name }}</td>
+                        <td class="game-score" id="score-{{ game.id }}">0 - 0</td>
+                        <td>{{ game.away_team_name }}</td>
+                        <td class="game-scorer-picture" id="picture-{{ game.id }}"></td>
+                        <td class="game-scorers" id="scorers-{{ game.id }}"></td>
+                        <td>
+                            <a href="{{ url_for('view_inter_league_game', game_id=game.id) }}" class="btn btn-sm btn-primary manage-btn" id="manage-{{ game.id }}" style="pointer-events: none; opacity: 0.5; cursor: not-allowed;">⚙️ Manage</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <!-- Next Round Section -->
+        <div class="next-round-section">
+            <h3>Round {{ round_number }} Complete!</h3>
+            <p>All games have been simulated. You can now proceed to the next round.</p>
+            <div style="margin-top: 20px;">
+                <a href="{{ url_for('inter_leagues') }}" class="btn btn-secondary">Back to Inter-Leagues</a>
+                {% if next_round_number %}
+                <a href="{{ url_for('simulate_all_round1', round_number=next_round_number) }}" class="btn btn-primary" style="margin-left: 10px;">▶️ Simulate Round {{ next_round_number }}</a>
+                {% endif %}
+            </div>
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            <strong>Round {{ round_number }}:</strong> {{ total_games }} games will be simulated simultaneously
+        </div>
+        
+        {% for competition_name, games in games_by_competition.items() %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3>{{ competition_name }}</h3>
+                <span class="badge badge-info">{{ games|length }} games</span>
+            </div>
+            <div class="card-body">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Home Team</th>
+                            <th>Away Team</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for game in games %}
+                        <tr>
+                            <td>{{ game.home_team_name }}</td>
+                            <td>{{ game.away_team_name }}</td>
+                            <td>
+                                <a href="{{ url_for('view_inter_league_prematch', game_id=game.id) }}" class="btn btn-sm btn-info">📋 Pre-match</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+        
+        <form method="POST" onsubmit="return confirm('This will simulate all {{ total_games }} Round {{ round_number }} games. Continue?');">
+            <button type="submit" class="btn btn-primary btn-lg mb-4">🚀 Start Simulation</button>
+        </form>
+    {% endif %}
+</div>
+
+{% if games_simulated %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const globalTimer = document.getElementById('globalTimer');
+    
+    // Collect all events from the page
+    const allEvents = [];
+    {% set all_events = [] %}
+    {% for competition_name, games in games_by_competition.items() %}
+        {% for game in games %}
+            {% if game.events %}
+                {% for event in game.events %}
+                    {% set _ = all_events.append({
+                        'minute': event.minute,
+                        'game_id': game.id,
+                        'player_id': event.get('player_id'),
+                        'player_name': event.get('player_name', ''),
+                        'assist_player_id': event.get('assist_player_id'),
+                        'assist_player_name': event.get('assist_player_name'),
+                        'team': event.team,
+                        'type': event.type,
+                        'weeks': event.get('weeks', 0),
+                        'needs_user_input': event.get('needs_user_input', False),
+                        'team_name': event.get('team_name', ''),
+                        'players': event.get('players', []),
+                        'home_penalties': event.get('home_penalties'),
+                        'away_penalties': event.get('away_penalties')
+                    }) %}
+                {% endfor %}
+            {% endif %}
+        {% endfor %}
+    {% endfor %}
+    
+    // Store events in JavaScript
+    const eventsData = [
+        {% for event in all_events|sort(attribute='minute') %}
+        {
+            minute: {{ event.minute }},
+            gameId: {{ event.game_id }},
+            playerId: {{ event.player_id if event.player_id else 'null' }},
+            playerName: {% if event.player_name %}"{{ event.player_name|replace('"', '\\"') }}"{% else %}null{% endif %},
+            assistPlayerId: {{ event.assist_player_id if event.assist_player_id else 'null' }},
+            assistPlayerName: {% if event.assist_player_name %}"{{ event.assist_player_name|replace('"', '\\"') }}"{% else %}null{% endif %},
+            team: "{{ event.team }}",
+            type: "{{ event.type }}",
+            weeks: {{ event.weeks if event.weeks else 0 }},
+            needsUserInput: {{ 'true' if event.needs_user_input else 'false' }},
+            teamName: {% if event.team_name %}"{{ event.team_name|replace('"', '\\"') }}"{% else %}null{% endif %},
+            players: {{ event.players|tojson if event.players else '[]' }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+    
+    console.log('Total events loaded:', eventsData.length);
+    console.log('Penalty events:', eventsData.filter(e => e.type === 'penalty'));
+    
+    // Initialize game scores
+    const gameScores = {};
+    const lastScorer = {}; // Store only the last scorer per game
+    {% for competition_name, games in games_by_competition.items() %}
+        {% for game in games %}
+        gameScores[{{ game.id }}] = { home: 0, away: 0 };
+        lastScorer[{{ game.id }}] = null;
+        {% endfor %}
+    {% endfor %}
+    
+    // Update score display
+    function updateScoreDisplay(gameId) {
+        const scoreEl = document.getElementById('score-' + gameId);
+        if (scoreEl && gameScores[gameId]) {
+            scoreEl.textContent = gameScores[gameId].home + ' - ' + gameScores[gameId].away;
+        }
+    }
+    
+    // Store current pictures per game to ensure persistence
+    const gamePictures = {};
+    
+    // Update last scorer/event display (only show the most recent event)
+    function updateLastScorerDisplay(gameId) {
+        const scorersEl = document.getElementById('scorers-' + gameId);
+        const pictureEl = document.getElementById('picture-' + gameId);
+        if (scorersEl && lastScorer[gameId]) {
+            const event = lastScorer[gameId];
+            
+            // Update picture - persist until a new event with a player picture comes along
+            if (pictureEl) {
+                if (event.type && event.playerId) {
+                    // Event has a player - update the picture with appropriate border color
+                    let borderColor = '#667eea'; // Default (goals)
+                    if (event.type === 'penalty_goal' || event.type === 'hail_mary_corner_goal' || event.type === 'dangerous_free_kick_goal') borderColor = '#28a745';
+                    else if (event.type === 'penalty_miss' || event.type === 'hail_mary_corner_miss' || event.type === 'dangerous_free_kick_miss') borderColor = '#dc3545';
+                    else if (event.type === 'yellow_card') borderColor = '#ffc107';
+                    else if (event.type === 'red_card') borderColor = '#dc3545';
+                    else if (event.type === 'injury') borderColor = '#17a2b8';
+                    
+                    const imgHtml = `<img src="/player_image/${event.playerId}" 
+                                                style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid ${borderColor};"
+                                                onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22%3E%3Crect width=%2240%22 height=%2240%22 fill=%22%23ddd%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 font-size=%2214%22%3E?%3C/text%3E%3C/svg%3E';" 
+                                                alt="${event.playerName}">`;
+                    pictureEl.innerHTML = imgHtml;
+                    gamePictures[gameId] = imgHtml; // Store for persistence
+                } else if (gamePictures[gameId] && gamePictures[gameId].trim() !== '') {
+                    // No playerId in this event, but we have a stored picture - restore it
+                    pictureEl.innerHTML = gamePictures[gameId];
+                }
+                // If no playerId and no stored picture, don't clear - keep existing or leave empty
+            }
+            
+            // Update event info based on type
+            let html = '';
+            if (event.type === 'goal') {
+                html = `<div class="scorer-name-time">⚽ ${event.playerName} <span class="scorer-minute">${event.minute}'</span></div>`;
+                if (event.assistPlayerName) {
+                    html += `<div class="scorer-assist">Assist: ${event.assistPlayerName}</div>`;
+                }
+            } else if (event.type === 'yellow_card') {
+                html = `<div class="scorer-name-time">🟡 ${event.playerName} <span class="scorer-minute">${event.minute}'</span></div>`;
+                html += `<div class="scorer-assist">Yellow Card</div>`;
+            } else if (event.type === 'red_card') {
+                html = `<div class="scorer-name-time">🔴 ${event.playerName} <span class="scorer-minute">${event.minute}'</span></div>`;
+                html += `<div class="scorer-assist">Red Card - Sent Off</div>`;
+            } else if (event.type === 'injury') {
+                html = `<div class="scorer-name-time">🏥 ${event.playerName} <span class="scorer-minute">${event.minute}'</span></div>`;
+                html += `<div class="scorer-assist">Injury - ${event.weeks} week${event.weeks > 1 ? 's' : ''}</div>`;
+            } else if (event.type === 'penalty_goal' || event.type === 'hail_mary_corner_goal' || event.type === 'dangerous_free_kick_goal') {
+                // Picture already updated in the main picture update logic above (if playerId exists)
+                const eventName = event.type === 'penalty_goal' ? 'Penalty' : event.type === 'hail_mary_corner_goal' ? 'Hail-Mary Corner' : 'Free-Kick';
+                html = `<div class="scorer-name-time">⚽ ${event.playerName || (event.team === 'home' ? 'Home' : 'Away')} <span class="scorer-minute">${event.minute}'</span></div>`;
+                html += `<div class="scorer-assist">${eventName} - GOAL! 🎉</div>`;
+            } else if (event.type === 'penalty_miss' || event.type === 'hail_mary_corner_miss' || event.type === 'dangerous_free_kick_miss') {
+                // Picture already updated in the main picture update logic above (if playerId exists)
+                const eventName = event.type === 'penalty_miss' ? 'Penalty' : event.type === 'hail_mary_corner_miss' ? 'Hail-Mary Corner' : 'Free-Kick';
+                html = `<div class="scorer-name-time">❌ ${event.playerName || (event.team === 'home' ? 'Home' : 'Away')} <span class="scorer-minute">${event.minute}'</span></div>`;
+                html += `<div class="scorer-assist">${eventName} - MISSED</div>`;
+            } else if (event.type === 'extra_time') {
+                html = `<div class="scorer-name-time">⏱️ <span class="scorer-minute">90'</span></div>`;
+                html += `<div class="scorer-assist">Extra Time Begins!</div>`;
+            } else if (event.type === 'penalty_shootout') {
+                html = `<div class="scorer-name-time">🎯 <span class="scorer-minute">120'</span></div>`;
+                html += `<div class="scorer-assist">Penalty Shootout: ${event.homePenalties || 0}-${event.awayPenalties || 0}</div>`;
+            } else {
+                // Fallback for goals (backward compatibility)
+                html = `<div class="scorer-name-time">⚽ ${event.playerName} <span class="scorer-minute">${event.minute}'</span></div>`;
+                if (event.assistPlayerName) {
+                    html += `<div class="scorer-assist">Assist: ${event.assistPlayerName}</div>`;
+                }
+            }
+            scorersEl.innerHTML = html;
+        }
+    }
+    
+    // Process events progressively
+    let eventIndex = 0;
+    const eventDelay = 1500; // 1.5 seconds between events
+    
+    function processNextEvent() {
+        if (eventIndex >= eventsData.length) {
+            globalTimer.textContent = "90' - Full Time!";
+            return;
+        }
+        
+        const event = eventsData[eventIndex];
+        
+        // Update timer (handle extra time display)
+        if (event.type === 'extra_time') {
+            globalTimer.textContent = "90' - Extra Time!";
+        } else if (event.type === 'penalty_shootout') {
+            globalTimer.textContent = "120' - Penalties!";
+        } else {
+            globalTimer.textContent = event.minute + "'";
+        }
+        
+        // Handle different event types
+        if (event.type === 'goal') {
+            // Update score
+            if (gameScores[event.gameId]) {
+                if (event.team === 'home') {
+                    gameScores[event.gameId].home++;
+                } else if (event.team === 'away') {
+                    gameScores[event.gameId].away++;
+                }
+                updateScoreDisplay(event.gameId);
+            }
+            
+            // Update last scorer (replace previous one)
+            lastScorer[event.gameId] = {
+                playerId: event.playerId,
+                playerName: event.playerName,
+                assistPlayerId: event.assistPlayerId,
+                assistPlayerName: event.assistPlayerName,
+                minute: event.minute,
+                type: 'goal'
+            };
+            updateLastScorerDisplay(event.gameId);
+        } else if (event.type === 'extra_time') {
+            // Extra time begins
+            lastScorer[event.gameId] = {
+                playerId: null,
+                playerName: null,
+                minute: 90,
+                type: 'extra_time'
+            };
+            updateLastScorerDisplay(event.gameId);
+        } else if (event.type === 'penalty_shootout') {
+            // Penalty shootout - update score based on penalty result
+            if (gameScores[event.gameId] && event.homePenalties !== null && event.awayPenalties !== null) {
+                // Score already updated in backend, but ensure display is correct
+                // The winner gets +1 goal added to their score
+                if (event.homePenalties > event.awayPenalties) {
+                    // Home won on penalties - score already adjusted
+                } else if (event.awayPenalties > event.homePenalties) {
+                    // Away won on penalties - score already adjusted
+                }
+                updateScoreDisplay(event.gameId);
+            }
+            
+            // Update last event
+            lastScorer[event.gameId] = {
+                playerId: null,
+                playerName: null,
+                minute: 120,
+                type: 'penalty_shootout',
+                homePenalties: event.homePenalties,
+                awayPenalties: event.awayPenalties
+            };
+            updateLastScorerDisplay(event.gameId);
+        } else if (event.type === 'yellow_card') {
+            // Update last event (yellow card)
+            lastScorer[event.gameId] = {
+                playerId: event.playerId,
+                playerName: event.playerName,
+                minute: event.minute,
+                type: 'yellow_card'
+            };
+            updateLastScorerDisplay(event.gameId);
+        } else if (event.type === 'red_card') {
+            // Update last event (red card)
+            lastScorer[event.gameId] = {
+                playerId: event.playerId,
+                playerName: event.playerName,
+                minute: event.minute,
+                type: 'red_card'
+            };
+            updateLastScorerDisplay(event.gameId);
+        } else if (event.type === 'injury') {
+            // Update last event (injury)
+            lastScorer[event.gameId] = {
+                playerId: event.playerId,
+                playerName: event.playerName,
+                minute: event.minute,
+                type: 'injury',
+                weeks: event.weeks
+            };
+            updateLastScorerDisplay(event.gameId);
+        } else if (event.type === 'extra_time') {
+            // Extra time begins
+            lastScorer[event.gameId] = {
+                playerId: null,
+                playerName: null,
+                minute: 90,
+                type: 'extra_time'
+            };
+            updateLastScorerDisplay(event.gameId);
+        } else if (event.type === 'penalty_shootout') {
+            // Penalty shootout
+            lastScorer[event.gameId] = {
+                playerId: null,
+                playerName: null,
+                minute: 120,
+                type: 'penalty_shootout',
+                homePenalties: event.homePenalties,
+                awayPenalties: event.awayPenalties
+            };
+            updateLastScorerDisplay(event.gameId);
+        } else if (event.type === 'penalty' || event.type === 'hail_mary_corner' || event.type === 'dangerous_free_kick') {
+            console.log(`${event.type} event detected:`, event);
+            if (event.needsUserInput) {
+                console.log(`${event.type} needs user input, showing popup`);
+                // Special event for user team - show popup
+                showSpecialEventPopup(event, () => {
+                    // Callback after event is resolved
+                    eventIndex++;
+                    if (eventIndex < eventsData.length) {
+                        setTimeout(processNextEvent, eventDelay);
+                    } else {
+                        globalTimer.textContent = "90' - Full Time!";
+                        document.querySelectorAll('.manage-btn').forEach(btn => {
+                            btn.classList.add('visible');
+                        });
+                    }
+                });
+                return; // Don't increment eventIndex yet - wait for user selection
+            } else {
+                console.log(`CPU team ${event.type} - auto-resolving`);
+                // CPU team event - result already determined on server
+                const isSuccessful = event.is_successful !== undefined ? event.is_successful : Math.random() < 0.75;
+                
+                // Update score if successful (score should already be updated on server, but sync here)
+                if (isSuccessful && gameScores[event.gameId]) {
+                    if (event.team === 'home') {
+                        gameScores[event.gameId].home++;
+                    } else if (event.team === 'away') {
+                        gameScores[event.gameId].away++;
+                    }
+                    updateScoreDisplay(event.gameId);
+                }
+                
+                // Update last event (show result with player name if available)
+                const eventTypeName = event.type === 'penalty' ? 'penalty' : 
+                                     event.type === 'hail_mary_corner' ? 'hail_mary_corner' : 'dangerous_free_kick';
+                lastScorer[event.gameId] = {
+                    playerId: event.playerId || null,
+                    playerName: event.playerName || event.teamName || (event.team === 'home' ? 'Home' : 'Away'),
+                    minute: event.minute,
+                    type: isSuccessful ? `${eventTypeName}_goal` : `${eventTypeName}_miss`
+                };
+                updateLastScorerDisplay(event.gameId);
+            }
+        }
+        
+        eventIndex++;
+        
+        // Process next event
+        if (eventIndex < eventsData.length) {
+            setTimeout(processNextEvent, eventDelay);
+        } else {
+            // Check if any games went to extra time or penalties
+            let hasExtraTime = false;
+            for (let i = 0; i < eventsData.length; i++) {
+                if (eventsData[i].type === 'extra_time' || eventsData[i].type === 'penalty_shootout') {
+                    hasExtraTime = true;
+                    break;
+                }
+            }
+            
+            if (hasExtraTime) {
+                globalTimer.textContent = "120' - Full Time!";
+            } else {
+                globalTimer.textContent = "90' - Full Time!";
+            }
+            // Show all manage buttons after full-time
+            document.querySelectorAll('.manage-btn').forEach(btn => {
+                btn.classList.add('visible');
+                btn.style.pointerEvents = 'auto';
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            });
+        }
+    }
+    
+    // Generic special event popup (penalty / hail-mary corner / dangerous free-kick)
+    function showSpecialEventPopup(event, callback) {
+        // Reuse existing penalty UI for penalties
+        if (event.type === 'penalty') {
+            return showPenaltyPopup(event, callback);
+        }
+
+        const eventMeta = {
+            hail_mary_corner: {
+                title: '🚨 HAIL-MARY CORNER!',
+                color: '#fd7e14',
+                confirmText: 'Take Corner',
+                successEmoji: '⚽',
+                failEmoji: '❌'
+            },
+            dangerous_free_kick: {
+                title: '🎯 DANGEROUS FREE-KICK!',
+                color: '#0dcaf0',
+                confirmText: 'Take Free-Kick',
+                successEmoji: '⚽',
+                failEmoji: '❌'
+            }
+        }[event.type] || {
+            title: '⭐ SPECIAL EVENT!',
+            color: '#667eea',
+            confirmText: 'Proceed',
+            successEmoji: '⚽',
+            failEmoji: '❌'
+        };
+
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.id = 'specialEventModal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+
+        const modalContent = document.createElement('div');
+        modalContent.style.cssText = 'background: white; padding: 30px; border-radius: 15px; max-width: 650px; width: 90%; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.3);';
+
+        modalContent.innerHTML = `
+            <h2 style="color: ${eventMeta.color}; margin-bottom: 20px;">${eventMeta.title} ${event.minute}'</h2>
+            <p style="font-size: 1.1rem; margin-bottom: 25px;"><strong>${event.teamName}</strong> has a big chance!</p>
+            <p style="margin-bottom: 20px; color: #666;">Select a player:</p>
+            <div id="specialEventPlayersList" style="margin-bottom: 20px;"></div>
+            <div style="text-align: center;">
+                <button id="specialEventConfirmBtn" class="btn btn-success btn-lg" disabled>${eventMeta.confirmText}</button>
+            </div>
+        `;
+
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+
+        const playersList = document.getElementById('specialEventPlayersList');
+        let selectedPlayerId = null;
+
+        if (event.players && event.players.length > 0) {
+            const sortedPlayers = event.players.slice().sort((a, b) => {
+                const posA = a.registered_position || 99;
+                const posB = b.registered_position || 99;
+                return posA - posB;
+            });
+
+            sortedPlayers.forEach(player => {
+                const playerDiv = document.createElement('div');
+                playerDiv.style.cssText = 'padding: 15px; margin-bottom: 10px; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;';
+                playerDiv.className = 'special-event-player-option';
+
+                // Quick skill hints per event type
+                let hint = '';
+                if (event.type === 'hail_mary_corner') {
+                    const heading = player.heading || 50;
+                    const jump = player.jump || 50;
+                    hint = `Heading: ${heading} | Jump: ${jump}`;
+                } else if (event.type === 'dangerous_free_kick') {
+                    const fk = player.free_kick_accuracy || 50;
+                    const swerve = player.swerve || 50;
+                    hint = `FK Acc: ${fk} | Swerve: ${swerve}`;
+                }
+
+                const positionNames = {
+                    0: 'GK', 2: 'CWP', 3: 'CBT', 4: 'SB', 5: 'DMF', 6: 'WB',
+                    7: 'CMF', 8: 'SMF', 9: 'AMF', 10: 'WF', 11: 'SS', 12: 'CF'
+                };
+                const positionName = positionNames[player.registered_position] || 'N/A';
+
+                playerDiv.innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <strong>${player.player_name}</strong>
+                            <div style="font-size: 0.9rem; color: #666; margin-top: 5px;">
+                                <span style="font-weight: bold; color: ${eventMeta.color};">${positionName}</span>
+                                ${hint ? ` | ${hint}` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                playerDiv.onclick = function() {
+                    document.querySelectorAll('.special-event-player-option').forEach(opt => {
+                        opt.style.borderColor = '#ddd';
+                        opt.style.background = 'white';
+                    });
+
+                    playerDiv.style.borderColor = '#28a745';
+                    playerDiv.style.background = '#f0f9f4';
+                    selectedPlayerId = player.id;
+                    document.getElementById('specialEventConfirmBtn').disabled = false;
+                };
+
+                playersList.appendChild(playerDiv);
+            });
+        } else {
+            playersList.innerHTML = '<p style="color: #dc3545;">No players available</p>';
+        }
+
+        document.getElementById('specialEventConfirmBtn').onclick = function() {
+            if (!selectedPlayerId) return;
+            const selectedPlayer = event.players.find(p => p.id === selectedPlayerId);
+            if (!selectedPlayer) return;
+
+            // Rough success probabilities (intentionally approximate)
+            let successChance = 70;
+            if (event.type === 'hail_mary_corner') {
+                const heading = selectedPlayer.heading || 50;
+                const jump = selectedPlayer.jump || 50;
+                successChance = 45 + ((heading - 50) * 0.6) + ((jump - 50) * 0.4);
+            } else if (event.type === 'dangerous_free_kick') {
+                const fk = selectedPlayer.free_kick_accuracy || 50;
+                const swerve = selectedPlayer.swerve || 50;
+                const shotAcc = selectedPlayer.shot_accuracy || 50;
+                successChance = 40 + ((fk - 50) * 0.7) + ((swerve - 50) * 0.3) + ((shotAcc - 50) * 0.2);
+            }
+            successChance = Math.min(90, Math.max(15, successChance));
+            const isSuccessful = Math.random() * 100 < successChance;
+
+            // Outcome overlay
+            const outcomeDiv = document.createElement('div');
+            outcomeDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); z-index: 10001; text-align: center; min-width: 300px;';
+
+            if (isSuccessful) {
+                outcomeDiv.innerHTML = `
+                    <div style="font-size: 4rem; margin-bottom: 20px;">${eventMeta.successEmoji}</div>
+                    <h2 style="color: #28a745; margin-bottom: 10px;">GOAL!</h2>
+                    <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} makes it count!</p>
+                `;
+            } else {
+                outcomeDiv.innerHTML = `
+                    <div style="font-size: 4rem; margin-bottom: 20px;">${eventMeta.failEmoji}</div>
+                    <h2 style="color: #dc3545; margin-bottom: 10px;">MISSED!</h2>
+                    <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} can't convert</p>
+                `;
+            }
+            document.body.appendChild(outcomeDiv);
+
+            // Update score locally
+            if (isSuccessful && gameScores[event.gameId]) {
+                if (event.team === 'home') gameScores[event.gameId].home++;
+                else if (event.team === 'away') gameScores[event.gameId].away++;
+                updateScoreDisplay(event.gameId);
+            }
+
+            // Persist result to server (same handler, but pass event_type)
+            fetch('/inter_leagues/save_special_event_result', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    game_id: event.gameId,
+                    player_id: selectedPlayer.id,
+                    team: event.team,
+                    is_successful: isSuccessful,
+                    event_type: event.type
+                })
+            }).catch(err => console.error('Error saving special event result:', err));
+
+            // Update last event display
+            const eventTypeName = event.type === 'hail_mary_corner' ? 'hail_mary_corner' : 'dangerous_free_kick';
+            lastScorer[event.gameId] = {
+                playerId: selectedPlayer.id,
+                playerName: selectedPlayer.player_name,
+                minute: event.minute,
+                type: isSuccessful ? `${eventTypeName}_goal` : `${eventTypeName}_miss`
+            };
+            updateLastScorerDisplay(event.gameId);
+
+            // Close modal and continue
+            document.body.removeChild(modal);
+            setTimeout(() => {
+                document.body.removeChild(outcomeDiv);
+                callback();
+            }, 2000);
+        };
+    }
+
+    // Penalty popup function
+    function showPenaltyPopup(event, callback) {
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.id = 'penaltyModal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+        
+        const modalContent = document.createElement('div');
+        modalContent.style.cssText = 'background: white; padding: 30px; border-radius: 15px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.3);';
+        
+        modalContent.innerHTML = `
+            <h2 style="color: #dc3545; margin-bottom: 20px;">⚽ PENALTY! ${event.minute}'</h2>
+            <p style="font-size: 1.1rem; margin-bottom: 25px;"><strong>${event.teamName}</strong> has been awarded a penalty!</p>
+            <p style="margin-bottom: 20px; color: #666;">Select a player to take the penalty:</p>
+            <div id="penaltyPlayersList" style="margin-bottom: 20px;"></div>
+            <div style="text-align: center;">
+                <button id="penaltyConfirmBtn" class="btn btn-success btn-lg" disabled>Take Penalty</button>
+            </div>
+        `;
+        
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+        
+        // Populate players list
+        const playersList = document.getElementById('penaltyPlayersList');
+        let selectedPlayerId = null;
+        
+        if (event.players && event.players.length > 0) {
+            // Sort players by position (registered_position)
+            const sortedPlayers = event.players.slice().sort((a, b) => {
+                const posA = a.registered_position || 99;
+                const posB = b.registered_position || 99;
+                return posA - posB;
+            });
+            
+            sortedPlayers.forEach(player => {
+                const playerDiv = document.createElement('div');
+                playerDiv.style.cssText = 'padding: 15px; margin-bottom: 10px; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;';
+                playerDiv.className = 'penalty-player-option';
+                
+                const penaltiesSkill = player.penalties || 0;
+                const shotAcc = player.shot_accuracy || 50;
+                const shotPow = player.shot_power || 50;
+                
+                // Position names mapping
+                const positionNames = {
+                    0: 'GK', 2: 'CWP', 3: 'CBT', 4: 'SB', 5: 'DMF', 6: 'WB',
+                    7: 'CMF', 8: 'SMF', 9: 'AMF', 10: 'WF', 11: 'SS', 12: 'CF'
+                };
+                const positionName = positionNames[player.registered_position] || 'N/A';
+                
+                playerDiv.innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <strong>${player.player_name}</strong>
+                            <div style="font-size: 0.9rem; color: #666; margin-top: 5px;">
+                                <span style="font-weight: bold; color: #667eea;">${positionName}</span> | 
+                                Penalties: ${penaltiesSkill === 1 ? '✅' : '❌'} | 
+                                Shot Acc: ${shotAcc} | 
+                                Shot Power: ${shotPow}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                playerDiv.onclick = function() {
+                    // Remove previous selection
+                    document.querySelectorAll('.penalty-player-option').forEach(opt => {
+                        opt.style.borderColor = '#ddd';
+                        opt.style.background = 'white';
+                    });
+                    
+                    // Select this player
+                    playerDiv.style.borderColor = '#28a745';
+                    playerDiv.style.background = '#f0f9f4';
+                    selectedPlayerId = player.id;
+                    document.getElementById('penaltyConfirmBtn').disabled = false;
+                };
+                
+                playersList.appendChild(playerDiv);
+            });
+        } else {
+            playersList.innerHTML = '<p style="color: #dc3545;">No players available for penalty</p>';
+        }
+        
+        // Confirm button
+        document.getElementById('penaltyConfirmBtn').onclick = function() {
+            if (!selectedPlayerId) return;
+            
+            // Find selected player
+            const selectedPlayer = event.players.find(p => p.id === selectedPlayerId);
+            if (!selectedPlayer) return;
+            
+            // Calculate penalty success
+            const penaltiesSkill = selectedPlayer.penalties || 0;
+            const shotAcc = selectedPlayer.shot_accuracy || 50;
+            const shotPow = selectedPlayer.shot_power || 50;
+            const baseChance = 60 + (penaltiesSkill * 15) + ((shotAcc - 50) * 0.3) + ((shotPow - 50) * 0.2);
+            const successChance = Math.min(95, Math.max(60, baseChance));
+            const isSuccessful = Math.random() * 100 < successChance;
+            
+            // Show penalty outcome
+            const outcomeDiv = document.createElement('div');
+            outcomeDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); z-index: 10001; text-align: center; min-width: 300px;';
+            
+            if (isSuccessful) {
+                outcomeDiv.innerHTML = `
+                    <div style="font-size: 4rem; margin-bottom: 20px;">⚽</div>
+                    <h2 style="color: #28a745; margin-bottom: 10px;">GOAL!</h2>
+                    <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} scores!</p>
+                `;
+            } else {
+                outcomeDiv.innerHTML = `
+                    <div style="font-size: 4rem; margin-bottom: 20px;">❌</div>
+                    <h2 style="color: #dc3545; margin-bottom: 10px;">MISSED!</h2>
+                    <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} misses the penalty</p>
+                `;
+            }
+            
+            document.body.appendChild(outcomeDiv);
+            
+            // Update score if successful
+            if (isSuccessful && gameScores[event.gameId]) {
+                if (event.team === 'home') {
+                    gameScores[event.gameId].home++;
+                } else if (event.team === 'away') {
+                    gameScores[event.gameId].away++;
+                }
+                updateScoreDisplay(event.gameId);
+                
+                // Send penalty result to server to update database
+                fetch('/inter_leagues/save_penalty_result', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        game_id: event.gameId,
+                        player_id: selectedPlayer.id,
+                        team: event.team,
+                        is_successful: true
+                    })
+                }).catch(err => console.error('Error saving penalty result:', err));
+                
+                // Update last scorer
+                lastScorer[event.gameId] = {
+                    playerId: selectedPlayer.id,
+                    playerName: selectedPlayer.player_name,
+                    minute: event.minute,
+                    type: 'penalty_goal'
+                };
+                updateLastScorerDisplay(event.gameId);
+            } else {
+                // Penalty missed - still send to server
+                fetch('/inter_leagues/save_penalty_result', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        game_id: event.gameId,
+                        player_id: selectedPlayer.id,
+                        team: event.team,
+                        is_successful: false
+                    })
+                }).catch(err => console.error('Error saving penalty result:', err));
+                
+                // Penalty missed
+                lastScorer[event.gameId] = {
+                    playerId: selectedPlayer.id,
+                    playerName: selectedPlayer.player_name,
+                    minute: event.minute,
+                    type: 'penalty_miss'
+                };
+                updateLastScorerDisplay(event.gameId);
+            }
+            
+            // Remove modal
+            document.body.removeChild(modal);
+            
+            // Wait 2 seconds to show outcome, then continue
+            setTimeout(() => {
+                document.body.removeChild(outcomeDiv);
+                // Continue with next event
+                callback();
+            }, 2000);
+        };
+    }
+    
+    // Start simulation
+    setTimeout(processNextEvent, 1000);
+});
+</script>
+{% endif %}
+{% endblock %}
