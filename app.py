@@ -5,8 +5,13 @@ import random
 from datetime import datetime, timedelta
 import time
 
-# Free agency timer in minutes
-fa_timer = 720
+# --- Timer & Config (change these at top of file) ---
+fa_timer = 720  # Free agency offer timer (minutes)
+MARKET_ACTIVITY_INTERVAL_MINUTES = 4000  # Market bazaar: interval between CPU activity runs (minutes)
+CPU_OFFERS_BACKGROUND_INTERVAL_MS = 5 * 60 * 1000  # CPU offers/swaps to users: background check interval (ms). 5 min = 300000
+PREMIUM_SHOWCASE_TIMER_MINUTES = 360  # Premium auction bid window (minutes). 180 = 3 hours
+PREMIUM_SHOWCASE_USER_SLOTS = 6  # Number of empty user slots for players to list
+
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, send_from_directory, session, Response, make_response, abort
 from io import StringIO
 import csv
@@ -22,18 +27,19 @@ from config import Config
 import db_helper  # New helper module for SQLite access
 
 # Market Bazaar Activity Toggle
-MARKET_BAZAAR_ENABLED = False  # Set to False to disable automatic market activity
+MARKET_BAZAAR_ENABLED = True #
+CPU_MARKET_ACTIVITY_ENABLED = True # Set to False to disable automatic market activity
 
 # Inter-Leagues Betting Toggle (disabled by default)
 INTER_LEAGUES_BETTING_ENABLED = False
 
 # Loan Money Transfer Divisor
 # Set to 1 for full amount, 2 to halve the money transferred on loan completion
-LOAN_MONEY_DIVISOR = 1
+LOAN_MONEY_DIVISOR = 2
 
 def get_next_market_activity_time():
-    """Get the next market activity time (3 hours from now)"""
-    return (datetime.now() + timedelta(minutes=4000)).isoformat()
+    """Get the next market activity time based on MARKET_ACTIVITY_INTERVAL_MINUTES."""
+    return (datetime.now() + timedelta(minutes=MARKET_ACTIVITY_INTERVAL_MINUTES)).isoformat()
 
 def update_market_activity_timer():
     """Update the market activity timer in the database"""
@@ -5310,10 +5316,16 @@ def get_unread_count(user_id):
 
 @app.context_processor
 def inject_unread_count():
-    """Make unread count available to all templates."""
+    """Make unread count and config values available to all templates."""
+    ctx = {'get_unread_count': get_unread_count if current_user.is_authenticated else (lambda x: 0)}
     if current_user.is_authenticated:
-        return {'get_unread_count': get_unread_count}
-    return {'get_unread_count': lambda x: 0}
+        ctx['get_unread_count'] = get_unread_count
+    else:
+        ctx['get_unread_count'] = lambda x: 0
+    ctx['cpu_offers_background_interval_ms'] = CPU_OFFERS_BACKGROUND_INTERVAL_MS
+    ctx['premium_showcase_timer_minutes'] = PREMIUM_SHOWCASE_TIMER_MINUTES
+    ctx['premium_showcase_user_slots'] = PREMIUM_SHOWCASE_USER_SLOTS
+    return ctx
 
 def get_user_budget(user_id):
     """Get user's unified budget.
@@ -5657,10 +5669,19 @@ def raise_free_agent_offer(offer_id):
     return redirect(url_for('free_agency'))
 
 def void_offers_for_blacklisted_players():
-    """Void/disable offers for players that have been blacklisted"""
+    """Void/disable offers and clear transfer list entries for players that have been blacklisted"""
     try:
         cur = db_helper.get_cursor()
-        
+
+        # Clear transfer list: mark listings for blacklisted players as expired
+        cur.execute("""
+            UPDATE market_bazaar_listings
+            SET status = 'expired'
+            WHERE status = 'active'
+            AND player_id IN (SELECT player_id FROM blacklist WHERE user_id = 1)
+        """)
+        listings_cleared = cur.rowcount
+
         # Void market_bazaar_offers for blacklisted players (target player)
         cur.execute("""
             UPDATE market_bazaar_offers
@@ -5720,8 +5741,11 @@ def void_offers_for_blacklisted_players():
         db_helper.commit()
         cur.close()
         
-        if market_offers_voided > 0 or cpu_offers_voided > 0:
-            app.logger.info(f"Voided {market_offers_voided} market offers (including swap offers) and {cpu_offers_voided} CPU offers for blacklisted players")
+        if listings_cleared > 0 or market_offers_voided > 0 or cpu_offers_voided > 0:
+            app.logger.info(
+                f"Blacklist cleanup: {listings_cleared} listing(s) expired, "
+                f"{market_offers_voided} market offer(s) voided, {cpu_offers_voided} CPU offer(s) voided"
+            )
         
         return {'success': True, 'market_offers_voided': market_offers_voided, 'cpu_offers_voided': cpu_offers_voided}
     except Exception as e:
@@ -6244,7 +6268,20 @@ def market_bazaar():
             AND mbl.expires_at > ?  -- Only show non-expired listings
             AND mbl.listing_type IN ('user_sale', 'cpu_sale', 'user_loan', 'cpu_loan')
             AND p.loaned_by IS NULL  -- Exclude loaned players from transfer listings
-            ORDER BY p.registered_position, p.market_value DESC
+            ORDER BY CASE CAST(p.registered_position AS INTEGER)
+                WHEN 0 THEN 1
+                WHEN 2 THEN 2
+                WHEN 1 THEN 3
+                WHEN 3 THEN 4
+                WHEN 4 THEN 5
+                WHEN 6 THEN 6
+                WHEN 7 THEN 7
+                WHEN 8 THEN 8
+                WHEN 9 THEN 9
+                WHEN 10 THEN 10
+                WHEN 11 THEN 11
+                ELSE 99
+            END, p.market_value DESC
         """, (current_user.id, current_user.id, current_time))
 
         transfer_listed_players = cur.fetchall()
@@ -6369,13 +6406,26 @@ def market_bazaar():
                        (next_market_activity,))
             db_helper.commit()
 
+        # Premium showcase auction players (for star preview below premium button)
+        premium_showcase_slots = []
+        try:
+            conn_mb = db_helper.get_connection()
+            from premium_showcase import get_showcase_data, ensure_tables
+            ensure_tables(conn_mb)
+            showcase_data = get_showcase_data(conn_mb)
+            if showcase_data.get('active') and showcase_data.get('slots'):
+                premium_showcase_slots = [s for s in showcase_data['slots'] if s.get('player_id')]
+        except Exception as e:
+            app.logger.warning(f"Could not load premium showcase for market bazaar: {e}")
+
         return render_template('market_bazaar.html',
                              transfer_listed_players=transfer_listed_players,
                              cpu_offers_for_user_listed=cpu_offers_for_user_listed,
                              user_offers_to_cpu=user_offers_to_cpu,
                              cpu_interest_unlisted=cpu_interest_unlisted,
                              user_players=user_players,
-                             next_market_activity=next_market_activity)
+                             next_market_activity=next_market_activity,
+                             premium_showcase_slots=premium_showcase_slots)
 
     except Exception as e:
         app.logger.error(f"Error in market_bazaar: {str(e)}")
@@ -6410,9 +6460,201 @@ def market_bazaar():
                              cpu_interest_unlisted=[],
                              user_players=[],
                              next_market_activity=next_market_activity,
+                             premium_showcase_slots=[],
                              error=str(e))
     finally:
         cur.close()
+
+
+# --- Premium Showcase (independent from other market activity) ---
+@app.route('/market_bazaar/premium_showcase')
+@login_required
+def premium_showcase():
+    """Premium showcase: 3 CPU top players + 2 user slots, 3h undisclosed bid timer."""
+    conn = db_helper.get_connection()
+    from premium_showcase import get_showcase_data, ensure_tables, process_showcase_end
+    ensure_tables(conn)
+    proc_result = process_showcase_end(conn)  # Process any expired rounds when page loads
+    if proc_result.get('processed') and proc_result.get('winners'):
+        _apply_premium_showcase_transfers(proc_result['winners'])
+        _post_premium_showcase_blog(proc_result['winners'])
+        void_offers_for_blacklisted_players()
+        # Start new round AFTER transfers so sold players are excluded from selection
+        from premium_showcase import populate_showcase
+        populate_showcase(conn)
+    data = get_showcase_data(conn)
+    # Get user's eligible players for empty slots (overall > 83)
+    cur = db_helper.get_cursor()
+    cur.execute("""
+        SELECT p.id, p.player_name, p.overall, p.market_value, p.registered_position, p.age, t.club_name
+        FROM players p
+        JOIN teams t ON p.club_id = t.id
+        JOIN league_teams lt ON t.id = lt.id
+        WHERE lt.user_id = ? AND p.loaned_by IS NULL AND (p.overall IS NULL OR p.overall > 83)
+        AND p.id NOT IN (SELECT player_id FROM blacklist WHERE user_id = 1)
+        ORDER BY p.overall DESC
+    """, (current_user.id,))
+    user_players = [dict(r) for r in cur.fetchall()]
+    return render_template('premium_showcase.html',
+        showcase=data,
+        user_players=user_players,
+        position_names={
+            '0': 'GK', '2': 'SW', '3': 'CBT', '4': 'SB', '5': 'DMF', '6': 'WB',
+            '7': 'CMF', '8': 'SMF', '9': 'AMF', '10': 'WG', '11': 'SS', '12': 'CF', '13': 'CF'
+        })
+
+
+@app.route('/market_bazaar/premium_showcase/populate', methods=['POST'])
+@login_required
+def premium_showcase_populate():
+    """Populate new showcase round (3 CPU + 2 empty user slots)."""
+    conn = db_helper.get_connection()
+    from premium_showcase import populate_showcase
+    result = populate_showcase(conn)
+    if result.get('success'):
+        void_offers_for_blacklisted_players()  # void offers for newly blacklisted CPU players
+        flash('Premium Showcase started! 3-hour timer active. Submit bids before time runs out.', 'success')
+    else:
+        flash(result.get('error', 'Failed to populate showcase'), 'danger')
+    return redirect(url_for('premium_showcase'))
+
+
+@app.route('/market_bazaar/premium_showcase/submit_slot', methods=['POST'])
+@login_required
+def premium_showcase_submit_slot():
+    """User fills an empty user slot with their player (overall > 83)."""
+    data = request.get_json() or request.form
+    slot_id_raw = data.get('slot_id')
+    player_id_raw = data.get('player_id')
+    slot_id = int(slot_id_raw) if slot_id_raw not in (None, '') else None
+    player_id = int(player_id_raw) if player_id_raw not in (None, '') else None
+    if not slot_id or not player_id:
+        return jsonify({'success': False, 'error': 'slot_id and player_id required'}), 400
+    conn = db_helper.get_connection()
+    from premium_showcase import submit_user_slot
+    result = submit_user_slot(conn, slot_id, player_id, current_user.id)
+    if result.get('success'):
+        void_offers_for_blacklisted_players()  # player blacklisted inside submit_user_slot
+    return jsonify(result)
+
+
+@app.route('/market_bazaar/premium_showcase/submit_bid', methods=['POST'])
+@login_required
+def premium_showcase_submit_bid():
+    """User submits undisclosed bid for a slot."""
+    data = request.get_json() or request.form
+    slot_id_raw = data.get('slot_id')
+    bid_amount_raw = data.get('bid_amount')
+    slot_id = int(slot_id_raw) if slot_id_raw not in (None, '') else None
+    bid_amount = int(bid_amount_raw) if bid_amount_raw not in (None, '') else None
+    if not slot_id or not bid_amount:
+        return jsonify({'success': False, 'error': 'slot_id and bid_amount required'}), 400
+    conn = db_helper.get_connection()
+    from premium_showcase import submit_bid
+    result = submit_bid(conn, slot_id, bid_amount, current_user.id)
+    return jsonify(result)
+
+
+@app.route('/market_bazaar/premium_showcase/cancel', methods=['POST'])
+@login_required
+def premium_showcase_cancel():
+    """Cancel the current Premium Showcase round without processing bids."""
+    conn = db_helper.get_connection()
+    from premium_showcase import cancel_showcase
+    result = cancel_showcase(conn)
+    if result.get('success'):
+        flash('Premium Showcase has been cancelled.', 'info')
+    else:
+        flash(result.get('error', 'No active showcase to cancel.'), 'warning')
+    return redirect(url_for('premium_showcase'))
+
+
+def _apply_premium_showcase_transfers(winners):
+    """Transfer players to winning teams and record financial movements."""
+    if not winners:
+        return
+    cur = db_helper.get_cursor()
+    try:
+        for w in winners:
+            player_id = w.get('player_id')
+            player_name = w.get('player_name') or 'Player'
+            amount = w.get('amount', 0)
+            seller_team_id = w.get('seller_team_id')
+            buyer_team_id = w.get('buyer_team_id')
+            bidder_user_id = w.get('bidder_user_id')
+            if not player_id or not buyer_team_id or amount <= 0:
+                continue
+            # 1. Transfer player to winning team
+            cur.execute("UPDATE players SET club_id = ? WHERE id = ?", (buyer_team_id, player_id))
+            # 2. Seller receives payment
+            if seller_team_id:
+                cur.execute("SELECT user_id FROM league_teams WHERE id = ?", (seller_team_id,))
+                seller_row = cur.fetchone()
+                seller_user_id = seller_row['user_id'] if seller_row and seller_row['user_id'] else None
+                if seller_user_id and seller_user_id != 1:
+                    add_user_movement(seller_user_id, 'Premium Auction Sale',
+                        f'Sold {player_name} in Premium Showcase for €{amount:,}', amount)
+                else:
+                    cur.execute("UPDATE teams SET budget = budget + ? WHERE id = ?", (amount, seller_team_id))
+            # 3. Buyer pays
+            if bidder_user_id:
+                add_user_movement(bidder_user_id, 'Premium Auction Purchase',
+                    f'Bought {player_name} in Premium Showcase for €{amount:,}', -amount)
+            else:
+                cur.execute("UPDATE teams SET budget = budget - ? WHERE id = ?", (amount, buyer_team_id))
+        db_helper.commit()
+    except Exception as e:
+        app.logger.error(f"Error applying premium showcase transfers: {e}")
+        db_helper.get_connection().rollback()
+    finally:
+        cur.close()
+
+
+def _post_premium_showcase_blog(winners):
+    """Create a distinctive, premium-styled blog post for auction results with player photos."""
+    if not winners:
+        return
+    title = "⭐ Premium Showcase Auction Results"
+    player_ids = [w['player_id'] for w in winners if w.get('player_id')]
+    content = """
+    <div style="background: linear-gradient(135deg, #2d1f0f 0%, #4a3520 50%, #3d2a14 100%); border: 2px solid #ffd700; border-radius: 16px; padding: 24px; margin: 16px 0; box-shadow: 0 0 40px rgba(255,215,0,0.25), inset 0 0 30px rgba(255,215,0,0.08);">
+        <h3 style="color: #ffd700; text-align: center; margin: 0 0 20px 0; font-size: 1.4rem; text-shadow: 0 0 20px rgba(255,215,0,0.5);">🏆 Auction Closed – Winners</h3>
+        <p style="color: rgba(255,255,255,0.9); text-align: center; margin-bottom: 20px; font-size: 0.95rem;">The Premium Showcase auction has concluded. Below are the winning bids.</p>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+    """
+    for w in winners:
+        content += f"""
+            <div style="background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.4); border-radius: 10px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <span style="color: #ffd700; font-weight: 700; font-size: 1.05rem;">{w['player_name']}</span>
+                <span style="color: rgba(255,255,255,0.9);">→</span>
+                <span style="color: #fff; font-weight: 600;">{w['winner_team']}</span>
+                <span style="color: #4ade80; font-weight: 700; font-size: 1.1rem;">€{w['amount']:,}</span>
+            </div>
+        """
+    content += """
+        </div>
+        <p style="color: rgba(255,255,255,0.7); text-align: center; margin: 20px 0 0 0; font-size: 0.85rem;">Premium Showcase • Golden Auction</p>
+    </div>
+    """
+    post_transfer_news(title, content, user_id=1, player_ids=player_ids if player_ids else None)
+
+
+@app.route('/market_bazaar/premium_showcase/process_end', methods=['POST'])
+def premium_showcase_process_end():
+    """Process showcase end (Powerdog bid, determine winners). Called when timer expires."""
+    conn = db_helper.get_connection()
+    from premium_showcase import process_showcase_end
+    result = process_showcase_end(conn)
+    if result.get('processed') and result.get('winners'):
+        _apply_premium_showcase_transfers(result['winners'])
+        _post_premium_showcase_blog(result['winners'])
+        void_offers_for_blacklisted_players()
+        # Start new round AFTER transfers so sold/blacklisted players are excluded
+        from premium_showcase import populate_showcase
+        new_round = populate_showcase(conn)
+        result['new_round_started'] = new_round.get('success', False)
+    return jsonify(result)
+
 
 @app.route('/market_bazaar/mendes_sell', methods=['POST'])
 @login_required
@@ -6844,7 +7086,10 @@ def list_player_for_sale():
 
         # Create or update listing
         from datetime import datetime, timedelta
-        expires_at = datetime.now() + timedelta(days=14)  # 2 weeks
+        if listing_type == 'user_loan':
+            expires_at = datetime.now() + timedelta(hours=8)  # 8 hours for loan listings
+        else:
+            expires_at = datetime.now() + timedelta(days=14)  # 2 weeks for sale listings
 
         if existing_listing:
             # Update existing listing
@@ -7614,7 +7859,11 @@ def accept_market_offer(offer_id):
                     additional_swap_players = [dict(row) for row in cur.fetchall()]
                 
                 # Complete the swap (handles player exchange, cash, and blacklisting)
-                # Pass user_team_id to ensure swap player goes to correct team
+                # Release DB connection first to avoid "database is locked" - complete_swap_offer uses its own connection
+                db_helper.commit()
+                cur.close()
+                close_connection()
+
                 from db_helper import DATABASE
                 success = complete_swap_offer(DATABASE, offer_id, user_team_id)
                 
@@ -7760,7 +8009,7 @@ def accept_market_offer(offer_id):
 # =============================================================================
 # CPU MARKET ACTIVITY SWITCH - Edit this line to enable/disable CPU activity
 # =============================================================================
-CPU_MARKET_ACTIVITY_ENABLED = False  # Set to False to disable CPU market activity
+# Set to False to disable CPU market activity
 
 # Global variable to track last CPU AI run
 last_cpu_ai_run = None
@@ -8445,6 +8694,74 @@ def retire_player_manual():
 
     return redirect(url_for('tools'))
 
+@app.route('/api/cpu_offers_background', methods=['POST'])
+@login_required
+def cpu_offers_background():
+    """
+    Invisible 5-minute timer: process ONE CPU offer to a user's unlisted player.
+    Runs outside market bazaar activity hours. No blog posts.
+    ISOLATED: Does NOT trigger, call, or influence market bazaar activity in any way.
+    """
+    if not CPU_MARKET_ACTIVITY_ENABLED:
+        return jsonify({'success': False, 'skipped': True, 'reason': 'disabled'}), 200
+
+    try:
+        cur = db_helper.get_cursor()
+        # Never run while market bazaar activity is running - fully isolated
+        cur.execute("SELECT value FROM app_settings WHERE key = 'market_activity_running'")
+        running_row = cur.fetchone()
+        if running_row and running_row[0] == 'true':
+            cur.close()
+            return jsonify({'success': True, 'skipped': True, 'reason': 'market_activity_running'}), 200
+
+        cur.execute("SELECT value FROM app_settings WHERE key = 'last_cpu_offers_run'")
+        row = cur.fetchone()
+
+        now = datetime.now()
+
+        # Expire old cpu_user_offer listings so players can receive new offers (7-day window)
+        now_iso = now.isoformat()
+        cur.execute("""
+            UPDATE market_bazaar_listings
+            SET status = 'expired'
+            WHERE listing_type = 'cpu_user_offer' AND status = 'active'
+            AND expires_at IS NOT NULL AND expires_at <= ?
+        """, (now_iso,))
+        expired_count = cur.rowcount
+        db_helper.commit()  # Always commit to release lock (even when 0 rows)
+        if expired_count > 0:
+            app.logger.info(f"Expired {expired_count} stale cpu_user_offer listing(s)")
+        cur.close()
+        last_run = datetime.fromisoformat(row[0]) if row and row[0] else datetime.min
+        if (now - last_run).total_seconds() < 60:  # 1 min for testing (change to 300 for production)
+            return jsonify({'success': True, 'skipped': True, 'reason': 'too_soon'}), 200
+
+        # Release DB connection so cpu_ai can get exclusive access (avoids "database is locked")
+        close_connection()
+
+        from cpu_ai import cpu_ai
+        result = cpu_ai.process_cpu_offers_to_users_only()
+
+        if result.get('offer_made'):
+            msg = f"CPU offer to user: {result.get('team')} - {result.get('action')} - {result.get('details', {}).get('player_name', 'N/A')}"
+            app.logger.info(msg)
+            print(f"[CPU Offers] {msg}")
+
+        if result.get('success'):
+            cur = db_helper.get_cursor()
+            cur.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('last_cpu_offers_run', ?)",
+                (now.isoformat(),)
+            )
+            db_helper.commit()
+            cur.close()
+
+        return jsonify(result), 200
+    except Exception as e:
+        app.logger.error(f"Error in cpu_offers_background: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/market_timer_status')
 def market_timer_status():
     """Get the current market timer status"""
@@ -8508,7 +8825,8 @@ def webhook_scheduled_market_activity():
         actions_count = cpu_result.get('actions_count', 0)
         actions_taken = cpu_result.get('actions_taken', [])
 
-        # Add user offers to the actions list
+        # User offers are already included in actions_taken by process_cpu_ai_actions
+        user_offers_result = []  # Kept for loop compatibility; no additional formatting needed
         for offer_result in user_offers_result:
             # Get the actual username for the buyer
             cur = db_helper.get_cursor()
@@ -12708,6 +13026,14 @@ def create_newcomers():
                     generated_data[attr] = template_dict.get(attr, 'R')
                 elif attr == 'injury_tolerance':
                     generated_data[attr] = template_dict.get(attr, 'A')
+                elif attr == 'face_type':
+                    # face_type must be 0, 1 or 2 only
+                    raw = template_dict.get(attr, 0)
+                    try:
+                        v = int(raw) if raw is not None else 0
+                        generated_data[attr] = max(0, min(2, v))
+                    except (ValueError, TypeError):
+                        generated_data[attr] = random.randint(0, 2)
                 else:
                     generated_data[attr] = template_dict.get(attr, 0)
             
@@ -12783,11 +13109,17 @@ def create_newcomers():
                     update_values.append(50)
                     skill_dict[skill] = 50
             
-            # Appearance
+            # Appearance (face_type must be 0, 1 or 2 only)
             appearance_fields = ['face_type', 'skin_color', 'strong_foot', 'injury_tolerance']
             for field in appearance_fields:
                 value = request.form.get(field)
                 if value is not None:
+                    if field == 'face_type':
+                        try:
+                            v = int(value)
+                            value = max(0, min(2, v))
+                        except (ValueError, TypeError):
+                            value = random.randint(0, 2)
                     update_fields.append(field)
                     update_values.append(value)
             

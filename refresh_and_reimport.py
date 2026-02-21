@@ -1355,6 +1355,61 @@ def safe_refresh_database():
         except Exception as e:
             print(f"  ❌ Error creating market_bazaar_offers table: {e}")
         
+        # Create premium showcase tables (independent market bazaar feature)
+        print("\n⭐ Creating premium_showcase_rounds table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS premium_showcase_rounds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    status TEXT DEFAULT 'active',
+                    expires_at TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            print("  ✅ Created premium_showcase_rounds table")
+        except Exception as e:
+            print(f"  ❌ Error creating premium_showcase_rounds table: {e}")
+        
+        print("\n⭐ Creating premium_showcase_slots table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS premium_showcase_slots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    round_id INTEGER NOT NULL,
+                    slot_index INTEGER NOT NULL,
+                    player_id INTEGER,
+                    team_id INTEGER,
+                    source TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (round_id) REFERENCES premium_showcase_rounds(id),
+                    FOREIGN KEY (player_id) REFERENCES players(id),
+                    FOREIGN KEY (team_id) REFERENCES teams(id)
+                )
+            """)
+            print("  ✅ Created premium_showcase_slots table")
+        except Exception as e:
+            print(f"  ❌ Error creating premium_showcase_slots table: {e}")
+        
+        print("\n⭐ Creating premium_showcase_bids table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS premium_showcase_bids (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    slot_id INTEGER NOT NULL,
+                    bidder_user_id INTEGER,
+                    bidder_team_id INTEGER,
+                    bid_amount INTEGER NOT NULL,
+                    is_user_bid INTEGER DEFAULT 1,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (slot_id) REFERENCES premium_showcase_slots(id),
+                    FOREIGN KEY (bidder_user_id) REFERENCES users(id),
+                    FOREIGN KEY (bidder_team_id) REFERENCES teams(id)
+                )
+            """)
+            print("  ✅ Created premium_showcase_bids table")
+        except Exception as e:
+            print(f"  ❌ Error creating premium_showcase_bids table: {e}")
+        
         # Create user_cpu_offers table for user-to-CPU negotiations
         # Ensure team_id exists on free_agent_offers so CPU teams can outbid each other
         print("\n🔄 Ensuring team_id on free_agent_offers...")

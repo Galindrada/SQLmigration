@@ -535,8 +535,8 @@ class CPUAI:
             # asking_price: negative means subsidy (for display logic); 0 if no support
             asking_price = -subsidy_amount if subsidy_amount > 0 else 0
             
-            # Create loan listing with salary support percentage
-            expires_at = datetime.now() + timedelta(days=7)
+            # Create loan listing with salary support percentage (8 hours expiration)
+            expires_at = datetime.now() + timedelta(hours=8)
             cur.execute(
                 """
                 INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type, salary_support_percentage)
@@ -820,8 +820,8 @@ class CPUAI:
                     # Normal asking price
                     asking_price = int(market_value * random.uniform(0.85, 1.45))
             
-            # Create market listing
-            expires_at = datetime.now() + timedelta(days=random.randint(7, 14))  # 1-2 weeks
+            # Create market listing (8 hours expiration)
+            expires_at = datetime.now() + timedelta(hours=8)
             
             cur.execute("""
                 INSERT INTO market_bazaar_listings (player_id, team_id, asking_price, expires_at, status, listing_type)
@@ -1749,13 +1749,15 @@ class CPUAI:
         
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.execute('PRAGMA busy_timeout = 10000')
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             
-            # Get team analysis
+            # Get team analysis (swap is exchange, so 32 players OK - we give 1 get 1)
             analysis = self.analyze_team_composition(team_id)
-            if not analysis or analysis['total_players'] >= 32:
+            if not analysis:
                 return None
+            # No 32-player check: swap doesn't add net players (1-for-1 or we give more than we receive)
             
             budget = analysis['needs'].budget_available
             
@@ -1794,30 +1796,33 @@ class CPUAI:
                 # If team has no specific needs, look for good players in any position (except GK)
                 position_filter = "AND p.registered_position != '0'"
             
+            # Exclude blacklisted and players who already have a pending CPU offer (no duplicates)
             cur.execute(f"""
                 SELECT p.*, t.club_name as current_team_name
                 FROM players p
                 JOIN teams t ON p.club_id = t.id
                 JOIN league_teams lt ON t.id = lt.id
                 WHERE lt.user_id != 1  -- User teams only
-                AND p.id NOT IN (
-                    SELECT player_id FROM market_bazaar_listings WHERE status = 'active'
-                )
+                AND COALESCE(p.market_value, 0) > 0  -- Ignore 0€ MV players
                 AND p.id NOT IN (
                     SELECT player_id FROM blacklist WHERE user_id = 1
+                )
+                AND p.id NOT IN (
+                    SELECT player_id FROM market_bazaar_listings
+                    WHERE listing_type = 'cpu_user_offer' AND status = 'active'
                 )
                 {overall_filter}
                 {position_filter}
                 {age_filter}
                 ORDER BY p.overall DESC, p.market_value ASC
-                LIMIT 20
+                LIMIT 60
             """)
             
             user_players = cur.fetchall()
             if not user_players:
                 return None
             
-            # Select a target player
+            # Select a target player from wider pool
             target_player = random.choice(user_players)
             target_value = target_player['market_value']
             
@@ -2035,6 +2040,7 @@ class CPUAI:
         """CPU team makes offer for USER player (not listed) - creates actual database entry"""
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.execute('PRAGMA busy_timeout = 10000')
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             
@@ -2082,18 +2088,21 @@ class CPUAI:
             if stance in ['Powerdog', 'Contender']:
                 overall_filter = "AND p.overall > 75  -- Only interested in good players"
             
-            # Find user players that would IMPROVE the team (not listed, not blacklisted)
+            # Find user players that would IMPROVE the team
+            # Exclude blacklisted and players who already have a pending CPU offer (no duplicates)
             cur.execute(f"""
                 SELECT p.*, t.club_name as current_team_name
                 FROM players p
                 JOIN teams t ON p.club_id = t.id
                 JOIN league_teams lt ON t.id = lt.id
                 WHERE lt.user_id != 1  -- User teams only
-                AND p.id NOT IN (
-                    SELECT player_id FROM market_bazaar_listings WHERE status = 'active'
-                )
+                AND COALESCE(p.market_value, 0) > 0  -- Ignore 0€ MV players
                 AND p.id NOT IN (
                     SELECT player_id FROM blacklist WHERE user_id = 1
+                )
+                AND p.id NOT IN (
+                    SELECT player_id FROM market_bazaar_listings
+                    WHERE listing_type = 'cpu_user_offer' AND status = 'active'
                 )
                 {overall_filter}
                 {age_filter}
@@ -2118,8 +2127,8 @@ class CPUAI:
                     
                     # Powerdog/Contender: prioritize higher overalls, undervalue youth
                     if stance in ['Powerdog', 'Contender']:
-                        # Must be significantly better than current best (prefer proven players)
-                        if player_overall > best_in_position + 2 or (player_overall > best_in_position and player_age >= 25):
+                        # Must improve on current best (relaxed from +2 to +1 to widen pool)
+                        if player_overall > best_in_position + 1 or (player_overall > best_in_position and player_age >= 25):
                             improvement_candidates.append(player)
                     else:
                         # Rebuilder/Tinkering: standard improvement check
@@ -4259,9 +4268,11 @@ class CPUAI:
                     # Track if team took any action (for last_action_time update)
                     action_taken_this_cycle = False
                     
-                    # CPU actions: prioritize buying/loaning existing listings, then make offers
+                    # CPU actions: prioritize buying/loaning existing listings, free agency
+                    # NOTE: CPU offers for UNLISTED players (swap, make_user_offer) are handled
+                    # by a separate 5-minute invisible timer - not here
                     action_choice = random.random()
-                    if action_choice < 0.3:  # 30% chance to buy existing listings
+                    if action_choice < 0.35:  # 35% chance to buy existing listings
                         buy_result = self.buy_listed_player(team_id)
                         if buy_result:
                             actions_taken.append({
@@ -4270,7 +4281,7 @@ class CPUAI:
                                 'details': buy_result['details']
                             })
                             action_taken_this_cycle = True
-                    elif action_choice < 0.45:  # 15% chance to loan existing loan listings
+                    elif action_choice < 0.55:  # 20% chance to loan existing loan listings
                         loan_result = self.make_cpu_loan_offer(team_id)
                         if loan_result:
                             actions_taken.append({
@@ -4279,7 +4290,7 @@ class CPUAI:
                                 'details': loan_result['details']
                             })
                             action_taken_this_cycle = True
-                    elif action_choice < 0.6:  # 15% chance for free agency activity (combined)
+                    else:  # 45% chance for free agency activity (combined)
                         # TWO-PHASE FREE AGENCY APPROACH
                         # Phase 1: Try to raise existing offers (prioritized)
                         raise_offer_result = self.raise_cpu_free_agency_offer_aggressive(team_id)
@@ -4304,25 +4315,6 @@ class CPUAI:
                                     'details': free_agency_result['details']
                                 })
                                 action_taken_this_cycle = True
-                    elif action_choice < 0.8:  # 20% chance to attempt swap offer (PHASE 2)
-                        if PHASE2_FEATURES_AVAILABLE:
-                            swap_result = self.attempt_player_swap_offer(team_id)
-                            if swap_result:
-                                actions_taken.append({
-                                    'team': team_name,
-                                    'action': swap_result['action'],
-                                    'details': swap_result['details']
-                                })
-                                action_taken_this_cycle = True
-                    else:  # 20% chance to make offer for USER players
-                        offer_result = self.make_cpu_offer_for_user_player(team_id)
-                        if offer_result:
-                            actions_taken.append({
-                                'team': team_name,
-                                'action': 'make_user_offer',
-                                'details': offer_result['details']
-                            })
-                            action_taken_this_cycle = True
                     # Note: Listing actions removed from main loop - will be done separately
                     
                     # PERFORMANCE OPTIMIZATION: Update last_action_time if team took action
@@ -4346,10 +4338,17 @@ class CPUAI:
                 
                 # Teams with > 25 players more likely to list (need to trim roster)
                 # Teams with < 16 players skip listing (need to acquire, not sell)
+                # Debt teams (budget < 0) much more likely to list (70%) to raise funds
+                cur.execute("SELECT budget FROM teams WHERE id = ?", (team_id,))
+                budget_row = cur.fetchone()
+                team_budget = budget_row['budget'] if budget_row and budget_row['budget'] is not None else 0
+                
                 if player_count < 16:
                     continue  # Small teams don't list players
+                elif team_budget < 0:
+                    should_list = random.random() < 0.70  # 70% chance for debt teams - orient them to sell
                 elif player_count > 30:
-                    should_list = random.random() < 0.50 # 50% chance for large rosters
+                    should_list = random.random() < 0.50  # 50% chance for large rosters
                 else:
                     should_list = random.random() < 0.15  # 15% chance for normal rosters
                 
@@ -4412,11 +4411,10 @@ class CPUAI:
             print(f"    • Teams with <16 players: ALWAYS act (priority)")
             print(f"    • Other teams: 40% chance to act")
             print(f"  Action types (when acting):")
-            print(f"    • Buy existing listings: 30%")
-            print(f"    • Loan existing listings: 15%")
-            print(f"    • Free agency (raise/new): 15%")
-            print(f"    • Swap offers: 20%")
-            print(f"    • User player offers: 20%")
+            print(f"    • Buy existing listings: 35%")
+            print(f"    • Loan existing listings: 20%")
+            print(f"    • Free agency (raise/new): 45%")
+            print(f"    • Swap/User offers: separate 5-min invisible timer")
             print(f"    • Market bazaar offers: 0% (disabled)")
             print(f"  Phase 2: Listing Actions")
             print(f"    • Teams with <16 players: Don't list (need to buy)")
@@ -4442,6 +4440,78 @@ class CPUAI:
         except Exception as e:
             print(f"Error processing CPU AI actions: {e}")
             return {'success': False, 'error': str(e)}
+
+    def process_cpu_offers_to_users_only(self) -> Dict:
+        """
+        Process ONE CPU offer to a user's unlisted player (swap or direct purchase).
+        Called by invisible 5-minute timer - runs outside market bazaar activity hours.
+        No blog posts - silent background activity.
+        ISOLATED: Must never call process_cpu_ai_actions or market bazaar activity functions.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.execute('PRAGMA busy_timeout = 10000')
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+
+            cur.execute("""
+                SELECT t.id, t.club_name
+                FROM teams t
+                WHERE t.id != 141
+                AND t.club_name IN (
+                    SELECT lt.team_name FROM league_teams lt WHERE lt.user_id = 1
+                )
+            """)
+            cpu_teams = cur.fetchall()
+            conn.close()
+
+            if not cpu_teams:
+                return {'success': True, 'offer_made': False, 'reason': 'no_cpu_teams'}
+
+            # Try up to 2 random CPU teams before giving up
+            teams_to_try = random.sample(list(cpu_teams), min(2, len(cpu_teams)))
+
+            for team in teams_to_try:
+                team_id = team['id']
+
+                # 50% swap, 50% direct offer
+                if PHASE2_FEATURES_AVAILABLE and random.random() < 0.5:
+                    result = self.attempt_player_swap_offer(team_id)
+                    if result:
+                        return {
+                            'success': True,
+                            'offer_made': True,
+                            'action': result['action'],
+                            'details': result['details'],
+                            'team': team['club_name']
+                        }
+
+                result = self.make_cpu_offer_for_user_player(team_id)
+                if result:
+                    return {
+                        'success': True,
+                        'offer_made': True,
+                        'action': 'make_user_offer',
+                        'details': result['details'],
+                        'team': team['club_name']
+                    }
+                # Fallback: if direct failed (e.g. squad full at 32), try swap instead
+                if PHASE2_FEATURES_AVAILABLE:
+                    result = self.attempt_player_swap_offer(team_id)
+                    if result:
+                        return {
+                            'success': True,
+                            'offer_made': True,
+                            'action': result['action'],
+                            'details': result['details'],
+                            'team': team['club_name']
+                        }
+
+            return {'success': True, 'offer_made': False, 'reason': 'no_suitable_target'}
+
+        except Exception as e:
+            print(f"Error in process_cpu_offers_to_users_only: {e}")
+            return {'success': False, 'offer_made': False, 'error': str(e)}
 
 # Global instance for easy access
 cpu_ai = CPUAI()

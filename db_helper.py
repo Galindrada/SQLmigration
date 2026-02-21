@@ -8,9 +8,11 @@ DATABASE = getattr(Config, 'SQLITE_DB_PATH', 'pes6_league_db.sqlite')
 
 def get_connection():
     if 'db_conn' not in g:
-        g.db_conn = sqlite3.connect(DATABASE)
+        g.db_conn = sqlite3.connect(DATABASE, timeout=30.0)
         g.db_conn.row_factory = sqlite3.Row
         g.db_conn.execute('PRAGMA foreign_keys = ON;')
+        g.db_conn.execute('PRAGMA busy_timeout = 10000;')  # Wait up to 10s instead of failing on lock
+        g.db_conn.execute('PRAGMA journal_mode = WAL;')  # Better concurrency: one writer + multiple readers
     return g.db_conn
 
 def get_cursor():

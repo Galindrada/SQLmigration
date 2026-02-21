@@ -303,11 +303,7 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
     
     # Apply positional salary boosts (affect all players in these positions regardless of ability)
     if pos_int == 0:
-        # Goalkeeper position boost
-        calc_sal = calc_sal * GK_POSITION_BOOST
-        
-        # Apply salary compression: compress toward a reference salary based on overall rating
-        # This pulls low salaries up and high salaries down toward a center point
+        # Goalkeeper position boost - tiered by overall to smoothen lower-tier impact
         try:
             overall = float(player_row.get('overall', GK_COMPRESSION_REFERENCE_OVERALL))
             if pd.isna(overall) or overall <= 0:
@@ -315,8 +311,20 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         except (ValueError, TypeError):
             overall = GK_COMPRESSION_REFERENCE_OVERALL
         
-        # Estimate reference salary for this overall rating (using power law approximation)
-        # Reference scales with overall^3 to match the salary calculation's power function
+        if overall < 70:
+            gk_boost = 1.0  # No positional boost for lower tier
+        elif overall <= 75:
+            gk_boost = 2.0
+        elif overall <= 80:
+            gk_boost = 3.0
+        elif overall <= 85:
+            gk_boost = 4.0
+        else:
+            gk_boost = GK_POSITION_BOOST  # 5.0 - full impact at 86+
+        calc_sal = calc_sal * gk_boost
+        
+        # Apply salary compression: compress toward a reference salary based on overall rating
+        # This pulls low salaries up and high salaries down toward a center point
         overall_factor = (overall / 75.0) ** 3
         reference_premium = GK_REFERENCE_PREMIUM * overall_factor  # Uses module-level constant
         reference_salary = GLOBAL_BASE_SALARY + reference_premium
@@ -326,10 +334,7 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         calc_sal = reference_salary + (calc_sal - reference_salary) * GK_SALARY_COMPRESSION
         
     elif pos_int in [2, 3]:
-        # Defender position boost (sweepers/centre-backs)
-        calc_sal = calc_sal * DEF_POSITION_BOOST
-        
-        # Apply salary compression: compress toward a reference salary based on overall rating
+        # Defender position boost (sweepers/centre-backs) - tiered by overall to smoothen lower-tier impact
         try:
             overall = float(player_row.get('overall', DEF_COMPRESSION_REFERENCE_OVERALL))
             if pd.isna(overall) or overall <= 0:
@@ -337,7 +342,19 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         except (ValueError, TypeError):
             overall = DEF_COMPRESSION_REFERENCE_OVERALL
         
-        # Estimate reference salary for this overall rating
+        if overall < 70:
+            def_boost = 1.0  # No positional boost for lower tier
+        elif overall <= 75:
+            def_boost = 2.0
+        elif overall <= 80:
+            def_boost = 3.5
+        elif overall <= 85:
+            def_boost = 5.0
+        else:
+            def_boost = DEF_POSITION_BOOST  # 7.0 - full impact at 86+
+        calc_sal = calc_sal * def_boost
+        
+        # Apply salary compression: compress toward a reference salary based on overall rating
         overall_factor = (overall / 75.0) ** 3
         reference_premium = DEF_REFERENCE_PREMIUM * overall_factor  # Uses module-level constant
         reference_salary = GLOBAL_BASE_SALARY + reference_premium
@@ -346,10 +363,7 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         calc_sal = reference_salary + (calc_sal - reference_salary) * DEF_SALARY_COMPRESSION
     
     elif pos_int in [4, 6]:
-        # Side-back position boost (fullbacks/wingbacks - positions 4 and 6)
-        calc_sal = calc_sal * SB_POSITION_BOOST
-        
-        # Apply salary compression: compress toward a reference salary based on overall rating
+        # Side-back position boost (fullbacks/wingbacks - positions 4 and 6) - tiered by overall
         try:
             overall = float(player_row.get('overall', SB_COMPRESSION_REFERENCE_OVERALL))
             if pd.isna(overall) or overall <= 0:
@@ -357,7 +371,19 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         except (ValueError, TypeError):
             overall = SB_COMPRESSION_REFERENCE_OVERALL
         
-        # Estimate reference salary for this overall rating
+        if overall < 70:
+            sb_boost = 1.0  # No positional boost for lower tier
+        elif overall <= 75:
+            sb_boost = 1.5
+        elif overall <= 80:
+            sb_boost = 2.0
+        elif overall <= 85:
+            sb_boost = 2.5
+        else:
+            sb_boost = SB_POSITION_BOOST  # 3.0 - full impact at 86+
+        calc_sal = calc_sal * sb_boost
+        
+        # Apply salary compression: compress toward a reference salary based on overall rating
         overall_factor = (overall / 75.0) ** 3
         reference_premium = SB_REFERENCE_PREMIUM * overall_factor  # Uses module-level constant
         reference_salary = GLOBAL_BASE_SALARY + reference_premium
@@ -1213,6 +1239,18 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
             }
             
             total_skill_change += actual_change
+    
+    # Unseeded only: if growth > 0, add 2 extra points to 2 draws from top 5 skills (max 99)
+    if seed_targets is None and total_skill_change > 0:
+        top_5 = sorted(skill_changes.keys(), key=lambda s: skill_changes[s]['new'], reverse=True)[:5]
+        if top_5:
+            for _ in range(2):
+                skill = random.choice(top_5)
+                entry = skill_changes[skill]
+                if entry['new'] < 99:  # 99 is max, no improvement above that
+                    entry['new'] += 1
+                    entry['change'] += 1
+                    total_skill_change += 1
     
     return {
         'development_key': development_key,
@@ -2350,11 +2388,7 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
     
     # Apply positional salary boosts (affect all players in these positions regardless of ability)
     if pos_int == 0:
-        # Goalkeeper position boost
-        calc_sal = calc_sal * GK_POSITION_BOOST
-        
-        # Apply salary compression: compress toward a reference salary based on overall rating
-        # This pulls low salaries up and high salaries down toward a center point
+        # Goalkeeper position boost - tiered by overall to smoothen lower-tier impact
         try:
             overall = float(player_row.get('overall', GK_COMPRESSION_REFERENCE_OVERALL))
             if pd.isna(overall) or overall <= 0:
@@ -2362,8 +2396,20 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         except (ValueError, TypeError):
             overall = GK_COMPRESSION_REFERENCE_OVERALL
         
-        # Estimate reference salary for this overall rating (using power law approximation)
-        # Reference scales with overall^3 to match the salary calculation's power function
+        if overall < 70:
+            gk_boost = 1.0  # No positional boost for lower tier
+        elif overall <= 75:
+            gk_boost = 2.0
+        elif overall <= 80:
+            gk_boost = 3.0
+        elif overall <= 85:
+            gk_boost = 4.0
+        else:
+            gk_boost = GK_POSITION_BOOST  # 5.0 - full impact at 86+
+        calc_sal = calc_sal * gk_boost
+        
+        # Apply salary compression: compress toward a reference salary based on overall rating
+        # This pulls low salaries up and high salaries down toward a center point
         overall_factor = (overall / 75.0) ** 3
         reference_premium = GK_REFERENCE_PREMIUM * overall_factor  # Uses module-level constant
         reference_salary = GLOBAL_BASE_SALARY + reference_premium
@@ -2373,10 +2419,7 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         calc_sal = reference_salary + (calc_sal - reference_salary) * GK_SALARY_COMPRESSION
         
     elif pos_int in [2, 3]:
-        # Defender position boost (sweepers/centre-backs)
-        calc_sal = calc_sal * DEF_POSITION_BOOST
-        
-        # Apply salary compression: compress toward a reference salary based on overall rating
+        # Defender position boost (sweepers/centre-backs) - tiered by overall to smoothen lower-tier impact
         try:
             overall = float(player_row.get('overall', DEF_COMPRESSION_REFERENCE_OVERALL))
             if pd.isna(overall) or overall <= 0:
@@ -2384,7 +2427,19 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         except (ValueError, TypeError):
             overall = DEF_COMPRESSION_REFERENCE_OVERALL
         
-        # Estimate reference salary for this overall rating
+        if overall < 70:
+            def_boost = 1.0  # No positional boost for lower tier
+        elif overall <= 75:
+            def_boost = 2.0
+        elif overall <= 80:
+            def_boost = 3.5
+        elif overall <= 85:
+            def_boost = 5.0
+        else:
+            def_boost = DEF_POSITION_BOOST  # 7.0 - full impact at 86+
+        calc_sal = calc_sal * def_boost
+        
+        # Apply salary compression: compress toward a reference salary based on overall rating
         overall_factor = (overall / 75.0) ** 3
         reference_premium = DEF_REFERENCE_PREMIUM * overall_factor  # Uses module-level constant
         reference_salary = GLOBAL_BASE_SALARY + reference_premium
@@ -2393,10 +2448,7 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         calc_sal = reference_salary + (calc_sal - reference_salary) * DEF_SALARY_COMPRESSION
     
     elif pos_int in [4, 6]:
-        # Side-back position boost (fullbacks/wingbacks - positions 4 and 6)
-        calc_sal = calc_sal * SB_POSITION_BOOST
-        
-        # Apply salary compression: compress toward a reference salary based on overall rating
+        # Side-back position boost (fullbacks/wingbacks - positions 4 and 6) - tiered by overall
         try:
             overall = float(player_row.get('overall', SB_COMPRESSION_REFERENCE_OVERALL))
             if pd.isna(overall) or overall <= 0:
@@ -2404,7 +2456,19 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         except (ValueError, TypeError):
             overall = SB_COMPRESSION_REFERENCE_OVERALL
         
-        # Estimate reference salary for this overall rating
+        if overall < 70:
+            sb_boost = 1.0  # No positional boost for lower tier
+        elif overall <= 75:
+            sb_boost = 1.5
+        elif overall <= 80:
+            sb_boost = 2.0
+        elif overall <= 85:
+            sb_boost = 2.5
+        else:
+            sb_boost = SB_POSITION_BOOST  # 3.0 - full impact at 86+
+        calc_sal = calc_sal * sb_boost
+        
+        # Apply salary compression: compress toward a reference salary based on overall rating
         overall_factor = (overall / 75.0) ** 3
         reference_premium = SB_REFERENCE_PREMIUM * overall_factor  # Uses module-level constant
         reference_salary = GLOBAL_BASE_SALARY + reference_premium
@@ -3260,6 +3324,18 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
             }
             
             total_skill_change += actual_change
+    
+    # Unseeded only: if growth > 0, add 2 extra points to 2 draws from top 5 skills (max 99)
+    if seed_targets is None and total_skill_change > 0:
+        top_5 = sorted(skill_changes.keys(), key=lambda s: skill_changes[s]['new'], reverse=True)[:5]
+        if top_5:
+            for _ in range(2):
+                skill = random.choice(top_5)
+                entry = skill_changes[skill]
+                if entry['new'] < 99:  # 99 is max, no improvement above that
+                    entry['new'] += 1
+                    entry['change'] += 1
+                    total_skill_change += 1
     
     return {
         'development_key': development_key,
