@@ -246,6 +246,20 @@
                 }
             });
         });
+        {% if current_user.is_authenticated %}
+        // Invisible 5-min timer: CPU offers for unlisted players (runs on every page)
+        // Same approach as free-agency check_expired - keeps running when navigating
+        setInterval(function() {
+            fetch('/api/cpu_offers_background', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            }).then(function(r) { return r.json(); }).then(function(d) {
+                if (d && d.offer_made) console.log('[CPU Offers] Offer made:', d.team, d.action, d.details);
+                else if (d && d.skipped) console.log('[CPU Offers] Skipped:', d.reason);
+            }).catch(function(err) { console.log('[CPU Offers] Error:', err); });
+        }, {{ cpu_offers_background_interval_ms|default(300000) }});  // From app.py CPU_OFFERS_BACKGROUND_INTERVAL_MS
+        {% endif %}
     </script>
 </body>
 </html>

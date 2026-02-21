@@ -437,6 +437,7 @@ def complete_swap_offer(db_path: str, offer_id: int, user_team_id: int = None) -
         True if successful, False otherwise
     """
     conn = sqlite3.connect(db_path, timeout=30.0)
+    conn.execute('PRAGMA busy_timeout = 15000')  # Wait up to 15s for lock
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     

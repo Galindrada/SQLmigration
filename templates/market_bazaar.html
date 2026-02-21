@@ -30,7 +30,57 @@
             <div class="col-md-12">
                 <h2 style="font-size: 1.5rem;">🏪 Market Bazaar</h2>
                 <p class="lead" style="font-size: 0.9rem;">The central marketplace for player transfers. Browse offers, list your players, and negotiate deals.</p>
-                
+                <div class="card mb-2" style="background: linear-gradient(135deg, #2d1f0f 0%, #4a3520 50%, #3d2a14 100%); border: 2px solid #ffd700; box-shadow: 0 0 30px rgba(255,215,0,0.4), inset 0 0 20px rgba(255,215,0,0.1);">
+                    <div class="card-body text-center py-3">
+                        <a href="{{ url_for('premium_showcase') }}" class="btn btn-lg font-weight-bold" style="background: linear-gradient(135deg, #ffd700, #ffb300); color: #1a1a1a; border: none; box-shadow: 0 0 25px rgba(255,215,0,0.7), 0 4px 15px rgba(0,0,0,0.3); padding: 12px 30px; font-size: 1.1rem;">
+                            ⭐ PREMIUM SHOWCASE – 3h undisclosed bids
+                        </a>
+                        <p class="text-warning mt-2 mb-0 small">Top CPU players + user slots • Golden auction</p>
+                        {% if premium_showcase_slots %}
+                        <div class="d-flex justify-content-center align-items-center flex-wrap mt-3 gap-3" style="gap: 1rem;">
+                            {% for slot in premium_showcase_slots %}
+                            <a href="{{ url_for('premium_showcase') }}" class="premium-star-photo" title="{{ slot.player_name }} ({{ slot.overall or 0 }} OVR)">
+                                {% if slot.profile_image %}
+                                <img src="{{ url_for('static', filename='player_images/' + slot.profile_image) }}" alt="{{ slot.player_name }}">
+                                {% else %}
+                                <div class="premium-star-placeholder">👤</div>
+                                {% endif %}
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <style>
+                    .premium-star-photo {
+                        display: inline-block;
+                        width: 60px;
+                        height: 60px;
+                        clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+                        overflow: hidden;
+                        box-shadow: 0 0 15px rgba(255,215,0,0.6), inset 0 0 0 2px rgba(255,215,0,0.5);
+                        transition: transform 0.2s, box-shadow 0.2s;
+                    }
+                    .premium-star-photo:hover {
+                        transform: scale(1.15);
+                        box-shadow: 0 0 25px rgba(255,215,0,0.9);
+                    }
+                    .premium-star-photo img {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                        display: block;
+                    }
+                    .premium-star-placeholder {
+                        width: 100%;
+                        height: 100%;
+                        background: linear-gradient(135deg, #444, #222);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 1.5rem;
+                    }
+                </style>
                 <!-- Market Activity Timer -->
                 <div class="card mb-4" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                     <div class="card-body text-center">

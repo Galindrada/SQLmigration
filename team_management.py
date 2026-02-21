@@ -2630,6 +2630,83 @@ def estimate_contract_renewal(manager: TeamManager):
         import traceback
         traceback.print_exc()
 
+
+def change_skin_colour(manager: TeamManager):
+    """Interactively change a single player's skin_color field."""
+    try:
+        print("\n" + "="*80)
+        print("🎨 SKIN COLOUR CHANGER")
+        print("="*80)
+
+        player_id_input = input("\nEnter Player ID (or 'cancel' to go back): ").strip()
+        if player_id_input.lower() == 'cancel':
+            print("❌ Operation cancelled")
+            return
+
+        try:
+            player_id = int(player_id_input)
+        except ValueError:
+            print("❌ Invalid player ID. Please enter a number.")
+            return
+
+        cursor = manager.conn.cursor()
+        cursor.execute("""
+            SELECT p.id, p.player_name, p.skin_color, p.club_id, t.club_name
+            FROM players p
+            LEFT JOIN teams t ON p.club_id = t.id
+            WHERE p.id = ?
+        """, (player_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            print(f"❌ Player with ID {player_id} not found")
+            return
+
+        player_name = row['player_name']
+        current_skin = row['skin_color']
+        club_name = row['club_name'] if row['club_name'] else 'No Club'
+
+        print(f"\n📋 Player information:")
+        print(f"   ID:         {player_id}")
+        print(f"   Name:       {player_name}")
+        print(f"   Club:       {club_name}")
+        print(f"   Skin color: {current_skin}")
+
+        print("\nNote: skin_color is typically an integer code used by PES (for example 0–3).")
+        new_skin_input = input("Enter new skin_color value (or 'cancel' to abort): ").strip()
+        if new_skin_input.lower() == 'cancel':
+            print("❌ Operation cancelled")
+            return
+
+        try:
+            new_skin = int(new_skin_input)
+        except ValueError:
+            print("❌ Invalid skin_color value. Must be an integer.")
+            return
+
+        if new_skin == current_skin:
+            print("ℹ️ New skin_color is the same as current value. No change made.")
+            return
+
+        confirm = input(
+            f"\n⚠️  Change skin_color for {player_name} (ID {player_id}) "
+            f"from {current_skin} to {new_skin}? (y/N): "
+        ).strip().lower()
+        if confirm != 'y':
+            print("❌ Operation cancelled, no changes made.")
+            return
+
+        cursor.execute(
+            "UPDATE players SET skin_color = ? WHERE id = ?",
+            (new_skin, player_id)
+        )
+        manager.conn.commit()
+        print(f"\n✅ Updated skin_color for {player_name} (ID {player_id}) to {new_skin}.")
+
+    except Exception as e:
+        print(f"❌ Error changing skin colour: {e}")
+        manager.conn.rollback()
+
 def get_position_name(position_code: int) -> str:
     """Convert position code to readable name"""
     positions = {
@@ -2683,7 +2760,8 @@ def display_menu():
     print("28. Fix loaned_by values (convert numeric IDs to club names)")
     print("29. Clear player historical statistics")
     print("30. Match international stats (copy lifetime to current season)")
-    print("31. Exit")
+    print("31. Skin Colour Changer")
+    print("32. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -5097,10 +5175,12 @@ def main():
             elif choice == '30':
                 match_international_stats_option(manager)
             elif choice == '31':
+                change_skin_colour(manager)
+            elif choice == '32':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-31.")
+                print("❌ Invalid choice. Please enter 1-32.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")

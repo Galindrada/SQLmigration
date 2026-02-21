@@ -1,0 +1,9 @@
+# For generate_player_pictures.py (Stable Diffusion 1.5, 200x200 output)
+# Install: pip install -r requirements-player-pictures.txt
+# GPU recommended (or use Google Colab free tier).
+
+torch
+diffusers
+transformers
+accelerate
+Pillow

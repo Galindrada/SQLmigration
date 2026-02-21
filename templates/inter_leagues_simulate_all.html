@@ -547,15 +547,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 // CPU team event - result already determined on server
                 const isSuccessful = event.is_successful !== undefined ? event.is_successful : Math.random() < 0.75;
                 
-                // Update score if successful (score should already be updated on server, but sync here)
-                if (isSuccessful && gameScores[event.gameId]) {
-                    if (event.team === 'home') {
-                        gameScores[event.gameId].home++;
-                    } else if (event.team === 'away') {
-                        gameScores[event.gameId].away++;
-                    }
-                    updateScoreDisplay(event.gameId);
-                }
+                // Don't add to score here - the goal is already in player_stats and appears as a 'goal' event.
+                // Adding here would double-count.
                 
                 // Update last event (show result with player name if available)
                 const eventTypeName = event.type === 'penalty' ? 'penalty' : 

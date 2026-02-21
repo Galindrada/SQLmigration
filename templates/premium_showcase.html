@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+
+{% block title %}Premium Showcase – Market Bazaar{% endblock %}
+
+{% block head %}
+<style>
+    .premium-showcase {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        padding: 2rem;
+        border-radius: 16px;
+    }
+    .premium-card {
+        background: linear-gradient(145deg, #2d2d44 0%, #1e1e2f 100%);
+        border: 2px solid transparent;
+        border-image: linear-gradient(135deg, #ffd700, #ffb300, #ff8c00, #ffd700) 1;
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 0 40px rgba(255,215,0,0.15), inset 0 0 60px rgba(255,215,0,0.05);
+    }
+    .premium-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(135deg, rgba(255,215,0,0.03) 0%, transparent 50%, rgba(255,215,0,0.05) 100%);
+        pointer-events: none;
+    }
+    .premium-player-photo {
+        width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 3px solid #ffd700;
+        box-shadow: 0 0 30px rgba(255,215,0,0.6), 0 0 60px rgba(255,215,0,0.3);
+    }
+    .premium-overall {
+        font-size: 2.5rem;
+        font-weight: 900;
+        background: linear-gradient(135deg, #ffd700, #ffb300);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-shadow: 0 0 30px rgba(255,215,0,0.5);
+    }
+    .premium-stat {
+        background: rgba(255,215,0,0.1);
+        border: 1px solid rgba(255,215,0,0.3);
+        border-radius: 8px;
+        padding: 0.4rem 0.8rem;
+        margin: 0.2rem;
+        font-weight: 600;
+        color: #ffd700;
+    }
+    .premium-skill {
+        background: linear-gradient(90deg, rgba(255,215,0,0.2), rgba(255,193,7,0.05));
+        border-left: 4px solid #ffd700;
+        padding: 0.5rem 1rem;
+        margin: 0.3rem 0;
+        color: #fff;
+    }
+    .premium-value {
+        font-size: 1.2rem;
+        color: #4ade80;
+        font-weight: 700;
+    }
+    .premium-salary {
+        font-size: 1rem;
+        color: #60a5fa;
+    }
+    .empty-slot {
+        border: 2px dashed rgba(255,215,0,0.5);
+        min-height: 280px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        color: rgba(255,255,255,0.5);
+    }
+    .premium-timer {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #ffd700;
+        text-shadow: 0 0 20px rgba(255,215,0,0.5);
+    }
+    .bid-input-group {
+        margin-top: 1rem;
+    }
+    /* Bundled skill bars (same style as player profile) */
+    .premium-skills-chart {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
+        border: 1px solid rgba(255,215,0,0.3);
+        border-radius: 10px;
+    }
+    .premium-skill-bar-container {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .premium-skill-label {
+        min-width: 95px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        color: #ffd700;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .premium-skill-icon {
+        font-size: 0.9em;
+    }
+    .premium-skill-bar {
+        flex: 1;
+        height: 18px;
+        background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
+        border: 1px solid #444;
+        border-radius: 9px;
+        overflow: hidden;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .premium-skill-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
+        border-radius: 8px;
+        transition: width 0.3s ease;
+        box-shadow: 0 0 8px rgba(255,215,0,0.4);
+    }
+    .premium-skill-value {
+        min-width: 28px;
+        text-align: center;
+        font-size: 0.85rem;
+        font-weight: bold;
+        color: #ffd700;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid premium-showcase">
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-3" style="color: #ffd700; text-shadow: 0 0 20px rgba(255,215,0,0.5);">⭐ Premium Showcase</h2>
+            <p class="text-light mb-4">Top players from low-budget CPU teams + {{ premium_showcase_user_slots|default(6) }} user slots. Submit undisclosed bids during the {{ (premium_showcase_timer_minutes|default(180)) // 60 }}-hour window. Powerdog bids at the end.</p>
+
+            {% if not showcase.active %}
+            <div class="card mb-4" style="background: rgba(255,215,0,0.1); border: 2px solid rgba(255,215,0,0.5);">
+                <div class="card-body text-center py-5">
+                    <h4 class="text-warning mb-3">No active showcase</h4>
+                    <p class="text-light">Start a new showcase to list 3 CPU top players and {{ premium_showcase_user_slots|default(6) }} empty user slots.</p>
+                    <form method="post" action="{{ url_for('premium_showcase_populate') }}" onsubmit="return confirm('Start new Premium Showcase? 3 CPU players + {{ premium_showcase_user_slots|default(6) }} user slots, {{ (premium_showcase_timer_minutes|default(180)) // 60 }}-hour timer.');">
+                        <button type="submit" class="btn btn-warning btn-lg">🏆 Start Premium Showcase</button>
+                    </form>
+                </div>
+            </div>
+            {% else %}
+            <!-- Timer + Admin controls -->
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-stretch mb-4">
+                <div class="card mb-3 mb-md-0 mr-md-3 flex-grow-1" style="background: linear-gradient(135deg, rgba(255,215,0,0.2), rgba(255,140,0,0.1)); border: 2px solid rgba(255,215,0,0.5);">
+                    <div class="card-body text-center">
+                        <h5 class="text-warning mb-2">⏱ Bidding closes in</h5>
+                        <div class="premium-timer showcase-timer" data-expires="{{ showcase.expires_at }}">--:--</div>
+                        <p class="text-muted mt-2 mb-0">Submit undisclosed bids before the timer expires. Powerdog will bid at the end.</p>
+                    </div>
+                </div>
+                <div class="card" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,99,71,0.6); max-width: 260px;">
+                    <div class="card-body text-center">
+                        <h6 class="text-danger font-weight-bold mb-2">Admin Controls</h6>
+                        <p class="text-muted small mb-3">Cancel the current Premium Showcase without processing any bids.</p>
+                        <form method="post" action="{{ url_for('premium_showcase_cancel') }}" onsubmit="return confirm('Cancel current Premium Showcase? No bids will be processed and slots will be discarded.');">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">🛑 Cancel Showcase</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slots -->
+            <div class="row">
+                {% for slot in showcase.slots %}
+                <div class="col-lg-4 col-md-6 mb-4">
+                    <div class="premium-card">
+                        {% if slot.player_id %}
+                        <div class="d-flex align-items-start mb-3">
+                            <div class="mr-3">
+                                {% if slot.profile_image %}
+                                <img src="{{ url_for('static', filename='player_images/' + slot.profile_image) }}" class="premium-player-photo" alt="{{ slot.player_name }}">
+                                {% else %}
+                                <div class="premium-player-photo d-flex align-items-center justify-content-center" style="background: linear-gradient(135deg, #333, #222); font-size: 3rem;">👤</div>
+                                {% endif %}
+                            </div>
+                            <div class="flex-grow-1">
+                                <h5 class="text-light mb-1">
+                                    <a href="{{ url_for('pes6_player_details', player_id=slot.player_id) }}" style="color: #ffd700; text-decoration: none;">{{ slot.player_name }}</a>
+                                </h5>
+                                <span class="badge badge-secondary">{{ position_names.get(slot.registered_position|string, 'N/A') }}</span>
+                                <span class="badge badge-info">Age {{ slot.age }}</span>
+                                <div class="premium-overall mt-2">{{ slot.overall or 0 }} OVR</div>
+                            </div>
+                        </div>
+
+                        {% if slot.bundled_skills %}
+                        <div class="mb-3 premium-bundled-skills">
+                            <small class="text-muted d-block mb-2">Bundled Skills</small>
+                            <div class="premium-skills-chart">
+                                {% for skill_name, skill_value in slot.bundled_skills.items() %}
+                                <div class="premium-skill-bar-container">
+                                    <div class="premium-skill-label">
+                                        {% if skill_name == 'Attack' %}<span class="premium-skill-icon">⚽</span>
+                                        {% elif skill_name == 'Defense' %}<span class="premium-skill-icon">🛡️</span>
+                                        {% elif skill_name == 'Physical' %}<span class="premium-skill-icon">💪</span>
+                                        {% elif skill_name == 'Power' %}<span class="premium-skill-icon">⚡</span>
+                                        {% elif skill_name == 'Technique' %}<span class="premium-skill-icon">🎨</span>
+                                        {% elif skill_name == 'Goalkeeping' %}<span class="premium-skill-icon">🧤</span>
+                                        {% endif %}
+                                        {{ skill_name }}
+                                    </div>
+                                    <div class="premium-skill-bar">
+                                        <div class="premium-skill-fill" style="width: {{ [skill_value or 0, 100]|min }}%;"></div>
+                                    </div>
+                                    <div class="premium-skill-value">{{ skill_value }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <span class="premium-value">€{{ "{:,}".format((slot.market_value or 0)|int) }} MV</span>
+                            <span class="premium-salary">€{{ "{:,}".format((slot.salary or 0)|int) }}/yr</span>
+                        </div>
+
+                        {% if slot.club_name %}
+                        <small class="text-muted d-block mb-2">{{ slot.club_name }}</small>
+                        {% endif %}
+
+                        <div class="bid-input-group">
+                            <label class="text-muted small">Your undisclosed bid (€)</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control bid-amount" placeholder="0" data-slot-id="{{ slot.id }}" min="1" step="1">
+                                <div class="input-group-append">
+                                    <button class="btn btn-warning btn-submit-bid" data-slot-id="{{ slot.id }}">Submit Bid</button>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <!-- Empty user slot -->
+                        <div class="empty-slot">
+                            <p class="mb-3">Empty User Slot</p>
+                            <p class="small mb-3">Upload a player (overall &gt; 83)</p>
+                            <select class="form-control mb-2 user-player-select" data-slot-id="{{ slot.id }}" style="max-width: 200px;">
+                                <option value="">-- Select player --</option>
+                                {% for up in user_players %}
+                                <option value="{{ up.id }}">{{ up.player_name }} ({{ up.overall }} OVR)</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-outline-warning btn-submit-slot" data-slot-id="{{ slot.id }}">Submit to Slot</button>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const timerEl = document.querySelector('.showcase-timer');
+    if (timerEl && timerEl.dataset.expires) {
+        function updateTimer() {
+            const expires = new Date(timerEl.dataset.expires);
+            const now = new Date();
+            const diff = expires - now;
+            if (diff <= 0) {
+                timerEl.textContent = 'EXPIRED';
+                timerEl.style.color = '#e74c3c';
+                fetch('{{ url_for("premium_showcase_process_end") }}', { method: 'POST' }).then(r => r.json()).then(d => { if (d.processed) location.reload(); });
+                return;
+            }
+            const h = Math.floor(diff / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            timerEl.textContent = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+            if (h < 1 && m < 10) timerEl.style.color = '#e74c3c';
+        }
+        setInterval(updateTimer, 1000);
+        updateTimer();
+    }
+
+    document.querySelectorAll('.btn-submit-bid').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const btnEl = this;
+            const slotId = this.dataset.slotId;
+            const card = this.closest('.premium-card');
+            const input = card ? card.querySelector('.bid-amount') : document.querySelector('.bid-amount[data-slot-id="' + slotId + '"]');
+            const amount = parseInt(input && input.value, 10);
+            if (!amount || amount < 1) { alert('Enter a valid bid amount'); return; }
+            fetch('{{ url_for("premium_showcase_submit_bid") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slot_id: parseInt(slotId), bid_amount: amount })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    const bidGroup = btnEl.closest('.premium-card').querySelector('.bid-input-group');
+                    if (bidGroup) bidGroup.innerHTML = '<p class="text-success mb-0 font-weight-bold">Bid made</p>';
+                } else alert(d.error || 'Error');
+            });
+        });
+    });
+
+    document.querySelectorAll('.btn-submit-slot').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const slotId = this.dataset.slotId;
+            const sel = this.closest('.premium-card') ? this.closest('.premium-card').querySelector('.user-player-select') : document.querySelector('.user-player-select[data-slot-id="' + slotId + '"]');
+            const playerId = sel && sel.value;
+            if (!playerId) { alert('Select a player'); return; }
+            fetch('{{ url_for("premium_showcase_submit_slot") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slot_id: parseInt(slotId), player_id: parseInt(playerId) })
+            }).then(r => r.json()).then(d => {
+                if (d.success) location.reload(); else alert(d.error || 'Error');
+            });
+        });
+    });
+})();
+</script>
+{% endblock %}
