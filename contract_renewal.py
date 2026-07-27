@@ -135,9 +135,9 @@ class ContractRenewalManager:
             elif player_age <= 25:
                 yearly_wage_rise = random.uniform(0.10, 0.20)  # 10-20% for young players
             elif player_age <= 28:
-                yearly_wage_rise = random.uniform(0.05, 0.15)  # 5-15% for mid-age players
+                yearly_wage_rise = random.uniform(0.02, 0.07)  # 5-15% for mid-age players
             else:
-                yearly_wage_rise = random.uniform(0.01, 0.10)  # 1-10% for older players
+                yearly_wage_rise = 0.00  # 1-10% for older players
             
             # Apply contract renewal variance (-2% to +15%) on top of fair salary
             # This is in addition to the ±20% variance already in fair_salary from apply_random_salary_adjustment

@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block title %}Fantasy booster builder{% endblock %}
+{% block content %}
+<div style="max-width: 1100px; margin: 0 auto; padding: 24px; font-family: Arial, sans-serif;">
+    <h1 style="margin: 0 0 8px 0;">Booster edition builder</h1>
+    <p style="color: #475569; margin: 0 0 20px 0;">
+        Create an edition, add <strong>limited</strong> definitions (how many of each card go into the run), then <strong>Generate card pool</strong>.
+        The system builds exactly <code>boosters × cards per pack</code> cards: <strong>regular</strong> pulls (by your rarity %) plus <strong>limited</strong> copies, shuffled together and split into packs in order (pack #1, #2, … #400).
+        Users cannot buy until the pool exists. Mark editions <strong>Show in shop</strong>, upload <strong>booster layout</strong> art (pack images on Fantasy), and use <strong>Disabled</strong> to hide an edition without deleting it. <strong>Delete edition</strong> is only allowed before any pack is sold. Only one edition can be <em>active</em> (legacy default when no pack is chosen).
+        Access: env <code>FANTASY_BUILDER_USER_IDS</code> (comma-separated user ids); if unset, any logged-in user can open this page (dev only).
+    </p>
+    <p style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+        <a href="{{ url_for('fantasy') }}">← Back to Fantasy</a>
+        <form method="post" action="{{ url_for('fantasy_builder_deactivate_editions') }}" style="margin:0;">
+            <button type="submit" style="background:#64748b;color:white;font-weight:700;padding:6px 12px;border:none;border-radius:8px;cursor:pointer;">Clear active edition marker</button>
+        </form>
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div style="padding: 10px 14px; border-radius: 8px; margin-bottom: 10px; {% if category == 'success' %}background:#dcfce7;color:#166534;{% else %}background:#fee2e2;color:#991b1b;{% endif %}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <section style="background:#ecfeff;border:1px solid #67e8f9;border-radius:12px;padding:20px;margin-bottom:28px;">
+        <h2 style="margin-top:0;">Pricing (TR per pack)</h2>
+        <p style="color:#475569;font-size:14px;margin:0 0 16px 0;line-height:1.5;">
+            <strong>Default</strong> applies to Standard boosters and to any edition that leaves its own price empty.
+            Use the table to set a price per edition (collection); empty cells use the default.
+        </p>
+        <form method="post" action="{{ url_for('fantasy_builder_save_pricing') }}" style="display:flex;flex-direction:column;gap:16px;">
+            <div>
+                <label style="display:block;font-weight:700;font-size:13px;">Default pack price (TR)</label>
+                <input name="default_booster_cost_tr" type="number" min="1" required value="{{ default_booster_cost_tr }}" style="width:160px;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            {% if editions %}
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                    <thead>
+                        <tr style="background:#f1f5f9;">
+                            <th style="padding:8px;text-align:left;">Edition (collection)</th>
+                            <th style="padding:8px;text-align:left;">TR / pack (empty = default)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for e in editions %}
+                        <tr style="border-bottom:1px solid #e2e8f0;">
+                            <td style="padding:8px;">{{ e.name }} <span style="color:#64748b;font-size:12px;">({{ e.slug }})</span></td>
+                            <td style="padding:8px;"><input name="edition_cost_{{ e.id }}" type="number" min="1" placeholder="{{ default_booster_cost_tr }}" value="{{ e.get('cost_tr') if e.get('cost_tr') is not none else '' }}" style="width:140px;padding:6px 8px;border-radius:8px;border:1px solid #cbd5e1;"></td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p style="color:#64748b;font-size:14px;margin:0;">Create an edition below to set per-collection prices.</p>
+            {% endif %}
+            <button type="submit" style="background:#0284c7;color:white;font-weight:800;padding:10px 20px;border:none;border-radius:10px;cursor:pointer;width:fit-content;">Save pricing</button>
+        </form>
+    </section>
+
+    <section style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 28px;">
+        <h2 style="margin-top:0;">Create edition</h2>
+        <form method="post" action="{{ url_for('fantasy_builder_create_edition') }}" style="display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); align-items: end;">
+            <div>
+                <label style="display:block;font-weight:700;font-size:12px;">Name *</label>
+                <input name="name" required placeholder="Italy 94 special" style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <div>
+                <label style="display:block;font-weight:700;font-size:12px;">Slug (optional)</label>
+                <input name="slug" placeholder="italy-94-special" style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <div>
+                <label style="display:block;font-weight:700;font-size:12px;">Total boosters *</label>
+                <input name="total_boosters" type="number" min="1" value="400" required style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <div>
+                <label style="display:block;font-weight:700;font-size:12px;">Cards per booster</label>
+                <input name="cards_per_booster" type="number" min="1" max="20" value="5" style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <div>
+                <label style="display:block;font-weight:700;font-size:12px;">% normal (regular pool)</label>
+                <input name="pct_normal" type="number" step="0.1" value="70" style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <div>
+                <label style="display:block;font-weight:700;font-size:12px;">% rare</label>
+                <input name="pct_rare" type="number" step="0.1" value="20" style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <div>
+                <label style="display:block;font-weight:700;font-size:12px;">% mythical</label>
+                <input name="pct_mythical" type="number" step="0.1" value="8" style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <div>
+                <label style="display:block;font-weight:700;font-size:12px;">% legendary</label>
+                <input name="pct_legendary" type="number" step="0.1" value="2" style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label style="display:block;font-weight:700;font-size:12px;">Description</label>
+                <textarea name="description" rows="2" placeholder="Internal notes" style="width:100%;padding:8px;border-radius:8px;border:1px solid #cbd5e1;"></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <button type="submit" style="background:#1d4ed8;color:white;font-weight:800;padding:10px 20px;border:none;border-radius:10px;cursor:pointer;">Create edition</button>
+            </div>
+        </form>
+        <p style="font-size:12px;color:#64748b;margin:12px 0 0 0;">
+            Regular pool size = (boosters × cards per pack) − sum(limited copies). Those regular cards are split across normal/rare/mythical/legendary using the four percentages, then merged with all limited copies, shuffled, and dealt into packs.
+        </p>
+    </section>
+
+    <h2>Editions</h2>
+    {% if not editions %}
+    <p>No editions yet.</p>
+    {% else %}
+    {% for e in editions %}
+    <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 20px; background: white;">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:flex-start;">
+            <div>
+                <h3 style="margin:0 0 6px 0;">{{ e.name }} <span style="font-size:14px;color:#64748b;font-weight:600;">({{ e.slug }})</span>
+                    {% if e.get('edition_disabled') %}<span style="background:#64748b;color:white;font-size:11px;padding:2px 8px;border-radius:999px;margin-left:8px;">DISABLED</span>{% endif %}
+                    {% if e.is_active %}<span style="background:#22c55e;color:white;font-size:11px;padding:2px 8px;border-radius:999px;margin-left:8px;">ACTIVE</span>{% endif %}
+                    {% if e.pool_generated %}
+                    <span style="background:#0ea5e9;color:white;font-size:11px;padding:2px 8px;border-radius:999px;margin-left:8px;">POOL READY</span>
+                    {% else %}
+                    <span style="background:#f59e0b;color:white;font-size:11px;padding:2px 8px;border-radius:999px;margin-left:8px;">NO POOL</span>
+                    {% endif %}
+                </h3>
+                <p style="margin:0;color:#475569;font-size:14px;">Sold {{ e.boosters_sold }} / {{ e.total_boosters }} · {{ e.cards_per_booster }} cards/pack</p>
+                <p style="margin:8px 0 0 0;font-size:13px;">Regular mix: normal {{ e.pct_normal }}% · rare {{ e.pct_rare }}% · mythical {{ e.pct_mythical }}% · legendary {{ e.pct_legendary }}%</p>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+            {% if not e.is_active %}
+            <form method="post" action="{{ url_for('fantasy_builder_activate_edition', edition_id=e.id) }}">
+                <button type="submit" style="background:#0f766e;color:white;font-weight:700;padding:8px 14px;border:none;border-radius:8px;cursor:pointer;">Set active</button>
+            </form>
+            {% endif %}
+            {% if e.boosters_sold == 0 %}
+            <form method="post" action="{{ url_for('fantasy_builder_generate_pool', edition_id=e.id) }}">
+                <button type="submit" style="background:#7c3aed;color:white;font-weight:700;padding:8px 14px;border:none;border-radius:8px;cursor:pointer;">Generate / regenerate card pool</button>
+            </form>
+            {% else %}
+            <span style="font-size:12px;color:#64748b;">Pool locked (sales started).</span>
+            {% endif %}
+            {% if e.boosters_sold == 0 %}
+            <form method="post" action="{{ url_for('fantasy_builder_delete_edition', edition_id=e.id) }}" style="margin:0;" onsubmit="return confirm('Delete this edition permanently? Limited rows and pool data will be removed.');">
+                <button type="submit" style="background:#b91c1c;color:white;font-weight:700;padding:8px 14px;border:none;border-radius:8px;cursor:pointer;">Delete edition</button>
+            </form>
+            {% endif %}
+            </div>
+        </div>
+
+        <div style="margin-top:16px;padding:14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end;">
+            <form method="post" action="{{ url_for('fantasy_builder_edition_shop', edition_id=e.id) }}" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+                <label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;cursor:pointer;">
+                    <input type="checkbox" name="shop_visible" value="1" {% if e.get('shop_visible') %}checked{% endif %}>
+                    Show in booster shop
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;cursor:pointer;color:#991b1b;">
+                    <input type="checkbox" name="edition_disabled" value="1" {% if e.get('edition_disabled') %}checked{% endif %}>
+                    Disabled (hidden from players)
+                </label>
+                <div>
+                    <label style="display:block;font-size:12px;font-weight:700;color:#475569;">TR per pack (empty = default {{ default_booster_cost_tr }})</label>
+                    <input name="cost_tr" type="number" min="1" placeholder="{{ default_booster_cost_tr }}" value="{{ e.get('cost_tr') if e.get('cost_tr') is not none else '' }}" style="width:120px;padding:6px 8px;border-radius:8px;border:1px solid #cbd5e1;">
+                </div>
+                <button type="submit" style="background:#0369a1;color:white;font-weight:700;padding:8px 14px;border:none;border-radius:8px;cursor:pointer;">Save shop settings</button>
+            </form>
+            <form method="post" action="{{ url_for('fantasy_builder_edition_upload_layout', edition_id=e.id) }}" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+                <div>
+                    <label style="display:block;font-size:12px;font-weight:700;color:#475569;">Booster layout image</label>
+                    <p style="margin:0 0 6px 0;font-size:12px;color:#64748b;max-width:320px;line-height:1.4;">Ideal: <strong>600×780 px</strong> (or <strong>1200×1560</strong> @2×), portrait ~4∶5 — matches the in-game pack frame. PNG or WebP.</p>
+                    <input type="file" name="layout" accept="image/png,image/jpeg,image/webp,image/gif" required style="max-width:240px;font-size:13px;">
+                </div>
+                <button type="submit" style="background:#0d9488;color:white;font-weight:700;padding:8px 14px;border:none;border-radius:8px;cursor:pointer;">Upload layout</button>
+            </form>
+            {% if e.get('booster_pack_image') %}
+            <div style="font-size:13px;color:#475569;">
+                Current: <code>{{ e.booster_pack_image }}</code>
+                {% set _layout = url_for('static', filename=e.booster_pack_image) %}
+                <div style="margin-top:6px;"><img src="{{ _layout }}" alt="" style="max-height:100px;border-radius:8px;border:1px solid #cbd5e1;"></div>
+            </div>
+            {% endif %}
+        </div>
+
+        <h4 style="margin:20px 0 8px 0;">Limited cards ({{ e.limited_cards|length }}) — copies count toward the pool</h4>
+        {% if e.limited_cards %}
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="background:#f1f5f9;text-align:left;">
+                    <th style="padding:6px;">ID</th>
+                    <th style="padding:6px;">player_id</th>
+                    <th style="padding:6px;">Display</th>
+                    <th style="padding:6px;">Image</th>
+                    <th style="padding:6px;">Copies in run</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for lc in e.limited_cards %}
+                <tr style="border-bottom:1px solid #e2e8f0;">
+                    <td style="padding:6px;">{{ lc.id }}</td>
+                    <td style="padding:6px;">{{ lc.player_id }}</td>
+                    <td style="padding:6px;">{{ lc.display_name or '—' }}</td>
+                    <td style="padding:6px;word-break:break-all;">{{ lc.card_profile_image }}</td>
+                    <td style="padding:6px;">{{ lc.copies_total }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#64748b;font-size:14px;">No limited cards — entire pool is regular-only.</p>
+        {% endif %}
+
+        <h4 style="margin:16px 0 8px 0;">Add limited card</h4>
+        <form class="fantasy-limited-form" method="post" action="{{ url_for('fantasy_builder_add_limited', edition_id=e.id) }}" enctype="multipart/form-data" style="display:grid;gap:10px;">
+            <p style="font-size:13px;color:#475569;margin:0;">
+                <strong>Anchor player_id</strong> — any valid <code>players.id</code> so the database foreign key is satisfied. The card face always comes from the snapshot below (or auto-built from the template). Use the same ID as your template player, or any placeholder row if you must.
+            </p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;">
+                <div>
+                    <label style="font-size:12px;font-weight:700;">Anchor player_id (FK) *</label>
+                    <input name="player_id" type="number" min="1" required placeholder="Same as template usually" style="width:100%;padding:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                </div>
+                <div>
+                    <label style="font-size:12px;font-weight:700;">Template player_id (copy stats)</label>
+                    <input name="template_player_id" type="number" min="1" placeholder="Leave empty = use anchor" style="width:100%;padding:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                </div>
+                <div>
+                    <label style="font-size:12px;font-weight:700;">Display name override</label>
+                    <input name="display_name" placeholder="Italy 94 — Baggio" style="width:100%;padding:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                </div>
+                <div>
+                    <label style="font-size:12px;font-weight:700;">Override overall</label>
+                    <input name="overall" type="number" min="1" max="99" placeholder="optional" style="width:100%;padding:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                </div>
+                <div>
+                    <label style="font-size:12px;font-weight:700;">Override position (PES code)</label>
+                    <input name="registered_position" type="number" min="0" max="12" placeholder="e.g. 10 AMF" style="width:100%;padding:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                </div>
+                <div>
+                    <label style="font-size:12px;font-weight:700;">Copies in this production run</label>
+                    <input name="copies_total" type="number" min="1" value="1" style="width:100%;padding:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                </div>
+                <div>
+                    <label style="font-size:12px;font-weight:700;">Sort order</label>
+                    <input name="sort_order" type="number" value="0" style="width:100%;padding:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                </div>
+            </div>
+            <div>
+                <label style="font-size:12px;font-weight:700;">Skills patch (optional JSON object)</label>
+                <textarea name="skills_patch" rows="3" placeholder='Only keys you want to change, e.g. {"technique": 98, "attack": 95, "shot_accuracy": 96}' style="width:100%;font-family:monospace;font-size:11px;padding:8px;border-radius:8px;border:1px solid #cbd5e1;"></textarea>
+                <span style="font-size:11px;color:#64748b;">Merged on top of the template (or pasted snapshot). Use raw stat names: technique, attack, defense, balance, etc.</span>
+            </div>
+            <div>
+                <label style="font-size:12px;font-weight:700;">Portrait upload *</label>
+                <input name="portrait" type="file" accept="image/png,image/jpeg,image/webp">
+            </div>
+            <div>
+                <label style="font-size:12px;font-weight:700;">Or static path (if no file)</label>
+                <input name="card_profile_image" placeholder="fantasy_editions/{{ e.slug }}/file.png" style="width:100%;padding:6px;border-radius:6px;border:1px solid #cbd5e1;">
+            </div>
+            <div>
+                <label style="font-size:12px;font-weight:700;">Full snapshot JSON (optional)</label>
+                <textarea name="card_face_snapshot" rows="6" placeholder="Leave empty to auto-fill from Template player_id + overrides above. Or paste full JSON for expert mode." style="width:100%;font-family:monospace;font-size:11px;padding:8px;border-radius:8px;border:1px solid #cbd5e1;"></textarea>
+                <button type="button" class="fantasy-load-snapshot-btn" style="margin-top:6px;background:#e2e8f0;border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;font-weight:600;cursor:pointer;">Load template into box (preview)</button>
+            </div>
+            <button type="submit" style="background:#7c3aed;color:white;font-weight:700;padding:8px 16px;border:none;border-radius:8px;cursor:pointer;width:fit-content;">Add limited card</button>
+        </form>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <section style="margin-top:32px;padding:20px;border:2px solid #dc2626;background:#fef2f2;border-radius:12px;">
+        <h2 style="margin-top:0;color:#991b1b;">Danger: wipe all collections</h2>
+        <p style="color:#7f1d1d;font-size:14px;margin:0 0 12px 0;line-height:1.5;">
+            Deletes <strong>every</strong> fantasy card for <strong>every</strong> user and sets each user’s TR balance to <strong>{{ "{:,}".format(FANTASY_STARTING_TR) }}</strong>.
+            Booster editions, limited definitions, and generated pools are <strong>not</strong> removed.
+        </p>
+        <form method="post" action="{{ url_for('fantasy_builder_wipe_all_cards') }}" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+            <div>
+                <label style="display:block;font-size:12px;font-weight:700;color:#991b1b;">Type to confirm</label>
+                <input name="confirm" autocomplete="off" placeholder="DELETE ALL FANTASY CARDS" style="width:300px;padding:8px;border-radius:8px;border:1px solid #cbd5e1;">
+            </div>
+            <button type="submit" style="background:#b91c1c;color:white;font-weight:800;padding:10px 18px;border:none;border-radius:10px;cursor:pointer;">Erase all cards &amp; reset TR</button>
+        </form>
+    </section>
+</div>
+<script>
+(function() {
+    document.querySelectorAll('.fantasy-load-snapshot-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var form = btn.closest('form');
+            var tpl = (form.querySelector('input[name="template_player_id"]') || {}).value;
+            tpl = (tpl || '').trim();
+            var anchor = (form.querySelector('input[name="player_id"]') || {}).value;
+            anchor = (anchor || '').trim();
+            var tid = tpl || anchor;
+            if (!tid) {
+                alert('Enter anchor player id (or template id) first.');
+                return;
+            }
+            fetch('/fantasy/builder/api/player_snapshot/' + encodeURIComponent(tid))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.ok) {
+                        alert(data.error || 'Could not load player');
+                        return;
+                    }
+                    var ta = form.querySelector('textarea[name="card_face_snapshot"]');
+                    ta.value = JSON.stringify(data.snapshot, null, 2);
+                })
+                .catch(function() {
+                    alert('Request failed');
+                });
+        });
+    });
+})();
+</script>
+{% endblock %}

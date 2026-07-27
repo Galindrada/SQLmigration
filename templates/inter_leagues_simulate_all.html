@@ -1,24 +1,180 @@
 {% extends "base.html" %}
 
-{% block title %}Elifoot Style - Round Simulation{% endblock %}
+{% block title %}Cheiropeias - Round Simulation{% endblock %}
 
 {% block head %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
 <style>
-    .simulation-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 2rem 0;
-        margin: -20px -15px 30px -15px;
-        text-align: center;
+    /* ── Simulation hero + match clock (broadcast-style) ── */
+    .il-sim-hero {
+        position: sticky;
+        top: 0;
+        z-index: 1020;
+        margin: -20px -15px 28px -15px;
+        padding: clamp(1.25rem, 3vw, 2rem) 0 clamp(1.5rem, 4vw, 2.75rem);
+        overflow: hidden;
+        background:
+            radial-gradient(120% 90% at 15% -20%, rgba(124, 255, 182, 0.18) 0%, transparent 45%),
+            radial-gradient(100% 80% at 100% 50%, rgba(118, 75, 162, 0.35) 0%, transparent 55%),
+            radial-gradient(ellipse 80% 60% at 50% 120%, rgba(0, 0, 0, 0.45) 0%, transparent 50%),
+            linear-gradient(165deg, #0a0e17 0%, #121a2e 38%, #0d1528 100%);
+        color: #fff;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
     }
-    
-    .timer-display {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin: 20px 0;
-        color: #ffd700;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        font-family: 'Courier New', monospace;
+    .il-sim-hero__noise {
+        pointer-events: none;
+        position: absolute;
+        inset: 0;
+        opacity: 0.04;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    .il-sim-hero__grid {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: clamp(1.25rem, 4vw, 2.5rem);
+    }
+    .il-sim-hero__copy {
+        flex: 1 1 280px;
+        max-width: 560px;
+    }
+    .il-sim-hero__badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.28rem 0.75rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #0a0e17;
+        background: linear-gradient(90deg, #7cffb6, #ffd700);
+        box-shadow: 0 0 24px rgba(124, 255, 182, 0.35);
+        margin-bottom: 0.75rem;
+    }
+    .il-sim-hero__badge-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #ff3b3b;
+        box-shadow: 0 0 8px #ff3b3b;
+        animation: ilSimPulseDot 1.6s ease-in-out infinite;
+    }
+    @keyframes ilSimPulseDot {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.65; transform: scale(0.92); }
+    }
+    .il-sim-hero__title {
+        font-size: clamp(1.45rem, 3.2vw, 2.15rem);
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+        margin: 0 0 0.5rem;
+        background: linear-gradient(92deg, #fff 30%, rgba(200, 220, 255, 0.92) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: 0 0 40px rgba(124, 255, 182, 0.15);
+    }
+    .il-sim-hero__sub {
+        margin: 0;
+        font-size: 0.95rem;
+        color: rgba(255, 255, 255, 0.62);
+        line-height: 1.45;
+    }
+    .il-sim-clock-wrap {
+        flex: 0 1 auto;
+        display: flex;
+        justify-content: center;
+    }
+    .il-sim-clock {
+        position: relative;
+        width: min(200px, 42vw);
+        height: min(200px, 42vw);
+        filter: drop-shadow(0 16px 32px rgba(0, 0, 0, 0.4));
+    }
+    .il-sim-clock__svg {
+        width: 100%;
+        height: 100%;
+        transform: rotate(-90deg);
+    }
+    .il-sim-clock__track {
+        fill: none;
+        stroke: rgba(255, 255, 255, 0.1);
+        stroke-width: 7;
+    }
+    .il-sim-clock__progress {
+        fill: none;
+        stroke: url(#ilSimClockGrad);
+        stroke-width: 7;
+        stroke-linecap: round;
+        stroke-dasharray: 339.292;
+        stroke-dashoffset: 339.292;
+        transition: stroke-dashoffset 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .il-sim-clock__face {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 12%;
+    }
+    .il-sim-clock__row {
+        display: flex;
+        align-items: baseline;
+        justify-content: center;
+        gap: 0.06em;
+        line-height: 1;
+    }
+    .il-sim-clock__minute {
+        font-variant-numeric: tabular-nums;
+        font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+        font-size: clamp(2.35rem, 7vw, 3.25rem);
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        color: #fff;
+        text-shadow: 0 0 28px rgba(124, 255, 182, 0.25);
+        transition: transform 0.25s ease, color 0.25s ease;
+    }
+    .il-sim-clock__minute.il-tick {
+        animation: ilClockTick 0.35s ease;
+    }
+    @keyframes ilClockTick {
+        0% { transform: scale(1.08); color: #ffd700; }
+        100% { transform: scale(1); color: #fff; }
+    }
+    .il-sim-clock__minute--wide {
+        font-size: clamp(1.5rem, 5vw, 2.1rem);
+        letter-spacing: 0.02em;
+    }
+    .il-sim-clock__prime {
+        font-size: clamp(1.5rem, 4vw, 2rem);
+        font-weight: 600;
+        color: rgba(124, 255, 182, 0.95);
+        opacity: 0.9;
+    }
+    .il-sim-clock__phase {
+        margin-top: 0.45rem;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.52);
+        max-width: 11em;
+        line-height: 1.35;
+    }
+    @media (min-width: 992px) {
+        .il-sim-hero__grid { flex-wrap: nowrap; }
     }
     
     .games-table {
@@ -48,6 +204,58 @@
     
     .games-table tbody tr:hover {
         background: #f8f9fa;
+    }
+    
+    /* Per-competition blocks (post-simulation) */
+    .il-comp-section {
+        margin-bottom: 2rem;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+        background: #fff;
+    }
+    .il-comp-section .il-comp-heading {
+        margin: 0;
+        padding: 0.85rem 1.25rem;
+        background: linear-gradient(135deg, #5a6fd6 0%, #6b4c9a 100%);
+        color: #fff;
+        font-size: 1.15rem;
+        font-weight: 600;
+        transition: box-shadow 0.4s ease, filter 0.4s ease;
+    }
+    /* While Cheiropeias playback is on this competition’s fixture */
+    .il-comp-section.il-sim-active .il-comp-heading {
+        box-shadow: inset 0 -4px 0 0 rgba(255, 215, 0, 0.95), 0 0 28px rgba(255, 215, 0, 0.35);
+        filter: brightness(1.06);
+    }
+    .games-table tbody tr.il-sim-row-pulse {
+        animation: ilSimRowPulse 0.9s ease;
+    }
+    @keyframes ilSimRowPulse {
+        0% { filter: brightness(1.25); box-shadow: inset 0 0 0 2px rgba(255, 215, 0, 0.85); }
+        100% { filter: brightness(1); box-shadow: none; }
+    }
+    .il-comp-section .games-table {
+        border-radius: 0;
+        box-shadow: none;
+    }
+    /* Human (non-CPU) teams involved — smooth, persistent row emphasis */
+    .games-table tbody tr.il-user-team-match {
+        background: linear-gradient(90deg, rgba(102, 126, 234, 0.14) 0%, rgba(118, 75, 162, 0.07) 55%, transparent 100%);
+        box-shadow: inset 4px 0 0 0 rgba(102, 126, 234, 0.85);
+        transition: background 0.4s ease, box-shadow 0.4s ease;
+    }
+    .games-table tbody tr.il-user-team-match:hover {
+        background: linear-gradient(90deg, rgba(102, 126, 234, 0.22) 0%, rgba(118, 75, 162, 0.12) 50%, rgba(102, 126, 234, 0.06) 100%);
+        box-shadow: inset 4px 0 0 0 #764ba2;
+    }
+    .table.il-sim-pending tbody tr.il-user-team-match {
+        background: linear-gradient(90deg, rgba(102, 126, 234, 0.12) 0%, rgba(118, 75, 162, 0.06) 100%);
+        box-shadow: inset 4px 0 0 0 rgba(102, 126, 234, 0.75);
+        transition: background 0.4s ease;
+    }
+    .table.il-sim-pending tbody tr.il-user-team-match:hover {
+        background: rgba(102, 126, 234, 0.18);
     }
     
     .game-score {
@@ -154,48 +362,459 @@
         border-radius: 12px;
         text-align: center;
     }
+    
+    /* User-team goal celebration overlay */
+    .il-user-goal-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 25000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 18, 10, 0.72);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.35s ease;
+    }
+    .il-user-goal-overlay.il-visible {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .il-user-goal-overlay.il-hiding {
+        opacity: 0;
+        pointer-events: none;
+    }
+    .il-user-goal-card {
+        position: relative;
+        width: min(92vw, 440px);
+        padding: 1.75rem 1.5rem 2rem;
+        border-radius: 24px;
+        background: linear-gradient(165deg, #063d22 0%, #0d7a45 38%, #084228 100%);
+        border: 3px solid #ffd700;
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.55), 0 0 40px rgba(255, 215, 0, 0.25);
+        text-align: center;
+        transform: scale(0.88) translateY(18px);
+        opacity: 0;
+        transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.35s ease;
+        overflow: hidden;
+    }
+    .il-user-goal-overlay.il-visible .il-user-goal-card {
+        transform: scale(1) translateY(0);
+        opacity: 1;
+    }
+    .il-user-goal-overlay.il-hiding .il-user-goal-card {
+        transform: scale(0.96) translateY(-8px);
+        opacity: 0;
+        transition: transform 0.45s ease, opacity 0.4s ease;
+    }
+    .il-goal-net {
+        height: 56px;
+        margin: 0 -1.5rem 0.75rem;
+        border-radius: 8px 8px 0 0;
+        background:
+            repeating-linear-gradient(90deg, transparent, transparent 12px, rgba(255,255,255,0.2) 12px, rgba(255,255,255,0.2) 13px),
+            repeating-linear-gradient(0deg, transparent, transparent 10px, rgba(255,255,255,0.12) 10px, rgba(255,255,255,0.12) 11px),
+            linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+        box-shadow: inset 0 -6px 16px rgba(0,0,0,0.25);
+    }
+    .il-goal-ball {
+        font-size: 3.25rem;
+        line-height: 1;
+        margin-bottom: 0.35rem;
+        display: inline-block;
+        filter: drop-shadow(0 6px 12px rgba(0,0,0,0.45));
+        animation: ilBallKick 0.85s cubic-bezier(0.34, 1.4, 0.64, 1) 0.1s both;
+    }
+    @keyframes ilBallKick {
+        0% { transform: translateX(-120%) translateY(20px) rotate(-25deg) scale(0.7); opacity: 0; }
+        40% { transform: translateX(0) translateY(0) rotate(12deg) scale(1.08); opacity: 1; }
+        65% { transform: translateX(4px) translateY(2px) rotate(-6deg) scale(1); }
+        100% { transform: translateX(0) translateY(0) rotate(0deg) scale(1); }
+    }
+    .il-user-goal-title {
+        font-size: clamp(2.75rem, 10vw, 3.75rem);
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        color: #fff;
+        text-transform: uppercase;
+        text-shadow: 0 4px 0 #0a4d2c, 0 0 28px rgba(255, 215, 0, 0.35);
+        margin: 0.25rem 0 0.5rem;
+        animation: ilGoalTextPop 0.6s ease 0.15s both;
+    }
+    @keyframes ilGoalTextPop {
+        0% { transform: scale(0.5); opacity: 0; }
+        70% { transform: scale(1.06); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    .il-user-goal-name {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #ffd700;
+        margin-bottom: 1rem;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    .il-user-goal-minute {
+        font-size: 0.9rem;
+        color: rgba(255,255,255,0.75);
+        margin-bottom: 1rem;
+    }
+    .il-user-goal-photo {
+        width: 128px;
+        height: 128px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 4px solid #ffd700;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+        background: #1a1a1a;
+        animation: ilPhotoReveal 0.65s ease 0.25s both;
+    }
+    @keyframes ilPhotoReveal {
+        from { transform: scale(0.7) rotate(-6deg); opacity: 0; }
+        to { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    .il-goal-score-strip {
+        margin-top: 1.25rem;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.22);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+    .il-goal-score-strip__side {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex: 1 1 120px;
+        min-width: 0;
+        justify-content: flex-start;
+    }
+    .il-goal-score-strip__side--away {
+        justify-content: flex-end;
+        flex-direction: row-reverse;
+        text-align: right;
+    }
+    .il-goal-crest {
+        width: 36px;
+        height: 36px;
+        object-fit: contain;
+        flex-shrink: 0;
+        filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+    }
+    .il-goal-score-strip__name {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.92);
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+    .il-goal-score-strip__score {
+        flex: 0 0 auto;
+        font-size: 1.65rem;
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.06em;
+        color: #fff;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.45);
+    }
+    .il-goal-score-strip__dash {
+        margin: 0 0.25em;
+        opacity: 0.85;
+        font-weight: 700;
+    }
+    .il-user-goal-overlay.il-goal-concede {
+        background: rgba(18, 0, 8, 0.78);
+    }
+    .il-user-goal-overlay.il-goal-concede .il-user-goal-card {
+        background: linear-gradient(165deg, #3a0a14 0%, #6b1528 42%, #3d0f18 100%);
+        border-color: #ff6b8a;
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.58), 0 0 38px rgba(255, 80, 100, 0.22);
+    }
+    .il-user-goal-overlay.il-goal-concede .il-user-goal-title {
+        text-shadow: 0 4px 0 #4a1520, 0 0 28px rgba(255, 120, 140, 0.35);
+    }
+    .il-user-goal-overlay.il-goal-concede .il-user-goal-name {
+        color: #ffb3c1;
+    }
+    .il-user-goal-overlay.il-goal-concede .il-user-goal-photo {
+        border-color: #ff6b8a;
+    }
+    .il-user-goal-overlay.il-red-card {
+        background: rgba(35, 0, 0, 0.78);
+    }
+    .il-user-goal-overlay.il-red-card .il-user-goal-card {
+        background: linear-gradient(165deg, #4a0000 0%, #8b0000 45%, #4d0000 100%);
+        border-color: #ff5a5a;
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.62), 0 0 42px rgba(255, 65, 65, 0.35);
+    }
+    .il-red-card-icon {
+        display: inline-block;
+        font-size: 3rem;
+        margin-bottom: 0.4rem;
+        animation: ilRedCardPop 0.5s ease both;
+        filter: drop-shadow(0 6px 10px rgba(0,0,0,0.42));
+    }
+    @keyframes ilRedCardPop {
+        0% { transform: scale(0.6) rotate(-12deg); opacity: 0; }
+        65% { transform: scale(1.08) rotate(6deg); opacity: 1; }
+        100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    .il-user-goal-overlay.il-red-card .il-user-goal-title {
+        color: #ffe3e3;
+        text-shadow: 0 4px 0 #5b0000, 0 0 28px rgba(255, 87, 87, 0.4);
+    }
+    .il-user-goal-overlay.il-red-card .il-user-goal-name {
+        color: #ffd0d0;
+    }
+    .il-user-goal-overlay.il-red-card .il-user-goal-photo {
+        border-color: #ff6b6b;
+    }
+    .il-user-goal-overlay.il-shootout {
+        background: rgba(12, 8, 40, 0.84);
+    }
+    .il-user-goal-overlay.il-shootout .il-user-goal-card {
+        background: linear-gradient(165deg, #1a0a3e 0%, #3d1a6b 42%, #1e1048 100%);
+        border-color: #d4af37;
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.58), 0 0 46px rgba(155, 89, 255, 0.32);
+    }
+    .il-user-goal-overlay.il-shootout .il-user-goal-title {
+        text-shadow: 0 4px 0 #2a1050, 0 0 28px rgba(200, 160, 255, 0.4);
+    }
+    .il-shootout-icon {
+        font-size: 3rem;
+        line-height: 1;
+        margin-bottom: 0.35rem;
+        display: inline-block;
+        animation: ilShootoutIconPop 0.55s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+        filter: drop-shadow(0 6px 14px rgba(0,0,0,0.45));
+    }
+    @keyframes ilShootoutIconPop {
+        0% { transform: scale(0.5) rotate(-8deg); opacity: 0; }
+        70% { transform: scale(1.08) rotate(4deg); opacity: 1; }
+        100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    .il-shootout-scoreline {
+        font-size: clamp(2.75rem, 11vw, 4.25rem);
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.08em;
+        color: #fff;
+        text-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 24px rgba(212, 175, 55, 0.35);
+        margin: 0.5rem 0 0.75rem;
+        animation: ilShootoutScorePop 0.65s ease 0.12s both;
+    }
+    @keyframes ilShootoutScorePop {
+        0% { transform: scale(0.65); opacity: 0; }
+        75% { transform: scale(1.04); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    .il-shootout-sep {
+        margin: 0 0.2em;
+        opacity: 0.88;
+        font-weight: 800;
+    }
+    .il-shootout-teams {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+        font-size: 0.88rem;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.88);
+        margin-bottom: 0.35rem;
+        line-height: 1.3;
+    }
+    .il-shootout-vs {
+        opacity: 0.65;
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+    }
+    .il-user-goal-overlay.il-shootout .il-user-goal-name.il-shootout-winner {
+        color: #f0d78c;
+        margin-top: 0.35rem;
+    }
+    .il-user-goal-overlay.il-shootout-kick .il-user-goal-card {
+        padding: 1.35rem 1.25rem 1.5rem;
+        border-width: 3px;
+    }
+    .il-user-goal-overlay.il-shootout-kick.il-shootout-kick--goal .il-user-goal-card {
+        border-color: #2ecc71;
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.55), 0 0 36px rgba(46, 204, 113, 0.28);
+    }
+    .il-user-goal-overlay.il-shootout-kick.il-shootout-kick--miss .il-user-goal-card {
+        border-color: #e74c3c;
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.55), 0 0 36px rgba(231, 76, 60, 0.22);
+    }
+    .il-shootout-kick-badge {
+        font-size: clamp(1.85rem, 7vw, 2.65rem);
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        margin: 0.35rem 0 0.5rem;
+        text-transform: uppercase;
+    }
+    .il-shootout-kick-badge--goal { color: #7fffba; text-shadow: 0 3px 0 #145a32, 0 0 20px rgba(127, 255, 186, 0.35); }
+    .il-shootout-kick-badge--miss { color: #ffb4a8; text-shadow: 0 3px 0 #5c1f18, 0 0 18px rgba(255, 120, 100, 0.3); }
+    .il-shootout-kick-running {
+        font-size: 1.05rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        color: rgba(255, 255, 255, 0.88);
+        margin-top: 0.35rem;
+    }
+    /* One continuous shootout: same overlay, content crossfades */
+    .il-user-goal-overlay.il-shootout-continuous {
+        background: rgba(10, 6, 36, 0.88);
+    }
+    .il-shootout-continuous-card {
+        min-height: 340px;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        transition: border-color 0.28s ease, box-shadow 0.28s ease;
+    }
+    .il-shootout-continuous-card.il-shootout-continuous-card--goal {
+        border-color: #2ecc71;
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.58), 0 0 40px rgba(46, 204, 113, 0.22);
+    }
+    .il-shootout-continuous-card.il-shootout-continuous-card--miss {
+        border-color: #e74c3c;
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.58), 0 0 38px rgba(231, 76, 60, 0.2);
+    }
+    .il-shootout-continuous-head-inner {
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    .il-shootout-continuous-tally {
+        font-size: clamp(2rem, 8vw, 3rem);
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.06em;
+        color: #fff;
+        text-align: center;
+        text-shadow: 0 3px 14px rgba(0,0,0,0.45);
+        margin: 0.35rem 0 0.75rem;
+        padding: 0.35rem 0.5rem;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.2);
+    }
+    .il-shootout-kick-stage {
+        flex: 1;
+        min-height: 200px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.3s ease;
+        opacity: 1;
+    }
+    .il-shootout-kick-stage-inner {
+        text-align: center;
+        width: 100%;
+    }
+    .il-shootout-continuous-foot {
+        text-align: center;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.55);
+        margin-top: 0.75rem;
+        padding-top: 0.65rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="simulation-header">
-    <h1>⚽ Elifoot Style - Round {{ round_number }} Simulation</h1>
-    <div class="timer-display" id="globalTimer">0'</div>
-</div>
+<header class="il-sim-hero">
+    <div class="il-sim-hero__noise" aria-hidden="true"></div>
+    <div class="container il-sim-hero__grid">
+        <div class="il-sim-hero__copy">
+            {% if games_simulated %}
+            <span class="il-sim-hero__badge"><span class="il-sim-hero__badge-dot" aria-hidden="true"></span> Live playback</span>
+            {% else %}
+            <span class="il-sim-hero__badge" style="background: linear-gradient(90deg, #a8b8ff, #d4c4ff);">Round ready</span>
+            {% endif %}
+            <h1 class="il-sim-hero__title">Cheiropeias · Round {{ round_number }}</h1>
+            <p class="il-sim-hero__sub">Multi-competition simulation — all fixtures on one timeline. {% if not games_simulated %}Confirm squads, then start when you’re ready.{% endif %}</p>
+        </div>
+        <div class="il-sim-clock-wrap">
+            <div class="il-sim-clock" id="ilSimClock" role="timer" aria-live="polite" aria-atomic="true"
+                 {% if games_simulated %}data-running="1"{% else %}data-running="0"{% endif %}>
+                <svg class="il-sim-clock__svg" viewBox="0 0 120 120" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="ilSimClockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#7cffb6"/>
+                            <stop offset="55%" stop-color="#5e9eff"/>
+                            <stop offset="100%" stop-color="#ffd700"/>
+                        </linearGradient>
+                    </defs>
+                    <circle class="il-sim-clock__track" cx="60" cy="60" r="54"/>
+                    <circle class="il-sim-clock__progress" id="ilSimClockRing" cx="60" cy="60" r="54"/>
+                </svg>
+                <div class="il-sim-clock__face">
+                    <div class="il-sim-clock__row">
+                        <span class="il-sim-clock__minute{% if not games_simulated %} il-sim-clock__minute--wide{% endif %}" id="ilSimClockMinute">{% if games_simulated %}00{% else %}—{% endif %}</span>
+                        {% if games_simulated %}<span class="il-sim-clock__prime" id="ilSimClockPrime">′</span>{% endif %}
+                    </div>
+                    <span class="il-sim-clock__phase" id="ilSimClockPhase">{% if games_simulated %}Kickoff{% else %}Awaiting start{% endif %}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
 
 <div class="container">
     {% if games_simulated %}
-        <!-- Games Table -->
-        <table class="games-table">
-            <thead>
-                <tr>
-                    <th>Competition</th>
-                    <th>Home Team</th>
-                    <th>Score</th>
-                    <th>Away Team</th>
-                    <th>Picture</th>
-                    <th>Last Scorer</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="gamesTableBody">
-                {% for competition_name, games in games_by_competition.items() %}
-                    {% for game in games %}
-                    <tr data-game-id="{{ game.id }}">
-                        <td><strong>{{ competition_name }}</strong></td>
-                        <td>{{ game.home_team_name }}</td>
-                        <td class="game-score" id="score-{{ game.id }}">0 - 0</td>
-                        <td>{{ game.away_team_name }}</td>
-                        <td class="game-scorer-picture" id="picture-{{ game.id }}"></td>
-                        <td class="game-scorers" id="scorers-{{ game.id }}"></td>
-                        <td>
-                            <a href="{{ url_for('view_inter_league_game', game_id=game.id) }}" class="btn btn-sm btn-primary manage-btn" id="manage-{{ game.id }}" style="pointer-events: none; opacity: 0.5; cursor: not-allowed;">⚙️ Manage</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                {% endfor %}
-            </tbody>
-        </table>
+        <!-- One table per competition -->
+        <div id="gamesTablesWrap">
+            {% for competition_name, games in games_by_competition.items() %}
+            <section class="il-comp-section" data-competition-id="{{ games[0].competition_id }}" data-competition-name="{{ competition_name|e }}">
+                <h3 class="il-comp-heading">{{ competition_name }} <span style="opacity:0.9;font-weight:400;font-size:0.9rem;">({{ games|length }} {% if games|length == 1 %}match{% else %}matches{% endif %})</span></h3>
+                <table class="games-table">
+                    <thead>
+                        <tr>
+                            <th>Home Team</th>
+                            <th>Score</th>
+                            <th>Away Team</th>
+                            <th>Picture</th>
+                            <th>Last Scorer</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for game in games %}
+                        <tr data-game-id="{{ game.id }}" class="{% if game.home_is_user_team or game.away_is_user_team %}il-user-team-match{% endif %}">
+                            <td>
+                                {{ game.home_team_name }}
+                                {% if game.home_is_user_team %}<span class="badge badge-primary ml-1" style="font-size:0.65rem;vertical-align:middle;">User</span>{% endif %}
+                            </td>
+                            <td class="game-score" id="score-{{ game.id }}">0 - 0</td>
+                            <td>
+                                {{ game.away_team_name }}
+                                {% if game.away_is_user_team %}<span class="badge badge-primary ml-1" style="font-size:0.65rem;vertical-align:middle;">User</span>{% endif %}
+                            </td>
+                            <td class="game-scorer-picture" id="picture-{{ game.id }}"></td>
+                            <td class="game-scorers" id="scorers-{{ game.id }}"></td>
+                            <td>
+                                <a href="{{ url_for('view_inter_league_game', game_id=game.id) }}" class="btn btn-sm btn-primary manage-btn" id="manage-{{ game.id }}" style="pointer-events: none; opacity: 0.5; cursor: not-allowed;">⚙️ Manage</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            {% endfor %}
+        </div>
         
         <!-- Next Round Section -->
         <div class="next-round-section">
@@ -204,7 +823,7 @@
             <div style="margin-top: 20px;">
                 <a href="{{ url_for('inter_leagues') }}" class="btn btn-secondary">Back to Inter-Leagues</a>
                 {% if next_round_number %}
-                <a href="{{ url_for('simulate_all_round1', round_number=next_round_number) }}" class="btn btn-primary" style="margin-left: 10px;">▶️ Simulate Round {{ next_round_number }}</a>
+                <a href="{{ url_for('prepare_inter_league_simulate_round', round_number=next_round_number) }}" class="btn btn-primary" style="margin-left: 10px;">▶️ Simulate Round {{ next_round_number }}</a>
                 {% endif %}
             </div>
         </div>
@@ -220,7 +839,7 @@
                 <span class="badge badge-info">{{ games|length }} games</span>
             </div>
             <div class="card-body">
-                <table class="table table-striped">
+                <table class="table table-striped il-sim-pending">
                     <thead>
                         <tr>
                             <th>Home Team</th>
@@ -230,9 +849,15 @@
                     </thead>
                     <tbody>
                         {% for game in games %}
-                        <tr>
-                            <td>{{ game.home_team_name }}</td>
-                            <td>{{ game.away_team_name }}</td>
+                        <tr class="{% if game.home_is_user_team or game.away_is_user_team %}il-user-team-match{% endif %}">
+                            <td>
+                                {{ game.home_team_name }}
+                                {% if game.home_is_user_team %}<span class="badge badge-primary ml-1" style="font-size:0.65rem;vertical-align:middle;">User</span>{% endif %}
+                            </td>
+                            <td>
+                                {{ game.away_team_name }}
+                                {% if game.away_is_user_team %}<span class="badge badge-primary ml-1" style="font-size:0.65rem;vertical-align:middle;">User</span>{% endif %}
+                            </td>
                             <td>
                                 <a href="{{ url_for('view_inter_league_prematch', game_id=game.id) }}" class="btn btn-sm btn-info">📋 Pre-match</a>
                             </td>
@@ -253,7 +878,30 @@
 {% if games_simulated %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const globalTimer = document.getElementById('globalTimer');
+    var IL_SIM_RING_LEN = 2 * Math.PI * 54;
+    function ilUpdateMatchClock(minuteStr, phaseStr, progress01) {
+        var minEl = document.getElementById('ilSimClockMinute');
+        var phaseEl = document.getElementById('ilSimClockPhase');
+        var ring = document.getElementById('ilSimClockRing');
+        var clock = document.getElementById('ilSimClock');
+        if (minEl) {
+            minEl.textContent = minuteStr;
+            minEl.classList.toggle('il-sim-clock__minute--wide', minuteStr.length > 2);
+            minEl.classList.remove('il-tick');
+            void minEl.offsetWidth;
+            minEl.classList.add('il-tick');
+        }
+        if (phaseEl) phaseEl.textContent = phaseStr;
+        if (ring && typeof progress01 === 'number' && !isNaN(progress01)) {
+            var p = Math.max(0, Math.min(1, progress01));
+            ring.style.strokeDashoffset = String(IL_SIM_RING_LEN * (1 - p));
+        }
+        if (clock) clock.setAttribute('aria-label', minuteStr + ' — ' + phaseStr);
+        var prime = document.getElementById('ilSimClockPrime');
+        if (prime) {
+            prime.style.visibility = /^\d{1,2}$/.test(minuteStr) ? 'visible' : 'hidden';
+        }
+    }
     
     // Collect all events from the page
     const allEvents = [];
@@ -264,7 +912,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 {% for event in game.events %}
                     {% set _ = all_events.append({
                         'minute': event.minute,
+                        'minute_sort': event.get('minute_sort', event.minute),
                         'game_id': game.id,
+                        'competition_name': game.competition_name,
+                        'competition_id': game.competition_id,
                         'player_id': event.get('player_id'),
                         'player_name': event.get('player_name', ''),
                         'assist_player_id': event.get('assist_player_id'),
@@ -276,7 +927,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         'team_name': event.get('team_name', ''),
                         'players': event.get('players', []),
                         'home_penalties': event.get('home_penalties'),
-                        'away_penalties': event.get('away_penalties')
+                        'away_penalties': event.get('away_penalties'),
+                        'scored': event.get('scored'),
+                        'shootout_finalize': event.get('shootout_finalize', False),
+                        'kick_index': event.get('kick_index'),
+                        'home_pens_after': event.get('home_pens_after'),
+                        'away_pens_after': event.get('away_pens_after'),
+                        'is_successful': event.get('is_successful'),
+                        'special_event_pre_resolved': event.get('special_event_pre_resolved', False),
+                        'suppress_score_increment': event.get('suppress_score_increment', False),
+                        'is_user_team_goal': (event.team == 'home' and game.home_is_user_team) or (event.team == 'away' and game.away_is_user_team),
+                        'is_user_team_concede': (event.team == 'home' and game.away_is_user_team) or (event.team == 'away' and game.home_is_user_team),
+                        'is_user_team_card': (event.team == 'home' and game.home_is_user_team) or (event.team == 'away' and game.away_is_user_team)
                     }) %}
                 {% endfor %}
             {% endif %}
@@ -285,26 +947,59 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Store events in JavaScript
     const eventsData = [
-        {% for event in all_events|sort(attribute='minute') %}
+        {% for event in all_events|sort(attribute='minute_sort') %}
         {
-            minute: {{ event.minute }},
-            gameId: {{ event.game_id }},
-            playerId: {{ event.player_id if event.player_id else 'null' }},
-            playerName: {% if event.player_name %}"{{ event.player_name|replace('"', '\\"') }}"{% else %}null{% endif %},
-            assistPlayerId: {{ event.assist_player_id if event.assist_player_id else 'null' }},
-            assistPlayerName: {% if event.assist_player_name %}"{{ event.assist_player_name|replace('"', '\\"') }}"{% else %}null{% endif %},
-            team: "{{ event.team }}",
-            type: "{{ event.type }}",
-            weeks: {{ event.weeks if event.weeks else 0 }},
-            needsUserInput: {{ 'true' if event.needs_user_input else 'false' }},
-            teamName: {% if event.team_name %}"{{ event.team_name|replace('"', '\\"') }}"{% else %}null{% endif %},
-            players: {{ event.players|tojson if event.players else '[]' }}
+            minute: {{ event.minute | tojson }},
+            gameId: {{ event.game_id | tojson }},
+            competitionId: {{ event.competition_id | tojson }},
+            competitionName: {{ event.competition_name | tojson }},
+            playerId: {{ event.player_id | tojson }},
+            playerName: {{ event.player_name | tojson }},
+            assistPlayerId: {{ event.assist_player_id | tojson }},
+            assistPlayerName: {{ event.assist_player_name | tojson }},
+            team: {{ event.team | tojson }},
+            type: {{ event.type | tojson }},
+            weeks: {{ event.weeks | tojson }},
+            needsUserInput: {{ event.needs_user_input | tojson }},
+            teamName: {{ event.team_name | tojson }},
+            players: {{ event.players | tojson }},
+            isUserTeamGoal: {{ event.is_user_team_goal | tojson }},
+            isUserTeamConcede: {{ event.is_user_team_concede | tojson }},
+            isUserTeamCard: {{ event.is_user_team_card | tojson }},
+            isSuccessful: {{ event.is_successful | tojson }},
+            specialEventPreResolved: {{ event.get('special_event_pre_resolved', False) | tojson }},
+            suppressScoreIncrement: {{ event.suppress_score_increment | tojson }},
+            homePenalties: {{ event.home_penalties | tojson }},
+            awayPenalties: {{ event.away_penalties | tojson }},
+            scored: {{ event.get('scored') | tojson }},
+            shootoutFinalize: {{ event.get('shootout_finalize', False) | tojson }},
+            kickIndex: {{ event.get('kick_index') | tojson }},
+            homePensAfter: {{ event.get('home_pens_after') | tojson }},
+            awayPensAfter: {{ event.get('away_pens_after') | tojson }}
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
     
     console.log('Total events loaded:', eventsData.length);
     console.log('Penalty events:', eventsData.filter(e => e.type === 'penalty'));
+    
+    /** During playback: emphasize the competition block + row for this fixture */
+    function ilFocusSimGame(gameId) {
+        if (!gameId) return;
+        const row = document.querySelector('tr[data-game-id="' + gameId + '"]');
+        if (!row) return;
+        const section = row.closest('.il-comp-section');
+        document.querySelectorAll('.il-comp-section.il-sim-active').forEach(function(el) {
+            el.classList.remove('il-sim-active');
+        });
+        document.querySelectorAll('tr.il-sim-row-pulse').forEach(function(el) {
+            el.classList.remove('il-sim-row-pulse');
+        });
+        if (section) section.classList.add('il-sim-active');
+        void row.offsetWidth;
+        row.classList.add('il-sim-row-pulse');
+        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
     
     // Initialize game scores
     const gameScores = {};
@@ -315,6 +1010,45 @@ document.addEventListener('DOMContentLoaded', function() {
         lastScorer[{{ game.id }}] = null;
         {% endfor %}
     {% endfor %}
+    
+    const ilGameMeta = {{ (il_game_meta or {})|tojson }};
+    let deferredEtGameIds = {{ (deferred_et_game_ids or [])|tojson }};
+    let deferredEtFetchStarted = false;
+    let pendingIlSpecialSaves = [];
+
+    function ilTrackSpecialSave(promise) {
+        pendingIlSpecialSaves.push(
+            Promise.resolve(promise).catch(function(err) {
+                console.error('Error saving special event result:', err);
+            })
+        );
+    }
+    function ilEscapeHtml(str) {
+        if (str == null || str === '') return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+    function ilBuildGoalScoreStrip(gameId) {
+        var gm = ilGameMeta[gameId] || ilGameMeta[String(gameId)];
+        var sc = gameScores[gameId];
+        if (!gm || !sc) return '';
+        var hName = ilEscapeHtml(gm.homeTeamName || 'Home');
+        var aName = ilEscapeHtml(gm.awayTeamName || 'Away');
+        function crest(tid) {
+            if (tid == null || tid === '') return '';
+            return '<img class="il-goal-crest" src="/team_symbol/' + tid + '" width="36" height="36" alt="" onerror="this.style.opacity=\'0.35\';this.onerror=null;" />';
+        }
+        return (
+            '<div class="il-goal-score-strip">' +
+            '<div class="il-goal-score-strip__side">' + crest(gm.homeTeamId) + '<span class="il-goal-score-strip__name">' + hName + '</span></div>' +
+            '<div class="il-goal-score-strip__score"><span>' + sc.home + '</span><span class="il-goal-score-strip__dash">–</span><span>' + sc.away + '</span></div>' +
+            '<div class="il-goal-score-strip__side il-goal-score-strip__side--away">' + crest(gm.awayTeamId) + '<span class="il-goal-score-strip__name">' + aName + '</span></div>' +
+            '</div>'
+        );
+    }
     
     // Update score display
     function updateScoreDisplay(gameId) {
@@ -344,6 +1078,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     else if (event.type === 'yellow_card') borderColor = '#ffc107';
                     else if (event.type === 'red_card') borderColor = '#dc3545';
                     else if (event.type === 'injury') borderColor = '#17a2b8';
+                    else if (event.type === 'penalty_shootout_kick') borderColor = event.scored ? '#28a745' : '#dc3545';
                     
                     const imgHtml = `<img src="/player_image/${event.playerId}" 
                                                 style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid ${borderColor};"
@@ -379,6 +1114,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const eventName = event.type === 'penalty_goal' ? 'Penalty' : event.type === 'hail_mary_corner_goal' ? 'Hail-Mary Corner' : 'Free-Kick';
                 html = `<div class="scorer-name-time">⚽ ${event.playerName || (event.team === 'home' ? 'Home' : 'Away')} <span class="scorer-minute">${event.minute}'</span></div>`;
                 html += `<div class="scorer-assist">${eventName} - GOAL! 🎉</div>`;
+                if (event.type === 'hail_mary_corner_goal' && event.assistPlayerName) {
+                    html += `<div class="scorer-assist">Corner by: ${event.assistPlayerName}</div>`;
+                }
             } else if (event.type === 'penalty_miss' || event.type === 'hail_mary_corner_miss' || event.type === 'dangerous_free_kick_miss') {
                 // Picture already updated in the main picture update logic above (if playerId exists)
                 const eventName = event.type === 'penalty_miss' ? 'Penalty' : event.type === 'hail_mary_corner_miss' ? 'Hail-Mary Corner' : 'Free-Kick';
@@ -387,6 +1125,10 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (event.type === 'extra_time') {
                 html = `<div class="scorer-name-time">⏱️ <span class="scorer-minute">90'</span></div>`;
                 html += `<div class="scorer-assist">Extra Time Begins!</div>`;
+            } else if (event.type === 'penalty_shootout_kick') {
+                const lbl = event.scored ? 'Scored' : 'Missed';
+                html = `<div class="scorer-name-time">🎯 ${event.playerName || 'Player'} <span class="scorer-minute">120'</span></div>`;
+                html += `<div class="scorer-assist">Shootout ${event.homePenalties || 0}-${event.awayPenalties || 0} · ${lbl}</div>`;
             } else if (event.type === 'penalty_shootout') {
                 html = `<div class="scorer-name-time">🎯 <span class="scorer-minute">120'</span></div>`;
                 html += `<div class="scorer-assist">Penalty Shootout: ${event.homePenalties || 0}-${event.awayPenalties || 0}</div>`;
@@ -405,27 +1147,636 @@ document.addEventListener('DOMContentLoaded', function() {
     let eventIndex = 0;
     const eventDelay = 1500; // 1.5 seconds between events
     
+    function ilFinishSimulationPlayback() {
+        let hasExtraTime = false;
+        for (let i = 0; i < eventsData.length; i++) {
+            if (eventsData[i].type === 'extra_time' || eventsData[i].type === 'penalty_shootout') {
+                hasExtraTime = true;
+                break;
+            }
+        }
+        if (hasExtraTime) {
+            ilUpdateMatchClock('FT', 'Full time · After extra time', 1);
+        } else {
+            ilUpdateMatchClock('FT', 'Full time · 90 minutes', 1);
+        }
+        document.querySelectorAll('.manage-btn').forEach(btn => {
+            btn.classList.add('visible');
+            btn.style.pointerEvents = 'auto';
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+        });
+        document.querySelectorAll('.il-comp-section.il-sim-active').forEach(function(el) {
+            el.classList.remove('il-sim-active');
+        });
+        document.querySelectorAll('tr.il-sim-row-pulse').forEach(function(el) {
+            el.classList.remove('il-sim-row-pulse');
+        });
+    }
+
+    function ilFetchDeferredKnockoutEt(thenContinue) {
+        if (!deferredEtGameIds.length || deferredEtFetchStarted) {
+            Promise.all(pendingIlSpecialSaves).finally(function() {
+                pendingIlSpecialSaves = [];
+                if (thenContinue) thenContinue();
+            });
+            return;
+        }
+        deferredEtFetchStarted = true;
+        Promise.all(pendingIlSpecialSaves).then(function() {
+            pendingIlSpecialSaves = [];
+            return fetch('{{ url_for("resolve_deferred_knockout_et") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ game_ids: deferredEtGameIds })
+            });
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.success && data.games) {
+                data.games.forEach(function(g) {
+                    if (g.events && g.events.length) {
+                        g.events.forEach(function(ev) { eventsData.push(ev); });
+                    }
+                });
+                eventsData.sort(function(a, b) {
+                    var ma = Number(a.minute) || 0;
+                    var mb = Number(b.minute) || 0;
+                    if (ma !== mb) return ma - mb;
+                    return String(a.type).localeCompare(String(b.type));
+                });
+            }
+            deferredEtGameIds = [];
+            if (thenContinue) thenContinue();
+        })
+        .catch(function(err) {
+            console.error('Deferred knockout ET failed:', err);
+            deferredEtGameIds = [];
+            if (thenContinue) thenContinue();
+        });
+    }
+
+    function advanceAfterEvent() {
+        eventIndex++;
+        if (eventIndex < eventsData.length) {
+            var prevEv = eventsData[eventIndex - 1];
+            var dly = (prevEv && prevEv.type === 'il_minute_tick') ? 320 : eventDelay;
+            setTimeout(processNextEvent, dly);
+        } else if (deferredEtGameIds.length && !deferredEtFetchStarted) {
+            ilFetchDeferredKnockoutEt(function() {
+                if (eventIndex < eventsData.length) {
+                    setTimeout(processNextEvent, eventDelay);
+                } else {
+                    ilFinishSimulationPlayback();
+                }
+            });
+        } else {
+            ilFinishSimulationPlayback();
+        }
+    }
+
+    // Lightweight procedural SFX (works without media files).
+    let ilAudioCtx = null;
+    function getIlAudioCtx() {
+        if (!ilAudioCtx) {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) return null;
+            ilAudioCtx = new Ctx();
+        }
+        return ilAudioCtx;
+    }
+    /** Resume audio after tab refresh (browsers often start suspended until user gesture). */
+    function resumeIlAudio() {
+        const ctx = getIlAudioCtx();
+        if (ctx && ctx.state === 'suspended') {
+            ctx.resume().catch(function() {});
+        }
+    }
+    document.addEventListener('click', resumeIlAudio, true);
+    document.addEventListener('keydown', resumeIlAudio, true);
+    document.addEventListener('touchstart', resumeIlAudio, true);
+
+    /** Player stat from API/JSON (handles odd casing). */
+    function ilPlayerStat(player) {
+        var keys = Array.prototype.slice.call(arguments, 1);
+        for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            if (player[k] != null && player[k] !== '') {
+                var n = Number(player[k]);
+                return isNaN(n) ? 50 : n;
+            }
+        }
+        return 50;
+    }
+    function ilPlayerFaceUrl(playerId) {
+        return '/player_image/' + playerId;
+    }
+    function ilPlayerFaceHtml(playerId, size) {
+        size = size || 48;
+        var url = ilPlayerFaceUrl(playerId);
+        var fb = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22%3E%3Crect width=%2248%22 height=%2248%22 fill=%22%23e9ecef%22/%3E%3Ctext x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 font-size=%2218%22%3E%E2%9A%BD%3C/text%3E%3C/svg%3E";
+        return '<img src="' + url + '" alt="" width="' + size + '" height="' + size + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #dee2e6;" onerror="this.onerror=null;this.src=\'' + fb + '\';" />';
+    }
+    function playGoalSound() {
+        const ctx = getIlAudioCtx();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        const now = ctx.currentTime;
+        const notes = [392, 523.25, 659.25];
+        notes.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.11);
+            gain.gain.setValueAtTime(0.0001, now + idx * 0.11);
+            gain.gain.exponentialRampToValueAtTime(0.23, now + idx * 0.11 + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.11 + 0.32);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.11);
+            osc.stop(now + idx * 0.11 + 0.35);
+        });
+    }
+    /** Downbeat / negative cue when your team concedes (contrast with playGoalSound). */
+    function playConcedeGoalSound() {
+        const ctx = getIlAudioCtx();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        const now = ctx.currentTime;
+        const notes = [349.23, 293.66, 246.94];
+        notes.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.14);
+            gain.gain.setValueAtTime(0.0001, now + idx * 0.14);
+            gain.gain.exponentialRampToValueAtTime(0.16, now + idx * 0.14 + 0.04);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.14 + 0.45);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.14);
+            osc.stop(now + idx * 0.14 + 0.5);
+        });
+    }
+    function playWhistleSound() {
+        const ctx = getIlAudioCtx();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(1460, now);
+        osc.frequency.linearRampToValueAtTime(1760, now + 0.08);
+        osc.frequency.linearRampToValueAtTime(1320, now + 0.18);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.22, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.28);
+    }
+    function playMissSound() {
+        const ctx = getIlAudioCtx();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(90, now + 0.12);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.14, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.2);
+    }
+    /** Penalty shootout: bright net + sting (distinct from open-play goal). */
+    function playPenaltyShootoutGoalSound() {
+        const ctx = getIlAudioCtx();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        const now = ctx.currentTime;
+        const freqs = [440, 554.37, 659.25];
+        freqs.forEach(function(freq, i) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + i * 0.045);
+            gain.gain.setValueAtTime(0.0001, now + i * 0.045);
+            gain.gain.exponentialRampToValueAtTime(0.2, now + i * 0.045 + 0.025);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.045 + 0.38);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.045);
+            osc.stop(now + i * 0.045 + 0.42);
+        });
+        const n = ctx.createBufferSource();
+        const ng = ctx.createGain();
+        const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.08), ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (var b = 0; b < d.length; b++) {
+            d[b] = (Math.random() * 2 - 1) * (1 - b / d.length);
+        }
+        n.buffer = buf;
+        ng.gain.setValueAtTime(0.0001, now + 0.02);
+        ng.gain.exponentialRampToValueAtTime(0.09, now + 0.035);
+        ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+        n.connect(ng);
+        ng.connect(ctx.destination);
+        n.start(now + 0.02);
+    }
+    /** Penalty shootout: post/crossbar + dull thud (distinct from generic miss). */
+    function playPenaltyShootoutMissSound() {
+        const ctx = getIlAudioCtx();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        const now = ctx.currentTime;
+        function ping(freq, t0, dur, vol) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(freq, t0);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.65, t0 + dur);
+            gain.gain.setValueAtTime(0.0001, t0);
+            gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(t0);
+            osc.stop(t0 + dur + 0.02);
+        }
+        ping(620, now, 0.07, 0.11);
+        ping(380, now + 0.09, 0.11, 0.09);
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(120, now + 0.05);
+        osc.frequency.exponentialRampToValueAtTime(55, now + 0.32);
+        gain.gain.setValueAtTime(0.0001, now + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.16, now + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + 0.05);
+        osc.stop(now + 0.38);
+    }
+    
+    /**
+     * Full-screen goal moment for your team scoring (mode score) or conceding to the CPU (mode concede).
+     * Shows current match score with team names and crests below the main content.
+     */
+    function showUserGoalCelebration(event, callback, mode) {
+        mode = mode || 'score';
+        var isConcede = mode === 'concede';
+        if (isConcede) playConcedeGoalSound();
+        else playGoalSound();
+        const overlay = document.createElement('div');
+        overlay.className = 'il-user-goal-overlay' + (isConcede ? ' il-goal-concede' : '');
+        overlay.setAttribute('role', 'presentation');
+        const imgSrc = '/player_image/' + event.playerId;
+        const safeName = (event.playerName || 'Scorer').replace(/</g, '');
+        var stripHtml = (event.gameId != null) ? ilBuildGoalScoreStrip(event.gameId) : '';
+        var titleHtml = isConcede ? 'Goal conceded' : 'Goal!';
+        var netBall = isConcede ? '' : '<div class="il-goal-net"></div><div class="il-goal-ball" aria-hidden="true">⚽</div>';
+        var nameLine = isConcede ? ('Scored by ' + safeName) : safeName;
+        overlay.innerHTML = `
+            <div class="il-user-goal-card">
+                ${netBall}
+                <div class="il-user-goal-title">${titleHtml}</div>
+                <div class="il-user-goal-minute">${event.minute}&rsquo;</div>
+                <div class="il-user-goal-name">${nameLine}</div>
+                <img class="il-user-goal-photo" src="${imgSrc}" alt="" width="128" height="128"
+                    onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22128%22 height=%22128%22%3E%3Crect width=%22128%22 height=%22128%22 fill=%22%23222%22/%3E%3Ctext x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23ffd700%22 font-size=%2248%22%3E%E2%9A%BD%3C/text%3E%3C/svg%3E';" />
+                ${stripHtml}
+            </div>`;
+        document.body.appendChild(overlay);
+        requestAnimationFrame(function() {
+            overlay.classList.add('il-visible');
+        });
+        const dismissMs = 2400;
+        setTimeout(function() {
+            overlay.classList.add('il-hiding');
+            var done = false;
+            function finish() {
+                if (done) return;
+                done = true;
+                overlay.remove();
+                callback();
+            }
+            overlay.addEventListener('transitionend', function te(ev) {
+                if (ev.target === overlay) finish();
+            });
+            setTimeout(finish, 600);
+        }, dismissMs);
+    }
+
+    function showUserRedCardAlert(event, callback) {
+        resumeIlAudio();
+        playWhistleSound();
+        const overlay = document.createElement('div');
+        overlay.className = 'il-user-goal-overlay il-red-card';
+        overlay.setAttribute('role', 'presentation');
+        const imgSrc = event.playerId ? ('/player_image/' + event.playerId) : '';
+        const safeName = (event.playerName || 'Player').replace(/</g, '');
+        const imgTag = imgSrc
+            ? `<img class="il-user-goal-photo" src="${imgSrc}" alt="" width="128" height="128"
+                    onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22128%22 height=%22128%22%3E%3Crect width=%22128%22 height=%22128%22 fill=%22%23222%22/%3E%3Ctext x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23ff6b6b%22 font-size=%2248%22%3E%F0%9F%94%B4%3C/text%3E%3C/svg%3E';" />`
+            : '';
+        overlay.innerHTML = `
+            <div class="il-user-goal-card">
+                <div class="il-red-card-icon" aria-hidden="true">🟥</div>
+                <div class="il-user-goal-title">Red Card</div>
+                <div class="il-user-goal-minute">${event.minute}&rsquo;</div>
+                <div class="il-user-goal-name">${safeName} is sent off</div>
+                ${imgTag}
+            </div>`;
+        document.body.appendChild(overlay);
+        requestAnimationFrame(function() {
+            overlay.classList.add('il-visible');
+        });
+        const dismissMs = 2000;
+        setTimeout(function() {
+            overlay.classList.add('il-hiding');
+            var done = false;
+            function finish() {
+                if (done) return;
+                done = true;
+                overlay.remove();
+                callback();
+            }
+            overlay.addEventListener('transitionend', function(ev) {
+                if (ev.target === overlay) finish();
+            });
+            setTimeout(finish, 600);
+        }, dismissMs);
+    }
+
+    /**
+     * One full-screen overlay for the entire shootout: tally + kick area crossfade between takers,
+     * single open/close so playback feels continuous.
+     */
+    function runContinuousPenaltyShootout(gameId, kicks, callback) {
+        if (!kicks || kicks.length === 0) {
+            callback();
+            return;
+        }
+        resumeIlAudio();
+        playWhistleSound();
+        var gm = ilGameMeta[gameId] || ilGameMeta[String(gameId)];
+        var hName = gm ? ilEscapeHtml(gm.homeTeamName || 'Home') : 'Home';
+        var aName = gm ? ilEscapeHtml(gm.awayTeamName || 'Away') : 'Away';
+
+        var overlay = document.createElement('div');
+        overlay.className = 'il-user-goal-overlay il-shootout il-shootout-continuous';
+        overlay.setAttribute('role', 'presentation');
+
+        var card = document.createElement('div');
+        card.className = 'il-user-goal-card il-shootout-continuous-card il-shootout-continuous-card--goal';
+
+        var head = document.createElement('div');
+        head.className = 'il-shootout-continuous-head-inner';
+        head.innerHTML =
+            '<div class="il-shootout-icon" aria-hidden="true">🎯</div>' +
+            '<div class="il-user-goal-title" style="font-size:clamp(1.45rem,5vw,1.95rem);">Penalty shootout</div>' +
+            '<div class="il-shootout-teams"><span>' + hName + '</span><span class="il-shootout-vs">vs</span><span>' + aName + '</span></div>';
+
+        var tallyEl = document.createElement('div');
+        tallyEl.className = 'il-shootout-continuous-tally';
+        tallyEl.textContent = '0 – 0';
+
+        var stage = document.createElement('div');
+        stage.className = 'il-shootout-kick-stage';
+
+        card.appendChild(head);
+        card.appendChild(tallyEl);
+        card.appendChild(stage);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+
+        requestAnimationFrame(function() {
+            overlay.classList.add('il-visible');
+        });
+
+        var postWhistleMs = 520;
+        var fadeOutMs = 300;
+        var fadeInMs = 320;
+        var afterPaintMs = 100;
+        var kickHoldMs = 1250;
+        var afterLastMs = 900;
+        var idx = 0;
+
+        function buildKickHtml(ev) {
+            var teamLabel = (ev.team === 'home') ? hName : aName;
+            var safeName = (ev.playerName || 'Player').replace(/</g, '');
+            var resultHtml = ev.scored
+                ? '<div class="il-shootout-kick-badge il-shootout-kick-badge--goal">Scored</div>'
+                : '<div class="il-shootout-kick-badge il-shootout-kick-badge--miss">Missed</div>';
+            var imgSrc = ev.playerId ? ('/player_image/' + ev.playerId) : '';
+            var imgTag = imgSrc
+                ? '<img class="il-user-goal-photo" src="' + imgSrc + '" alt="" width="112" height="112" style="width:112px;height:112px;margin:0.5rem auto 0;display:block;" onerror="this.onerror=null;this.src=\'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22112%22 height=%22112%22%3E%3Crect width=%22112%22 height=%22112%22 fill=%22%23222%22/%3E%3Ctext x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23d4af37%22 font-size=%2240%22%3E%E2%9A%BD%3C/text%3E%3C/svg%3E\';" />'
+                : '';
+            return '<div class="il-shootout-kick-stage-inner">' +
+                '<div class="il-user-goal-title" style="font-size:clamp(1.2rem,4vw,1.55rem);">' + teamLabel + '</div>' +
+                '<div class="il-user-goal-minute">120&rsquo; · Taker</div>' +
+                '<div class="il-user-goal-name">' + safeName + '</div>' +
+                resultHtml + imgTag + '</div>';
+        }
+
+        function setCardBorder(ev) {
+            card.classList.remove('il-shootout-continuous-card--goal', 'il-shootout-continuous-card--miss');
+            card.classList.add(ev.scored ? 'il-shootout-continuous-card--goal' : 'il-shootout-continuous-card--miss');
+        }
+
+        function finishAndExit() {
+            overlay.classList.add('il-hiding');
+            var done = false;
+            function finish() {
+                if (done) return;
+                done = true;
+                overlay.remove();
+                callback();
+            }
+            overlay.addEventListener('transitionend', function(ev) {
+                if (ev.target === overlay) finish();
+            });
+            setTimeout(finish, 600);
+        }
+
+        function step() {
+            if (idx >= kicks.length) {
+                setTimeout(finishAndExit, afterLastMs);
+                return;
+            }
+            var ev = kicks[idx];
+
+            function afterReveal() {
+                lastScorer[gameId] = {
+                    playerId: ev.playerId,
+                    playerName: ev.playerName,
+                    minute: 120,
+                    type: 'penalty_shootout_kick',
+                    team: ev.team,
+                    scored: ev.scored,
+                    homePenalties: ev.homePensAfter,
+                    awayPenalties: ev.awayPensAfter
+                };
+                updateLastScorerDisplay(gameId);
+                var hp = Number(ev.homePensAfter);
+                var ap = Number(ev.awayPensAfter);
+                if (isNaN(hp)) hp = 0;
+                if (isNaN(ap)) ap = 0;
+                tallyEl.textContent = hp + ' – ' + ap;
+                if (ev.scored) playPenaltyShootoutGoalSound();
+                else playPenaltyShootoutMissSound();
+                idx++;
+                setTimeout(step, kickHoldMs);
+            }
+
+            function scheduleAfterPaint() {
+                requestAnimationFrame(function() {
+                    requestAnimationFrame(function() {
+                        setTimeout(afterReveal, afterPaintMs);
+                    });
+                });
+            }
+
+            if (idx === 0) {
+                stage.innerHTML = buildKickHtml(ev);
+                setCardBorder(ev);
+                scheduleAfterPaint();
+                return;
+            }
+            stage.style.opacity = '0';
+            setTimeout(function() {
+                stage.innerHTML = buildKickHtml(ev);
+                setCardBorder(ev);
+                stage.style.opacity = '1';
+                setTimeout(scheduleAfterPaint, fadeInMs);
+            }, fadeOutMs);
+        }
+
+        setTimeout(function() {
+            step();
+        }, postWhistleMs);
+    }
+    
+    /** Full-screen moment when a knockout is decided on penalties (inter-leagues simulate-all). */
+    function showPenaltyShootoutOverlay(event, callback) {
+        resumeIlAudio();
+        playWhistleSound();
+        var hp = Number(event.homePenalties);
+        var ap = Number(event.awayPenalties);
+        if (isNaN(hp)) hp = 0;
+        if (isNaN(ap)) ap = 0;
+        var gm = ilGameMeta[event.gameId] || ilGameMeta[String(event.gameId)];
+        var hName = gm ? ilEscapeHtml(gm.homeTeamName || 'Home') : 'Home';
+        var aName = gm ? ilEscapeHtml(gm.awayTeamName || 'Away') : 'Away';
+        var winnerLine = '';
+        if (hp > ap) {
+            winnerLine = '<div class="il-user-goal-name il-shootout-winner">' + hName + ' win on penalties</div>';
+        } else if (ap > hp) {
+            winnerLine = '<div class="il-user-goal-name il-shootout-winner">' + aName + ' win on penalties</div>';
+        } else {
+            winnerLine = '<div class="il-user-goal-name">Shootout tied</div>';
+        }
+        var stripHtml = (event.gameId != null) ? ilBuildGoalScoreStrip(event.gameId) : '';
+        var overlay = document.createElement('div');
+        overlay.className = 'il-user-goal-overlay il-shootout';
+        overlay.setAttribute('role', 'presentation');
+        overlay.innerHTML =
+            '<div class="il-user-goal-card">' +
+            '<div class="il-shootout-icon" aria-hidden="true">🎯</div>' +
+            '<div class="il-user-goal-title">Penalty shootout</div>' +
+            '<div class="il-shootout-scoreline"><span class="il-shootout-num">' + hp + '</span><span class="il-shootout-sep">–</span><span class="il-shootout-num">' + ap + '</span></div>' +
+            '<div class="il-shootout-teams"><span>' + hName + '</span><span class="il-shootout-vs">vs</span><span>' + aName + '</span></div>' +
+            winnerLine +
+            stripHtml +
+            '</div>';
+        document.body.appendChild(overlay);
+        requestAnimationFrame(function() {
+            overlay.classList.add('il-visible');
+        });
+        var dismissMs = 2800;
+        setTimeout(function() {
+            overlay.classList.add('il-hiding');
+            var done = false;
+            function finish() {
+                if (done) return;
+                done = true;
+                overlay.remove();
+                callback();
+            }
+            overlay.addEventListener('transitionend', function(ev) {
+                if (ev.target === overlay) finish();
+            });
+            setTimeout(finish, 600);
+        }, dismissMs);
+    }
+    
     function processNextEvent() {
         if (eventIndex >= eventsData.length) {
-            globalTimer.textContent = "90' - Full Time!";
+            ilUpdateMatchClock('FT', 'Full time · 90 minutes', 1);
             return;
         }
         
         const event = eventsData[eventIndex];
+        ilFocusSimGame(event.gameId);
         
-        // Update timer (handle extra time display)
+        // Match clock + ring (0–90′ regulation; 91–120′ extra time; PEN for shootout)
         if (event.type === 'extra_time') {
-            globalTimer.textContent = "90' - Extra Time!";
-        } else if (event.type === 'penalty_shootout') {
-            globalTimer.textContent = "120' - Penalties!";
+            ilUpdateMatchClock('90+', 'Extra time', 1);
+        } else if (event.type === 'penalty_shootout' || event.type === 'penalty_shootout_kick') {
+            ilUpdateMatchClock('PEN', 'Penalty shootout', 1);
+        } else if (event.type === 'il_minute_tick') {
+            var etm = Number(event.minute);
+            var etp = (etm - 90) / 30;
+            ilUpdateMatchClock(String(etm).padStart(2, '0'), 'Extra time', Math.min(Math.max(etp, 0), 1));
         } else {
-            globalTimer.textContent = event.minute + "'";
+            var m = Number(event.minute);
+            if (!isNaN(m)) {
+                var phase = m > 90 ? 'Extra time' : (m <= 45 ? 'First half' : 'Second half');
+                ilUpdateMatchClock(String(m).padStart(2, '0'), phase, Math.min(Math.max(m / 90, 0), 1));
+            } else {
+                ilUpdateMatchClock('--', 'In play', 0);
+            }
+        }
+        
+        // Extra time minute ticks: clock only, fast advance
+        if (event.type === 'il_minute_tick') {
+            advanceAfterEvent();
+            return;
+        }
+        
+        if (event.type === 'penalty_shootout_kick') {
+            var gid = event.gameId;
+            var batch = [];
+            var j = eventIndex;
+            while (j < eventsData.length && eventsData[j].type === 'penalty_shootout_kick' && eventsData[j].gameId === gid) {
+                batch.push(eventsData[j]);
+                j++;
+            }
+            var finalizeIdx = j;
+            if (batch.length === 0) {
+                eventIndex = finalizeIdx;
+                processNextEvent();
+                return;
+            }
+            runContinuousPenaltyShootout(gid, batch, function() {
+                eventIndex = finalizeIdx;
+                processNextEvent();
+            });
+            return;
         }
         
         // Handle different event types
         if (event.type === 'goal') {
-            // Update score
-            if (gameScores[event.gameId]) {
+            // Update score (skip if already credited when a CPU special event fired — see suppressScoreIncrement)
+            if (gameScores[event.gameId] && !event.suppressScoreIncrement) {
                 if (event.team === 'home') {
                     gameScores[event.gameId].home++;
                 } else if (event.team === 'away') {
@@ -444,6 +1795,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 type: 'goal'
             };
             updateLastScorerDisplay(event.gameId);
+            
+            if (event.isUserTeamGoal && event.playerId) {
+                showUserGoalCelebration(event, advanceAfterEvent, 'score');
+            } else if (event.isUserTeamConcede && event.playerId) {
+                showUserGoalCelebration(event, advanceAfterEvent, 'concede');
+            } else {
+                advanceAfterEvent();
+            }
+            return;
         } else if (event.type === 'extra_time') {
             // Extra time begins
             lastScorer[event.gameId] = {
@@ -454,19 +1814,18 @@ document.addEventListener('DOMContentLoaded', function() {
             };
             updateLastScorerDisplay(event.gameId);
         } else if (event.type === 'penalty_shootout') {
-            // Penalty shootout - update score based on penalty result
-            if (gameScores[event.gameId] && event.homePenalties !== null && event.awayPenalties !== null) {
-                // Score already updated in backend, but ensure display is correct
-                // The winner gets +1 goal added to their score
-                if (event.homePenalties > event.awayPenalties) {
-                    // Home won on penalties - score already adjusted
-                } else if (event.awayPenalties > event.homePenalties) {
-                    // Away won on penalties - score already adjusted
+            if (gameScores[event.gameId] && event.homePenalties != null && event.awayPenalties != null) {
+                var hP = Number(event.homePenalties);
+                var aP = Number(event.awayPenalties);
+                if (!isNaN(hP) && !isNaN(aP)) {
+                    if (hP > aP) {
+                        gameScores[event.gameId].home++;
+                    } else if (aP > hP) {
+                        gameScores[event.gameId].away++;
+                    }
                 }
                 updateScoreDisplay(event.gameId);
             }
-            
-            // Update last event
             lastScorer[event.gameId] = {
                 playerId: null,
                 playerName: null,
@@ -476,6 +1835,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 awayPenalties: event.awayPenalties
             };
             updateLastScorerDisplay(event.gameId);
+            if (event.shootoutFinalize) {
+                advanceAfterEvent();
+            } else {
+                showPenaltyShootoutOverlay(event, advanceAfterEvent);
+            }
+            return;
         } else if (event.type === 'yellow_card') {
             // Update last event (yellow card)
             lastScorer[event.gameId] = {
@@ -494,6 +1859,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 type: 'red_card'
             };
             updateLastScorerDisplay(event.gameId);
+            if (event.isUserTeamCard) {
+                showUserRedCardAlert(event, advanceAfterEvent);
+            } else {
+                advanceAfterEvent();
+            }
+            return;
         } else if (event.type === 'injury') {
             // Update last event (injury)
             lastScorer[event.gameId] = {
@@ -504,51 +1875,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 weeks: event.weeks
             };
             updateLastScorerDisplay(event.gameId);
-        } else if (event.type === 'extra_time') {
-            // Extra time begins
-            lastScorer[event.gameId] = {
-                playerId: null,
-                playerName: null,
-                minute: 90,
-                type: 'extra_time'
-            };
-            updateLastScorerDisplay(event.gameId);
-        } else if (event.type === 'penalty_shootout') {
-            // Penalty shootout
-            lastScorer[event.gameId] = {
-                playerId: null,
-                playerName: null,
-                minute: 120,
-                type: 'penalty_shootout',
-                homePenalties: event.homePenalties,
-                awayPenalties: event.awayPenalties
-            };
-            updateLastScorerDisplay(event.gameId);
         } else if (event.type === 'penalty' || event.type === 'hail_mary_corner' || event.type === 'dangerous_free_kick') {
-            console.log(`${event.type} event detected:`, event);
             if (event.needsUserInput) {
-                console.log(`${event.type} needs user input, showing popup`);
-                // Special event for user team - show popup
-                showSpecialEventPopup(event, () => {
-                    // Callback after event is resolved
-                    eventIndex++;
-                    if (eventIndex < eventsData.length) {
-                        setTimeout(processNextEvent, eventDelay);
-                    } else {
-                        globalTimer.textContent = "90' - Full Time!";
-                        document.querySelectorAll('.manage-btn').forEach(btn => {
-                            btn.classList.add('visible');
-                        });
-                    }
+                if (!event.players || !event.players.length) {
+                    console.warn('Special event missing player list:', event);
+                }
+                showSpecialEventPopup(event, function() {
+                    advanceAfterEvent();
                 });
-                return; // Don't increment eventIndex yet - wait for user selection
+                return;
             } else {
                 console.log(`CPU team ${event.type} - auto-resolving`);
                 // CPU team event - result already determined on server
-                const isSuccessful = event.is_successful !== undefined ? event.is_successful : Math.random() < 0.75;
+                const isSuccessful = typeof event.isSuccessful === 'boolean' ? event.isSuccessful : (Math.random() < 0.75);
                 
-                // Don't add to score here - the goal is already in player_stats and appears as a 'goal' event.
-                // Adding here would double-count.
+                // Credit the live score when the special converts (matching goal rows use suppressScoreIncrement)
+                if (isSuccessful && gameScores[event.gameId]) {
+                    if (event.team === 'home') {
+                        gameScores[event.gameId].home++;
+                    } else if (event.team === 'away') {
+                        gameScores[event.gameId].away++;
+                    }
+                    updateScoreDisplay(event.gameId);
+                }
                 
                 // Update last event (show result with player name if available)
                 const eventTypeName = event.type === 'penalty' ? 'penalty' : 
@@ -563,34 +1912,66 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
-        eventIndex++;
-        
-        // Process next event
-        if (eventIndex < eventsData.length) {
-            setTimeout(processNextEvent, eventDelay);
-        } else {
-            // Check if any games went to extra time or penalties
-            let hasExtraTime = false;
-            for (let i = 0; i < eventsData.length; i++) {
-                if (eventsData[i].type === 'extra_time' || eventsData[i].type === 'penalty_shootout') {
-                    hasExtraTime = true;
-                    break;
-                }
+        advanceAfterEvent();
+    }
+
+    /** User-team special already resolved on server (e.g. knockout) — apply live score + show moment, then continue. */
+    function showPreResolvedUserSpecialEvent(event, callback) {
+        const isSuccessful = typeof event.isSuccessful === 'boolean' ? event.isSuccessful : false;
+        if (isSuccessful && gameScores[event.gameId]) {
+            if (event.team === 'home') {
+                gameScores[event.gameId].home++;
+            } else if (event.team === 'away') {
+                gameScores[event.gameId].away++;
             }
-            
-            if (hasExtraTime) {
-                globalTimer.textContent = "120' - Full Time!";
-            } else {
-                globalTimer.textContent = "90' - Full Time!";
-            }
-            // Show all manage buttons after full-time
-            document.querySelectorAll('.manage-btn').forEach(btn => {
-                btn.classList.add('visible');
-                btn.style.pointerEvents = 'auto';
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-            });
+            updateScoreDisplay(event.gameId);
         }
+        const eventTypeName = event.type === 'penalty' ? 'penalty'
+            : event.type === 'hail_mary_corner' ? 'hail_mary_corner' : 'dangerous_free_kick';
+        lastScorer[event.gameId] = {
+            playerId: event.playerId || null,
+            playerName: event.playerName || event.teamName || (event.team === 'home' ? 'Home' : 'Away'),
+            minute: event.minute,
+            type: isSuccessful ? `${eventTypeName}_goal` : `${eventTypeName}_miss`
+        };
+        updateLastScorerDisplay(event.gameId);
+
+        const meta = {
+            penalty: { title: 'Penalty', color: '#28a745', ok: 'Continue' },
+            hail_mary_corner: { title: 'Hail-Mary corner', color: '#fd7e14', ok: 'Continue' },
+            dangerous_free_kick: { title: 'Dangerous free-kick', color: '#0dcaf0', ok: 'Continue' }
+        }[event.type] || { title: 'Special event', color: '#667eea', ok: 'Continue' };
+
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#fff;border-radius:16px;max-width:420px;width:100%;padding:28px 24px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.35);';
+        const safeTeam = (event.teamName || '').replace(/</g, '');
+        const safePlayer = (event.playerName || '').replace(/</g, '');
+        const resultLine = isSuccessful
+            ? '<div style="font-size:3rem;margin:12px 0;">⚽</div><div style="font-size:1.35rem;font-weight:800;color:#198754;">GOAL!</div>'
+            : '<div style="font-size:3rem;margin:12px 0;">❌</div><div style="font-size:1.25rem;font-weight:700;color:#dc3545;">Missed</div>';
+        box.innerHTML = '<h2 style="color:' + meta.color + ';margin:0 0 8px;font-size:1.35rem;">' + meta.title + '</h2>' +
+            '<p style="margin:0 0 6px;color:#444;font-size:1rem;"><strong>' + safeTeam + '</strong> · ' + event.minute + '&rsquo;</p>' +
+            '<p style="margin:0 0 8px;color:#333;font-size:1.05rem;">' + safePlayer + '</p>' +
+            resultLine +
+            '<p style="margin:16px 0 0;font-size:0.82rem;color:#888;">Simulated for this knockout</p>' +
+            '<button type="button" id="ilPreResolvedSpecialBtn" class="btn btn-primary btn-lg" style="margin-top:14px;">' + meta.ok + '</button>';
+        wrap.appendChild(box);
+        document.body.appendChild(wrap);
+
+        let done = false;
+        function finish() {
+            if (done) return;
+            done = true;
+            wrap.remove();
+            callback();
+        }
+        const t = setTimeout(finish, 3400);
+        document.getElementById('ilPreResolvedSpecialBtn').addEventListener('click', function() {
+            clearTimeout(t);
+            finish();
+        });
     }
     
     // Generic special event popup (penalty / hail-mary corner / dangerous free-kick)
@@ -646,6 +2027,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const playersList = document.getElementById('specialEventPlayersList');
         let selectedPlayerId = null;
+        let selectedCornerTakerId = null;
 
         if (event.players && event.players.length > 0) {
             const sortedPlayers = event.players.slice().sort((a, b) => {
@@ -654,55 +2036,162 @@ document.addEventListener('DOMContentLoaded', function() {
                 return posA - posB;
             });
 
-            sortedPlayers.forEach(player => {
-                const playerDiv = document.createElement('div');
-                playerDiv.style.cssText = 'padding: 15px; margin-bottom: 10px; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;';
-                playerDiv.className = 'special-event-player-option';
+            const positionNames = {
+                0: 'GK', 2: 'CWP', 3: 'CBT', 4: 'SB', 5: 'DMF', 6: 'WB',
+                7: 'CMF', 8: 'SMF', 9: 'AMF', 10: 'WF', 11: 'SS', 12: 'CF'
+            };
 
-                // Quick skill hints per event type
-                let hint = '';
-                if (event.type === 'hail_mary_corner') {
-                    const heading = player.heading || 50;
-                    const jump = player.jump || 50;
-                    hint = `Heading: ${heading} | Jump: ${jump}`;
-                } else if (event.type === 'dangerous_free_kick') {
-                    const fk = player.free_kick_accuracy || 50;
-                    const swerve = player.swerve || 50;
-                    hint = `FK Acc: ${fk} | Swerve: ${swerve}`;
-                }
+            function renderSingleSelector() {
+                sortedPlayers.forEach(player => {
+                    const playerDiv = document.createElement('div');
+                    playerDiv.style.cssText = 'padding: 15px; margin-bottom: 10px; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;';
+                    playerDiv.className = 'special-event-player-option';
 
-                const positionNames = {
-                    0: 'GK', 2: 'CWP', 3: 'CBT', 4: 'SB', 5: 'DMF', 6: 'WB',
-                    7: 'CMF', 8: 'SMF', 9: 'AMF', 10: 'WF', 11: 'SS', 12: 'CF'
-                };
-                const positionName = positionNames[player.registered_position] || 'N/A';
+                    let hint = '';
+                    if (event.type === 'dangerous_free_kick') {
+                        const fk = ilPlayerStat(player, 'free_kick_accuracy', 'Free_Kick_Accuracy');
+                        const swerve = ilPlayerStat(player, 'swerve', 'Swerve');
+                        hint = `FK Acc: ${fk} | Swerve: ${swerve}`;
+                    }
 
-                playerDiv.innerHTML = `
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <div>
-                            <strong>${player.player_name}</strong>
-                            <div style="font-size: 0.9rem; color: #666; margin-top: 5px;">
-                                <span style="font-weight: bold; color: ${eventMeta.color};">${positionName}</span>
-                                ${hint ? ` | ${hint}` : ''}
+                    const positionName = positionNames[player.registered_position] || 'N/A';
+                    playerDiv.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            ${ilPlayerFaceHtml(player.id, 52)}
+                            <div style="flex: 1; min-width: 0;">
+                                <strong>${player.player_name}</strong>
+                                <div style="font-size: 0.9rem; color: #666; margin-top: 5px;">
+                                    <span style="font-weight: bold; color: ${eventMeta.color};">${positionName}</span>
+                                    ${hint ? ` | ${hint}` : ''}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                `;
+                    `;
+                    playerDiv.onclick = function() {
+                        document.querySelectorAll('.special-event-player-option').forEach(opt => {
+                            opt.style.borderColor = '#ddd';
+                            opt.style.background = 'white';
+                        });
+                        playerDiv.style.borderColor = '#28a745';
+                        playerDiv.style.background = '#f0f9f4';
+                        selectedPlayerId = player.id;
+                        document.getElementById('specialEventConfirmBtn').disabled = false;
+                    };
+                    playersList.appendChild(playerDiv);
+                });
+            }
 
-                playerDiv.onclick = function() {
-                    document.querySelectorAll('.special-event-player-option').forEach(opt => {
-                        opt.style.borderColor = '#ddd';
-                        opt.style.background = 'white';
+            function renderHailMaryTwoStepSelector() {
+                const title1 = document.createElement('h5');
+                title1.textContent = '1) Corner taker';
+                title1.style.cssText = 'margin-bottom: 10px; color: #fd7e14;';
+                playersList.appendChild(title1);
+
+                const cornerList = document.createElement('div');
+                cornerList.style.marginBottom = '18px';
+                playersList.appendChild(cornerList);
+
+                sortedPlayers.forEach(player => {
+                    const fk = ilPlayerStat(player, 'free_kick_accuracy', 'Free_Kick_Accuracy');
+                    const swerve = ilPlayerStat(player, 'swerve', 'Swerve');
+                    const pass = ilPlayerStat(player, 'long_pass_accuracy', 'Long_Pass_Accuracy');
+                    const positionName = positionNames[player.registered_position] || 'N/A';
+                    const playerDiv = document.createElement('div');
+                    playerDiv.style.cssText = 'padding: 12px; margin-bottom: 8px; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;';
+                    playerDiv.className = 'special-event-corner-option';
+                    playerDiv.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            ${ilPlayerFaceHtml(player.id, 48)}
+                            <div style="flex: 1; min-width: 0;">
+                                <strong>${player.player_name}</strong>
+                                <div style="font-size: 0.88rem; color: #666; margin-top: 4px;">
+                                    <span style="font-weight: bold; color: #fd7e14;">${positionName}</span> |
+                                    FK: ${fk} | Swerve: ${swerve} | Long Pass: ${pass}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    playerDiv.onclick = function() {
+                        document.querySelectorAll('.special-event-corner-option').forEach(opt => {
+                            opt.style.borderColor = '#ddd';
+                            opt.style.background = 'white';
+                        });
+                        playerDiv.style.borderColor = '#28a745';
+                        playerDiv.style.background = '#f0f9f4';
+                        selectedCornerTakerId = player.id;
+                        if (selectedPlayerId === selectedCornerTakerId) {
+                            selectedPlayerId = null;
+                        }
+                        renderHeaderOptions();
+                    };
+                    cornerList.appendChild(playerDiv);
+                });
+
+                const title2 = document.createElement('h5');
+                title2.textContent = '2) Header target';
+                title2.style.cssText = 'margin-bottom: 10px; color: #fd7e14;';
+                playersList.appendChild(title2);
+
+                const headerList = document.createElement('div');
+                headerList.id = 'hailMaryHeaderList';
+                playersList.appendChild(headerList);
+
+                function renderHeaderOptions() {
+                    headerList.innerHTML = '';
+                    const candidates = sortedPlayers.filter(p => p.id !== selectedCornerTakerId);
+                    if (!selectedCornerTakerId) {
+                        headerList.innerHTML = '<p style="color:#666; margin: 0;">Choose a corner taker first.</p>';
+                        document.getElementById('specialEventConfirmBtn').disabled = true;
+                        return;
+                    }
+                    if (!candidates.length) {
+                        headerList.innerHTML = '<p style="color:#dc3545; margin: 0;">No valid header target available.</p>';
+                        document.getElementById('specialEventConfirmBtn').disabled = true;
+                        return;
+                    }
+                    candidates.forEach(player => {
+                        const heading = ilPlayerStat(player, 'heading', 'Heading', 'HEADING');
+                        const jump = ilPlayerStat(player, 'jump', 'Jump', 'JUMP');
+                        const positionName = positionNames[player.registered_position] || 'N/A';
+                        const playerDiv = document.createElement('div');
+                        playerDiv.style.cssText = 'padding: 12px; margin-bottom: 8px; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;';
+                        playerDiv.className = 'special-event-header-option';
+                        playerDiv.innerHTML = `
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                ${ilPlayerFaceHtml(player.id, 48)}
+                                <div style="flex: 1; min-width: 0;">
+                                    <strong>${player.player_name}</strong>
+                                    <div style="font-size: 0.88rem; color: #666; margin-top: 4px;">
+                                        <span style="font-weight: bold; color: #fd7e14;">${positionName}</span> |
+                                        Heading: ${heading} | Jump: ${jump}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        playerDiv.onclick = function() {
+                            document.querySelectorAll('.special-event-header-option').forEach(opt => {
+                                opt.style.borderColor = '#ddd';
+                                opt.style.background = 'white';
+                            });
+                            playerDiv.style.borderColor = '#28a745';
+                            playerDiv.style.background = '#f0f9f4';
+                            selectedPlayerId = player.id;
+                            document.getElementById('specialEventConfirmBtn').disabled = false;
+                        };
+                        headerList.appendChild(playerDiv);
                     });
+                    document.getElementById('specialEventConfirmBtn').disabled = !selectedPlayerId;
+                }
 
-                    playerDiv.style.borderColor = '#28a745';
-                    playerDiv.style.background = '#f0f9f4';
-                    selectedPlayerId = player.id;
-                    document.getElementById('specialEventConfirmBtn').disabled = false;
-                };
+                renderHeaderOptions();
+            }
 
-                playersList.appendChild(playerDiv);
-            });
+            if (event.type === 'hail_mary_corner') {
+                document.getElementById('specialEventConfirmBtn').textContent = 'Take Corner + Header';
+                renderHailMaryTwoStepSelector();
+            } else {
+                renderSingleSelector();
+            }
         } else {
             playersList.innerHTML = '<p style="color: #dc3545;">No players available</p>';
         }
@@ -711,40 +2200,34 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!selectedPlayerId) return;
             const selectedPlayer = event.players.find(p => p.id === selectedPlayerId);
             if (!selectedPlayer) return;
+            let selectedCornerPlayer = null;
+            if (event.type === 'hail_mary_corner') {
+                if (!selectedCornerTakerId) return;
+                selectedCornerPlayer = event.players.find(p => p.id === selectedCornerTakerId) || null;
+            }
 
             // Rough success probabilities (intentionally approximate)
             let successChance = 70;
             if (event.type === 'hail_mary_corner') {
-                const heading = selectedPlayer.heading || 50;
-                const jump = selectedPlayer.jump || 50;
-                successChance = 45 + ((heading - 50) * 0.6) + ((jump - 50) * 0.4);
+                const heading = ilPlayerStat(selectedPlayer, 'heading', 'Heading', 'HEADING');
+                const jump = ilPlayerStat(selectedPlayer, 'jump', 'Jump', 'JUMP');
+                const cornerFk = selectedCornerPlayer ? ilPlayerStat(selectedCornerPlayer, 'free_kick_accuracy', 'Free_Kick_Accuracy') : 50;
+                const cornerSwerve = selectedCornerPlayer ? ilPlayerStat(selectedCornerPlayer, 'swerve', 'Swerve') : 50;
+                const cornerPass = selectedCornerPlayer ? ilPlayerStat(selectedCornerPlayer, 'long_pass_accuracy', 'Long_Pass_Accuracy') : 50;
+                successChance = 35
+                    + ((heading - 50) * 0.5)
+                    + ((jump - 50) * 0.35)
+                    + ((cornerFk - 50) * 0.25)
+                    + ((cornerSwerve - 50) * 0.2)
+                    + ((cornerPass - 50) * 0.2);
             } else if (event.type === 'dangerous_free_kick') {
-                const fk = selectedPlayer.free_kick_accuracy || 50;
-                const swerve = selectedPlayer.swerve || 50;
-                const shotAcc = selectedPlayer.shot_accuracy || 50;
+                const fk = ilPlayerStat(selectedPlayer, 'free_kick_accuracy', 'Free_Kick_Accuracy');
+                const swerve = ilPlayerStat(selectedPlayer, 'swerve', 'Swerve');
+                const shotAcc = ilPlayerStat(selectedPlayer, 'shot_accuracy', 'Shot_Accuracy');
                 successChance = 40 + ((fk - 50) * 0.7) + ((swerve - 50) * 0.3) + ((shotAcc - 50) * 0.2);
             }
             successChance = Math.min(90, Math.max(15, successChance));
             const isSuccessful = Math.random() * 100 < successChance;
-
-            // Outcome overlay
-            const outcomeDiv = document.createElement('div');
-            outcomeDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); z-index: 10001; text-align: center; min-width: 300px;';
-
-            if (isSuccessful) {
-                outcomeDiv.innerHTML = `
-                    <div style="font-size: 4rem; margin-bottom: 20px;">${eventMeta.successEmoji}</div>
-                    <h2 style="color: #28a745; margin-bottom: 10px;">GOAL!</h2>
-                    <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} makes it count!</p>
-                `;
-            } else {
-                outcomeDiv.innerHTML = `
-                    <div style="font-size: 4rem; margin-bottom: 20px;">${eventMeta.failEmoji}</div>
-                    <h2 style="color: #dc3545; margin-bottom: 10px;">MISSED!</h2>
-                    <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} can't convert</p>
-                `;
-            }
-            document.body.appendChild(outcomeDiv);
 
             // Update score locally
             if (isSuccessful && gameScores[event.gameId]) {
@@ -753,35 +2236,58 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateScoreDisplay(event.gameId);
             }
 
-            // Persist result to server (same handler, but pass event_type)
-            fetch('/inter_leagues/save_special_event_result', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    game_id: event.gameId,
-                    player_id: selectedPlayer.id,
-                    team: event.team,
-                    is_successful: isSuccessful,
-                    event_type: event.type
-                })
-            }).catch(err => console.error('Error saving special event result:', err));
+            document.body.removeChild(modal);
 
-            // Update last event display
             const eventTypeName = event.type === 'hail_mary_corner' ? 'hail_mary_corner' : 'dangerous_free_kick';
             lastScorer[event.gameId] = {
                 playerId: selectedPlayer.id,
                 playerName: selectedPlayer.player_name,
+                assistPlayerId: (event.type === 'hail_mary_corner' && selectedCornerPlayer) ? selectedCornerPlayer.id : null,
+                assistPlayerName: (event.type === 'hail_mary_corner' && selectedCornerPlayer) ? selectedCornerPlayer.player_name : null,
                 minute: event.minute,
                 type: isSuccessful ? `${eventTypeName}_goal` : `${eventTypeName}_miss`
             };
             updateLastScorerDisplay(event.gameId);
 
-            // Close modal and continue
-            document.body.removeChild(modal);
-            setTimeout(() => {
-                document.body.removeChild(outcomeDiv);
-                callback();
-            }, 2000);
+            const savePromise = fetch('/inter_leagues/save_special_event_result', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    game_id: event.gameId,
+                    player_id: selectedPlayer.id,
+                    secondary_player_id: (event.type === 'hail_mary_corner' && selectedCornerPlayer) ? selectedCornerPlayer.id : null,
+                    team: event.team,
+                    is_successful: isSuccessful,
+                    event_type: event.type
+                })
+            }).then(function(r) { return r.json(); });
+
+            ilTrackSpecialSave(savePromise);
+
+            function afterSave() {
+                if (isSuccessful) {
+                    showUserGoalCelebration({
+                        playerId: selectedPlayer.id,
+                        playerName: selectedPlayer.player_name,
+                        minute: event.minute,
+                        gameId: event.gameId
+                    }, callback, 'score');
+                } else {
+                    const outcomeDiv = document.createElement('div');
+                    outcomeDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); z-index: 10001; text-align: center; min-width: 300px;';
+                    outcomeDiv.innerHTML = `
+                        <div style="font-size: 4rem; margin-bottom: 20px;">${eventMeta.failEmoji}</div>
+                        <h2 style="color: #dc3545; margin-bottom: 10px;">MISSED!</h2>
+                        <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} can't convert</p>
+                    `;
+                    document.body.appendChild(outcomeDiv);
+                    setTimeout(function() {
+                        document.body.removeChild(outcomeDiv);
+                        callback();
+                    }, 2000);
+                }
+            }
+            savePromise.then(afterSave).catch(function() { afterSave(); });
         };
     }
 
@@ -825,9 +2331,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 playerDiv.style.cssText = 'padding: 15px; margin-bottom: 10px; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;';
                 playerDiv.className = 'penalty-player-option';
                 
-                const penaltiesSkill = player.penalties || 0;
-                const shotAcc = player.shot_accuracy || 50;
-                const shotPow = player.shot_power || 50;
+                const penaltiesSkill = player.penalties != null ? Number(player.penalties) : 0;
+                const shotAcc = ilPlayerStat(player, 'shot_accuracy', 'Shot_Accuracy');
+                const shotPow = ilPlayerStat(player, 'shot_power', 'Shot_Power');
                 
                 // Position names mapping
                 const positionNames = {
@@ -837,8 +2343,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const positionName = positionNames[player.registered_position] || 'N/A';
                 
                 playerDiv.innerHTML = `
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <div>
+                    <div style="display: flex; align-items: center; gap: 14px;">
+                        ${ilPlayerFaceHtml(player.id, 52)}
+                        <div style="flex: 1; min-width: 0;">
                             <strong>${player.player_name}</strong>
                             <div style="font-size: 0.9rem; color: #666; margin-top: 5px;">
                                 <span style="font-weight: bold; color: #667eea;">${positionName}</span> | 
@@ -886,27 +2393,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const successChance = Math.min(95, Math.max(60, baseChance));
             const isSuccessful = Math.random() * 100 < successChance;
             
-            // Show penalty outcome
-            const outcomeDiv = document.createElement('div');
-            outcomeDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); z-index: 10001; text-align: center; min-width: 300px;';
-            
-            if (isSuccessful) {
-                outcomeDiv.innerHTML = `
-                    <div style="font-size: 4rem; margin-bottom: 20px;">⚽</div>
-                    <h2 style="color: #28a745; margin-bottom: 10px;">GOAL!</h2>
-                    <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} scores!</p>
-                `;
-            } else {
-                outcomeDiv.innerHTML = `
-                    <div style="font-size: 4rem; margin-bottom: 20px;">❌</div>
-                    <h2 style="color: #dc3545; margin-bottom: 10px;">MISSED!</h2>
-                    <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} misses the penalty</p>
-                `;
-            }
-            
-            document.body.appendChild(outcomeDiv);
-            
-            // Update score if successful
+            document.body.removeChild(modal);
+
             if (isSuccessful && gameScores[event.gameId]) {
                 if (event.team === 'home') {
                     gameScores[event.gameId].home++;
@@ -914,63 +2402,54 @@ document.addEventListener('DOMContentLoaded', function() {
                     gameScores[event.gameId].away++;
                 }
                 updateScoreDisplay(event.gameId);
-                
-                // Send penalty result to server to update database
-                fetch('/inter_leagues/save_penalty_result', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        game_id: event.gameId,
-                        player_id: selectedPlayer.id,
-                        team: event.team,
-                        is_successful: true
-                    })
-                }).catch(err => console.error('Error saving penalty result:', err));
-                
-                // Update last scorer
-                lastScorer[event.gameId] = {
-                    playerId: selectedPlayer.id,
-                    playerName: selectedPlayer.player_name,
-                    minute: event.minute,
-                    type: 'penalty_goal'
-                };
-                updateLastScorerDisplay(event.gameId);
-            } else {
-                // Penalty missed - still send to server
-                fetch('/inter_leagues/save_penalty_result', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        game_id: event.gameId,
-                        player_id: selectedPlayer.id,
-                        team: event.team,
-                        is_successful: false
-                    })
-                }).catch(err => console.error('Error saving penalty result:', err));
-                
-                // Penalty missed
-                lastScorer[event.gameId] = {
-                    playerId: selectedPlayer.id,
-                    playerName: selectedPlayer.player_name,
-                    minute: event.minute,
-                    type: 'penalty_miss'
-                };
-                updateLastScorerDisplay(event.gameId);
             }
-            
-            // Remove modal
-            document.body.removeChild(modal);
-            
-            // Wait 2 seconds to show outcome, then continue
-            setTimeout(() => {
-                document.body.removeChild(outcomeDiv);
-                // Continue with next event
-                callback();
-            }, 2000);
+
+            lastScorer[event.gameId] = {
+                playerId: selectedPlayer.id,
+                playerName: selectedPlayer.player_name,
+                minute: event.minute,
+                type: isSuccessful ? 'penalty_goal' : 'penalty_miss'
+            };
+            updateLastScorerDisplay(event.gameId);
+
+            const savePromise = fetch('/inter_leagues/save_penalty_result', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    game_id: event.gameId,
+                    player_id: selectedPlayer.id,
+                    team: event.team,
+                    is_successful: isSuccessful,
+                    event_type: 'penalty'
+                })
+            }).then(function(r) { return r.json(); });
+
+            ilTrackSpecialSave(savePromise);
+
+            function afterSave() {
+                if (isSuccessful) {
+                    showUserGoalCelebration({
+                        playerId: selectedPlayer.id,
+                        playerName: selectedPlayer.player_name,
+                        minute: event.minute,
+                        gameId: event.gameId
+                    }, callback, 'score');
+                } else {
+                    const outcomeDiv = document.createElement('div');
+                    outcomeDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); z-index: 10001; text-align: center; min-width: 300px;';
+                    outcomeDiv.innerHTML = `
+                        <div style="font-size: 4rem; margin-bottom: 20px;">❌</div>
+                        <h2 style="color: #dc3545; margin-bottom: 10px;">MISSED!</h2>
+                        <p style="font-size: 1.2rem; color: #666;">${selectedPlayer.player_name} misses the penalty</p>
+                    `;
+                    document.body.appendChild(outcomeDiv);
+                    setTimeout(function() {
+                        document.body.removeChild(outcomeDiv);
+                        callback();
+                    }, 2000);
+                }
+            }
+            savePromise.then(afterSave).catch(function() { afterSave(); });
         };
     }
     

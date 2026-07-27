@@ -3,15 +3,68 @@
 {% block title %}Fantasy{% endblock %}
 
 {% block head %}
+<!-- Fantasy card background image: static/fantasy/card_bg.png (referenced as FANTASY_ASSETS.cardBg). Suggested size ~560×840 px (2× of the 280×420 modal) or 280×420 @1×. -->
 <script src="https://cdn.tailwindcss.com"></script>
 <!-- GSAP with multiple fallback CDNs -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js" 
         onerror="loadGSAPFallback()"></script>
 <script>
+// Card frame art: add static/fantasy/card_bg.png — ~560×840 @2× for the 280×420 flip modal; 280×420 OK at 1×.
 window.FANTASY_ASSETS = {
     boosterPackImage: "{{ url_for('static', filename='fantasy/booster_pack.png') }}?v={{ cache_timestamp }}",
-    cardBg: "{{ url_for('static', filename='fantasy/card_bg.png') }}?v={{ cache_timestamp }}"
+    cardBg: "{{ url_for('static', filename='fantasy/card_bg.png') }}?v={{ cache_timestamp }}",
+    boosterOpenSound: "{{ url_for('static', filename='fantasy/booster_open.mp3') }}?v={{ cache_timestamp }}"
 };
+window.FANTASY_NATIONALITY_TO_ISO2 = {{ fantasy_nat_map | tojson }};
+
+/** Short “pack rip / burst” when the booster opens. Tries static/fantasy/booster_open.mp3; if missing or blocked, uses a built-in synth. */
+function playBoosterOpenSoundSynth() {
+    try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!window._fantasyAudioCtx) window._fantasyAudioCtx = new Ctx();
+        var ctx = window._fantasyAudioCtx;
+        function fire() {
+            var t0 = ctx.currentTime;
+            var noise = ctx.createBufferSource();
+            var buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.22), ctx.sampleRate);
+            var data = buf.getChannelData(0);
+            for (var i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+            noise.buffer = buf;
+            var bp = ctx.createBiquadFilter();
+            bp.type = 'bandpass';
+            bp.frequency.setValueAtTime(1400, t0);
+            bp.frequency.exponentialRampToValueAtTime(400, t0 + 0.18);
+            bp.Q.value = 0.7;
+            var g = ctx.createGain();
+            g.gain.setValueAtTime(0.22, t0);
+            g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.2);
+            noise.connect(bp);
+            bp.connect(g);
+            g.connect(ctx.destination);
+            noise.start(t0);
+            noise.stop(t0 + 0.22);
+        }
+        if (ctx.state === 'suspended') ctx.resume().then(fire).catch(function() {});
+        else fire();
+    } catch (e) {}
+}
+function playBoosterOpenSound() {
+    var url = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterOpenSound) ? FANTASY_ASSETS.boosterOpenSound : '';
+    if (url) {
+        try {
+            var a = new Audio(url);
+            a.volume = 0.5;
+            var p = a.play();
+            if (p !== undefined) p.catch(function() { playBoosterOpenSoundSynth(); });
+            return;
+        } catch (e) {
+            playBoosterOpenSoundSynth();
+            return;
+        }
+    }
+    playBoosterOpenSoundSynth();
+}
 function loadGSAPFallback() {
     console.log('Primary GSAP CDN failed, trying fallback...');
     const script = document.createElement('script');
@@ -29,6 +82,49 @@ function loadGSAPFallback() {
     document.head.appendChild(script);
 }
 </script>
+<style>
+.fantasy-booster-shop-wrap { margin-bottom: 18px; }
+.fantasy-pack-grid {
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; justify-content: center;
+}
+.fantasy-shop-pick.fantasy-pack-tile {
+    display: flex; flex-direction: column; width: 200px; max-width: 100%;
+    padding: 0; border: none; background: transparent; cursor: pointer; text-align: left;
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.fantasy-shop-pick.fantasy-pack-tile:not(:disabled):hover {
+    transform: translateY(-4px);
+    box-shadow: 0 14px 36px rgba(0,0,0,0.45);
+}
+.fantasy-shop-pick.fantasy-pack-tile:disabled { cursor: not-allowed; opacity: 0.55; }
+.fantasy-pack-tile__img {
+    width: 100%; height: 260px; background: linear-gradient(180deg,#0f172a 0%,#1e293b 100%);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+}
+.fantasy-pack-tile__img img {
+    max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;
+    display: block;
+}
+.fantasy-pack-tile__badge {
+    position: absolute; bottom: 8px; left: 8px; right: 8px;
+    background: rgba(15,23,42,0.88); color: #f1f5f9; font-size: 11px; font-weight: 800;
+    padding: 6px 8px; border-radius: 8px; text-align: center; line-height: 1.35;
+}
+.fantasy-pack-tile--selected {
+    outline: 3px solid #fbbf24 !important;
+    box-shadow: 0 0 0 4px rgba(251,191,36,0.35), 0 12px 32px rgba(0,0,0,0.4) !important;
+}
+button.fantasy-open-pack-main {
+    margin-top: 16px; display: block; margin-left: auto; margin-right: auto;
+    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); border: 3px solid white;
+    border-radius: 12px; padding: 14px 32px; color: white; font-weight: 900; font-size: 17px;
+    cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+button.fantasy-open-pack-main:disabled { opacity: 0.55; cursor: not-allowed; }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -39,36 +135,87 @@ function loadGSAPFallback() {
             <h1 style="font-size: 32px; font-weight: bold; margin: 0 0 10px 0;">🎴 Fantasy Card Game</h1>
             <p style="font-size: 18px; margin: 0; color: #e0e7ff;">Welcome, <strong style="color: #fbbf24;">{{ current_user.username }}</strong></p>
         </div>
-        <div style="display: flex; gap: 15px; align-items: center;">
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
             <div style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); border-radius: 12px; padding: 15px 25px; border: 3px solid white; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
                 <div style="color: #78350f; font-weight: bold; font-size: 12px; margin-bottom: 5px;">TR CURRENCY</div>
                 <div id="tr-currency" style="color: #78350f; font-weight: 900; font-size: 28px;">{{ "{:,}".format(tr_currency) }}</div>
             </div>
-            <button id="buy-booster-btn" style="background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); border: 3px solid white; border-radius: 12px; padding: 15px 30px; color: white; font-weight: 900; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: transform 0.2s;">
-                🎁 Buy Booster Pack (500 TR)
+            <div style="display: flex; flex-direction: column; gap: 8px; align-items: stretch;">
+            <button id="fantasy-reset-test-btn" type="button" style="background: linear-gradient(135deg, #475569 0%, #64748b 100%); border: 2px solid rgba(255,255,255,0.85); border-radius: 10px; padding: 8px 14px; color: white; font-weight: 700; font-size: 12px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.25);">
+                Reset collection (test)
             </button>
+            </div>
         </div>
     </div>
+
+    {% if fantasy_pack_shop %}
+    <div class="fantasy-booster-shop-wrap" style="background: rgba(15,23,42,0.88); border-radius: 14px; padding: 18px 20px; border: 2px solid #38bdf8; box-shadow: 0 6px 24px rgba(0,0,0,0.25);">
+        <div style="color:#e0f2fe;font-weight:800;font-size:18px;margin-bottom:6px;">🛒 Booster shop</div>
+        <p style="color:#94a3b8;font-size:14px;margin:0 0 18px 0;line-height:1.45;">Each pack is drawn from a <strong>fixed production run</strong> set in the builder (generate pool, then sell). Tap a pack art to select it, then <strong style="color:#fbbf24;">Open pack</strong>.</p>
+        <div id="fantasy-booster-shop" class="fantasy-pack-grid" role="group" aria-label="Booster packs for sale">
+            {% for se in shop_editions %}
+            <button type="button" class="fantasy-shop-pick fantasy-pack-tile" data-edition-id="{{ se.id }}" data-cost="{{ se.cost_tr }}" data-image="{{ se.image_url }}"
+                {% if se.disabled_reason %}disabled title="{{ se.disabled_reason }}"{% endif %}
+                aria-label="{{ se.name }}, {{ se.cost_tr }} TR">
+                <div class="fantasy-pack-tile__img">
+                    <img src="{{ se.image_url }}{% if cache_timestamp %}?v={{ cache_timestamp }}{% endif %}" alt="{{ se.name }}" loading="lazy" width="200" height="260">
+                    <div class="fantasy-pack-tile__badge">{{ se.name }} · {{ se.cost_tr }} TR · {{ se.cards_per_booster }} cards · {{ se.boosters_remaining }} left</div>
+                </div>
+            </button>
+            {% endfor %}
+        </div>
+        <button type="button" id="buy-booster-btn" class="fantasy-open-pack-main">🎁 Open pack</button>
+    </div>
+    {% else %}
+    <div style="background: rgba(15,23,42,0.75); border-radius: 14px; padding: 18px 22px; margin-bottom: 18px; border: 1px solid #475569; color: #cbd5e1; max-width: 100%;">
+        <strong style="color:#fbbf24;">No booster packs on sale.</strong>
+        <span style="display:block;margin-top:8px;font-size:14px;line-height:1.5;">An admin must create an edition in the booster builder, generate the card pool, and mark it <em>Show in shop</em>. All cards in that run come only from that pool—there is no random “legacy” supply.</span>
+    </div>
+    {% endif %}
+
+    {% if active_edition %}
+    <div style="background: rgba(15,23,42,0.9); border-radius: 12px; padding: 14px 20px; margin-bottom: 16px; color: #e2e8f0; border: 2px solid #fbbf24; max-width: 100%;">
+        <strong style="color: #fbbf24;">{{ active_edition.name }}</strong>
+        <span style="margin-left: 8px;">{{ active_edition.boosters_remaining }} / {{ active_edition.total_boosters }} boosters left</span>
+        <span style="opacity:0.85;margin-left:10px;">· {{ active_edition.cards_per_booster }} cards per pack</span>
+        {% if not active_edition.pool_generated %}
+        <span style="display:block;margin-top:8px;color:#fecaca;font-size:14px;">No card pool generated yet — open Booster builder and run “Generate card pool” before buying.</span>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if fantasy_builder_allowed %}
+    <div style="margin-bottom: 12px;">
+        <a href="{{ url_for('fantasy_builder') }}" style="color: #fef9c3; font-weight: 700;">Booster / edition builder →</a>
+    </div>
+    {% endif %}
 
     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
         <!-- Left: Card Collection -->
         <div style="width: 400px; flex-shrink: 0; background: white; border-radius: 15px; padding: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); border: 4px solid #d4af37; max-height: 85vh; overflow-y: auto;">
             <h2 style="font-size: 24px; font-weight: 900; color: #1a365d; text-align: center; margin: 0 0 20px 0; padding-bottom: 15px; border-bottom: 4px solid #d4af37; text-transform: uppercase;">📦 Card Collection</h2>
             <div id="card-purse" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px;">
-                {% for player in players if player.profile_image %}
+                {% for player in players %}
                 {% set rarity = player.get('rarity', 'normal') %}
                 {% set border_color = '#000000' if rarity == 'normal' else '#2563eb' if rarity == 'rare' else '#9333ea' if rarity == 'mythical' else '#d4af37' if rarity == 'legendary' else '#10b981' %}
                 <!-- Compact Card View in Wallet -->
-                <div class="player-card-compact" 
+                <div class="player-card-compact fantasy-card-finish--{{ (player.card_finish or 'none')|lower }}" 
                      draggable="true"
+                     data-fantasy-card-id="{{ player.fantasy_card_id }}"
                      data-player-id="{{ player.id }}" 
                      data-position="{{ player.registered_position }}"
                      data-player-name="{{ player.player_name }}"
+                     data-card-season="{{ player.card_season }}"
                      data-rarity="{{ rarity }}"
+                     data-card-finish="{{ (player.card_finish or 'none')|lower }}"
                      data-player-data='{{ player | tojson }}'
                      style="width: 120px; height: 160px; min-width: 120px; min-height: 160px; flex-shrink: 0; background: url('{{ url_for("static", filename="fantasy/card_bg.png") }}?v={{ cache_timestamp }}') center/cover, linear-gradient(135deg, #e0dcd4 0%, #d5d0c8 50%, #cac4bc 100%); border-radius: 12px; border: 4px solid {{ border_color }}; position: relative; overflow: hidden; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.4); margin: 0; user-select: none; transition: transform 0.2s;">
+                    {% if player.team_id %}
+                    <div style="position: absolute; top: 3px; left: 3px; z-index: 25; width: 22px; height: 22px; background: rgba(255,255,255,0.95); border-radius: 5px; padding: 2px; box-sizing: border-box; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
+                        <img src="{{ url_for('serve_team_symbol', team_id=player.team_id) }}?v={{ cache_timestamp }}" alt="" width="18" height="18" style="display: block; width: 100%; height: 100%; object-fit: contain;" onerror="this.parentElement.style.display='none'">
+                    </div>
+                    {% endif %}
                     <!-- Player Name at Top -->
-                    <div style="position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 900; color: #1a365d; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px; z-index: 10; text-shadow: 1px 1px 2px rgba(255,255,255,0.9); background: linear-gradient(180deg, rgba(232,230,220,0.97) 0%, rgba(220,216,206,0.95) 100%); border-bottom: 2px solid {{ border_color }};">{{ (player.shirt_name or player.player_name)[:12] }}</div>
+                    <div style="position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 900; color: #1a365d; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px; z-index: 10; text-shadow: 1px 1px 2px rgba(255,255,255,0.9); background: linear-gradient(180deg, rgba(232,230,220,0.97) 0%, rgba(220,216,206,0.95) 100%); border-bottom: 2px solid {{ border_color }};">{{ (player.player_name or '')[:12] }}</div>
                     
                     <!-- Position Badge -->
                     <div style="position: absolute; top: 22px; right: 4px; z-index: 20; font-size: 10px; font-weight: 900; color: white; background: {{ border_color }}; padding: 2px 6px; border-radius: 8px; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
@@ -76,15 +223,19 @@ function loadGSAPFallback() {
                         {% if pos == 0 %}GK{% elif pos == 2 %}SW{% elif pos == 3 %}CB{% elif pos == 4 %}SB{% elif pos == 5 %}DMF{% elif pos == 6 %}WB{% elif pos == 7 %}CMF{% elif pos == 8 %}SMF{% elif pos == 9 %}AMF{% elif pos == 10 %}WF{% elif pos == 11 %}SS{% elif pos == 12 %}CF{% else %}N/A{% endif %}
                     </div>
                     
-                    <!-- Player Image: square 88x88, full face visible, no crop -->
-                    <div style="position: absolute; top: 28px; left: 16px; width: 88px; height: 88px; min-width: 88px; min-height: 88px; overflow: hidden; border-radius: 8px; background: #d8d4cc; z-index: 2; box-sizing: border-box;">
-                        <img src="{{ url_for('serve_player_image_by_id', player_id=player.id) }}?v={{ cache_timestamp if cache_timestamp else '' }}" 
+                    <!-- Player Image: 80x80 + OVR badge; room for age/nationality strip below -->
+                    <div style="position: absolute; top: 28px; left: 20px; width: 80px; height: 80px; min-width: 80px; min-height: 80px; overflow: visible; border-radius: 8px; background: #d8d4cc; z-index: 2; box-sizing: border-box;">
+                        <div style="position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 8px;">
+                        <img src="{% if player.fantasy_card_id %}{{ url_for('fantasy_card_portrait', fantasy_card_id=player.fantasy_card_id) }}{% else %}{{ url_for('serve_player_image_by_id', player_id=player.id) }}{% endif %}?v={{ cache_timestamp if cache_timestamp else '' }}" 
                              alt="{{ player.player_name }}" 
-                             width="88" height="88"
+                             width="80" height="80"
                              style="display: block; width: 100%; height: 100%; object-fit: contain; object-position: center center; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25)); pointer-events: none;"
                              onerror="this.onerror=null; this.style.display='none'; var ph=this.nextElementSibling; if(ph) { ph.style.display='flex'; ph.style.alignItems='center'; ph.style.justifyContent='center'; }">
                         <div style="display: none; position: absolute; inset: 0; background: linear-gradient(135deg, #e0e0e0 0%, #c0c0c0 100%); align-items: center; justify-content: center; color: #999; font-size: 9px; font-weight: bold;">No Img</div>
+                        </div>
+                        <div style="position: absolute; bottom: 3px; right: 3px; z-index: 5; min-width: 22px; text-align: center; font-size: 11px; font-weight: 900; font-variant-numeric: tabular-nums; color: #fff; background: rgba(15, 23, 42, 0.88); padding: 2px 5px; border-radius: 5px; line-height: 1.1; box-shadow: 0 1px 4px rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.35);">{{ player.overall if player.overall is not none else '—' }}</div>
                     </div>
+                    <div style="position: absolute; top: 110px; left: 2px; right: 2px; min-height: 11px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 7px; font-weight: 800; letter-spacing: 0.02em; color: #334155; z-index: 9; line-height: 1.15;">{{ player.age | fantasy_age_years }}<span style="opacity:0.5;margin:0 3px;">·</span>{{ player.nationality | fantasy_nationality_flag }}</div>
                     
                     <!-- Compact Stats with Symbols (smaller) -->
                     <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, rgba(232,230,220,0.98) 0%, #e0dcd4 100%); padding: 3px 4px 5px; border-radius: 0 0 12px 12px; z-index: 10;">
@@ -113,7 +264,7 @@ function loadGSAPFallback() {
                 {% else %}
                 <div style="text-align: center; color: #666; padding: 40px; width: 100%;">
                     <p style="font-size: 18px; margin-bottom: 10px;">Your collection is empty</p>
-                    <p style="font-size: 14px;">Buy booster packs to get player cards (only players with photos)!</p>
+                    <p style="font-size: 14px;">Buy booster packs to get player cards.</p>
                 </div>
                 {% endfor %}
             </div>
@@ -136,6 +287,194 @@ function loadGSAPFallback() {
 <div id="booster-animation-container" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10000; display: none; background: rgba(0,0,0,0.75);"></div>
 
 <script>
+const FANTASY_BOOSTER_COST = {{ booster_cost }};
+const FANTASY_STARTING_TR = {{ fantasy_starting_tr }};
+const FANTASY_CACHE_TS = {{ cache_timestamp }};
+const FANTASY_CARDS_PER_PACK = {{ cards_per_booster }};
+const FANTASY_SHOP_EDITIONS = {{ shop_editions | default([]) | tojson }};
+const FANTASY_USE_PACK_SHOP = {{ (fantasy_pack_shop | default(false)) | tojson }};
+const FANTASY_DEFAULT_PACK_IMG = {{ default_booster_image_url | tojson }};
+/** Selected shop edition: editionId, cost, packImage (URLs from server / static). */
+var fantasyPackChoice = {
+    editionId: null,
+    cost: FANTASY_BOOSTER_COST,
+    packImage: ''
+};
+
+function fantasyBuyButtonLabel() {
+    var c = (typeof fantasyPackChoice !== 'undefined' && fantasyPackChoice.cost) ? fantasyPackChoice.cost : FANTASY_BOOSTER_COST;
+    if (typeof FANTASY_USE_PACK_SHOP !== 'undefined' && FANTASY_USE_PACK_SHOP) {
+        return '🎁 Open pack (' + c.toLocaleString() + ' TR)';
+    }
+    return '🎁 Buy booster pack (' + c.toLocaleString() + ' TR)';
+}
+
+function fantasySyncBuyButtonLabel() {
+    var btn = document.getElementById('buy-booster-btn');
+    if (btn) btn.textContent = fantasyBuyButtonLabel();
+}
+
+function fantasyInitBoosterShop() {
+    if (!FANTASY_SHOP_EDITIONS || !FANTASY_SHOP_EDITIONS.length) return;
+    var picks = document.querySelectorAll('.fantasy-shop-pick');
+    var firstOk = null;
+    picks.forEach(function(el) {
+        if (!firstOk && !el.disabled) firstOk = el;
+    });
+    if (firstOk) {
+        firstOk.click();
+    } else {
+        fantasySyncBuyButtonLabel();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (!FANTASY_USE_PACK_SHOP) return;
+    var packTiles = document.querySelectorAll('.fantasy-shop-pick');
+    if (!packTiles.length) return;
+    packTiles.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (btn.disabled) return;
+            document.querySelectorAll('.fantasy-shop-pick').forEach(function(b) {
+                b.classList.remove('fantasy-pack-tile--selected');
+            });
+            btn.classList.add('fantasy-pack-tile--selected');
+            var cost = parseInt(btn.getAttribute('data-cost'), 10) || FANTASY_BOOSTER_COST;
+            var img = btn.getAttribute('data-image') || FANTASY_DEFAULT_PACK_IMG;
+            var eid = btn.getAttribute('data-edition-id');
+            fantasyPackChoice = {
+                editionId: eid ? parseInt(eid, 10) : null,
+                cost: cost,
+                packImage: img
+            };
+            if (typeof FANTASY_ASSETS !== 'undefined') {
+                FANTASY_ASSETS.boosterPackImage = img + (FANTASY_CACHE_TS ? ('?v=' + FANTASY_CACHE_TS) : '');
+            }
+            fantasySyncBuyButtonLabel();
+        });
+    });
+    fantasyInitBoosterShop();
+});
+
+function fantasyRarityFromOverall(overall) {
+    const x = Math.round(Number(overall) || 0);
+    if (x >= 91) return 'legendary';
+    if (x >= 86) return 'mythical';
+    if (x >= 81) return 'rare';
+    return 'normal';
+}
+function fantasyNormalizeFinish(f) {
+    const s = (f != null && String(f).trim()) ? String(f).trim().toLowerCase() : 'none';
+    if (s === 'polychrome' || s === 'foil' || s === 'gloss' || s === 'none') return s;
+    return 'none';
+}
+function fantasyFinishLabel(fin) {
+    const f = fantasyNormalizeFinish(fin);
+    if (f === 'none') return 'None';
+    return f.charAt(0).toUpperCase() + f.slice(1);
+}
+
+/** PES uses 0 for GK — never use parseInt(x)||-1 (0 is falsy and became N/A). */
+function fantasyRegisteredPositionInt(player) {
+    if (!player || player.registered_position === null || player.registered_position === undefined || player.registered_position === '') {
+        return -1;
+    }
+    const n = parseInt(String(player.registered_position), 10);
+    return Number.isNaN(n) ? -1 : n;
+}
+function fantasyPositionLabelFromCode(pos) {
+    if (pos === 0) return 'GK';
+    if (pos === 2) return 'SW';
+    if (pos === 3) return 'CB';
+    if (pos === 4) return 'SB';
+    if (pos === 5) return 'DMF';
+    if (pos === 6) return 'WB';
+    if (pos === 7) return 'CMF';
+    if (pos === 8) return 'SMF';
+    if (pos === 9) return 'AMF';
+    if (pos === 10) return 'WF';
+    if (pos === 11) return 'SS';
+    if (pos === 12) return 'CF';
+    return 'N/A';
+}
+
+function fantasyIso2ToFlagEmoji(iso2) {
+    if (!iso2 || String(iso2).length !== 2) return '';
+    var u = String(iso2).toUpperCase();
+    return String.fromCodePoint(127397 + u.charCodeAt(0), 127397 + u.charCodeAt(1));
+}
+function fantasyNationalityWithFlag(nationality) {
+    if (nationality == null || String(nationality).trim() === '') return '—';
+    var n = String(nationality).trim();
+    if (n.toLowerCase() === 'free nationality') return n;
+    var m = (typeof window.FANTASY_NATIONALITY_TO_ISO2 !== 'undefined' && window.FANTASY_NATIONALITY_TO_ISO2) ? window.FANTASY_NATIONALITY_TO_ISO2 : {};
+    var iso = m[n];
+    if (!iso) {
+        for (var k in m) {
+            if (Object.prototype.hasOwnProperty.call(m, k) && k.toLowerCase() === n.toLowerCase()) {
+                iso = m[k];
+                break;
+            }
+        }
+    }
+    if (!iso) return n;
+    var flag = fantasyIso2ToFlagEmoji(iso);
+    return flag ? (n + ' ' + flag) : n;
+}
+function fantasyAgeYearsDisplay(age) {
+    if (age == null || age === '') return '—';
+    var a = parseInt(age, 10);
+    if (isNaN(a)) return '—';
+    return a + ' years';
+}
+/** Integer stat persisted on fantasy_cards (games, goals, assists, mvp). */
+function fantasyCardInt(player, key, defaultVal) {
+    var v = player && player[key];
+    if (v == null || v === '') return defaultVal;
+    var n = parseInt(v, 10);
+    return isNaN(n) ? defaultVal : n;
+}
+
+function buildFantasyCardBackHtml(player) {
+    const season = (player.card_season != null && String(player.card_season).trim() !== '') ? String(player.card_season) : '—';
+    const rows = player.ability_ranked || [];
+    const icons = rows.map(function(a) {
+        const medal = a.medal || 'muted';
+        const iconClass = 'fantasy-ability-icon fantasy-ability-icon--' + medal;
+        return '<span class="' + iconClass + '">' + a.emoji + '</span>';
+    }).join('');
+    const symbolsBlock = icons
+        ? '<div class="fantasy-abilities-symbols">' + icons + '</div>'
+        : '<div class="fantasy-special-abilities-empty" aria-hidden="true"></div>';
+    const cg = player.fantasy_contract_games;
+    const contractN = (cg != null && cg !== '' && !isNaN(parseInt(cg, 10))) ? parseInt(cg, 10) : 20;
+    const gp = fantasyCardInt(player, 'fantasy_games_played', 0);
+    const gl = fantasyCardInt(player, 'fantasy_goals', 0);
+    const ast = fantasyCardInt(player, 'fantasy_assists', 0);
+    const mvp = fantasyCardInt(player, 'fantasy_mvp', 0);
+    const rar = player.rarity || fantasyRarityFromOverall(player.overall);
+    const rarityLabel = rar.charAt(0).toUpperCase() + rar.slice(1);
+    const fin = fantasyNormalizeFinish(player.card_finish);
+    const finishLabel = fantasyFinishLabel(fin);
+    const cardRef = (player.fantasy_card_id != null && player.fantasy_card_id !== '') ? ('#' + player.fantasy_card_id) : '—';
+    return '' +
+        '<div class="fantasy-back-season">' + season + '</div>' +
+        '<div class="fantasy-special-abilities-slot">' +
+            '<div class="fantasy-special-abilities-slot-title">Special abilities</div>' +
+            '<div class="fantasy-special-abilities-slot-inner">' + symbolsBlock + '</div>' +
+        '</div>' +
+        '<div class="fantasy-back-details">' +
+            '<div class="fantasy-back-detail-row"><span>Games played</span><strong>' + gp + '</strong></div>' +
+            '<div class="fantasy-back-detail-row"><span>Goals</span><strong>' + gl + '</strong></div>' +
+            '<div class="fantasy-back-detail-row"><span>Assists</span><strong>' + ast + '</strong></div>' +
+            '<div class="fantasy-back-detail-row"><span>MVP</span><strong>' + mvp + '</strong></div>' +
+            '<div class="fantasy-back-detail-row"><span>Contract</span><strong>' + contractN + ' games</strong></div>' +
+            '<div class="fantasy-back-detail-row"><span>Rarity</span><strong class="fantasy-back-rarity-tag fantasy-back-rarity-tag--' + rar + '">' + rarityLabel + '</strong></div>' +
+            '<div class="fantasy-back-detail-row"><span>Finish</span><strong class="fantasy-back-finish-tag fantasy-back-finish-tag--' + fin + '">' + finishLabel + '</strong></div>' +
+        '</div>' +
+        '<div class="fantasy-back-cardid">Card ID · ' + cardRef + '</div>';
+}
+
 // Formation positions (4-3-3)
 const formationPositions = [
     { id: 'gk', x: 550, y: 650, label: 'GK' },
@@ -326,8 +665,8 @@ function createPositionSlots() {
             e.preventDefault();
             e.stopPropagation();
             
-            const playerId = e.dataTransfer.getData('text/plain');
-            const card = document.querySelector(`[data-player-id="${playerId}"]`);
+            const fantasyCardId = e.dataTransfer.getData('text/plain');
+            const card = document.querySelector(`[data-fantasy-card-id="${fantasyCardId}"]`);
             
             if (!card) return;
             
@@ -341,7 +680,8 @@ function createPositionSlots() {
             const fdBg = cardBg ? "url('" + cardBg + "') center/cover, " : '';
             const fieldCard = document.createElement('div');
             fieldCard.className = 'field-card';
-            fieldCard.dataset.playerId = playerId;
+            fieldCard.dataset.fantasyCardId = fantasyCardId;
+            fieldCard.dataset.playerId = card.dataset.playerId;
             const rarity = card.dataset.rarity || 'normal';
             const borderColor = getRarityBorderColor(rarity);
             fieldCard.style.cssText = `
@@ -400,7 +740,7 @@ function createPositionSlots() {
             this.style.background = 'rgba(212, 175, 55, 0.3)';
             this.style.borderStyle = 'solid';
             
-            placedCards[pos.id] = playerId;
+            placedCards[pos.id] = fantasyCardId;
             console.log('Card placed at', pos.id);
         });
         
@@ -419,7 +759,7 @@ function _attachCardDrag(card) {
     card.addEventListener('dragstart', function(e) {
         _cardDragging = true;
         e.dataTransfer.effectAllowed = 'copy';
-        e.dataTransfer.setData('text/plain', this.dataset.playerId);
+        e.dataTransfer.setData('text/plain', this.dataset.fantasyCardId || this.dataset.playerId);
         this.style.opacity = '0.5';
     });
     card.addEventListener('dragend', function(e) {
@@ -455,26 +795,19 @@ function setupCardDrag() {
     console.log('✅ Card drag + click setup:', cards.length, 'cards');
 }
 
-// Show expanded card modal
+// Show expanded card modal (3D flip: front = stats face, back = season + details)
 function showExpandedCard(player) {
-    const rarity = player.rarity || (player.overall >= 96 ? 'limited' : player.overall >= 86 ? 'legendary' : player.overall >= 76 ? 'mythical' : player.overall >= 61 ? 'rare' : 'normal');
+    const rarity = player.rarity || fantasyRarityFromOverall(player.overall);
+    const finish = fantasyNormalizeFinish(player.card_finish);
     const borderColor = getRarityBorderColor(rarity);
-    
-    const pos = parseInt(player.registered_position) || -1;
-    let posLabel = 'N/A';
-    if (pos == 0) posLabel = 'GK';
-    else if (pos == 2) posLabel = 'SW';
-    else if (pos == 3) posLabel = 'CB';
-    else if (pos == 4) posLabel = 'SB';
-    else if (pos == 5) posLabel = 'DMF';
-    else if (pos == 6) posLabel = 'WB';
-    else if (pos == 7) posLabel = 'CMF';
-    else if (pos == 8) posLabel = 'SMF';
-    else if (pos == 9) posLabel = 'AMF';
-    else if (pos == 10) posLabel = 'WF';
-    else if (pos == 11) posLabel = 'SS';
-    else if (pos == 12) posLabel = 'CF';
-    
+
+    const regPos = fantasyRegisteredPositionInt(player);
+    const posLabel = fantasyPositionLabelFromCode(regPos);
+    const dispName = (player.player_name || '').substring(0, 18);
+    const ageStr = fantasyAgeYearsDisplay(player.age);
+    const natStr = fantasyNationalityWithFlag(player.nationality);
+    const ovrStr = (player.overall != null && player.overall !== '') ? String(player.overall) : '—';
+
     const modal = document.createElement('div');
     modal.id = 'expanded-card-modal';
     modal.style.cssText = `
@@ -490,47 +823,65 @@ function showExpandedCard(player) {
         z-index: 10000;
         cursor: pointer;
     `;
-    
-    const expandedCard = document.createElement('div');
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'cursor: default; display: flex; flex-direction: column; align-items: center; gap: 12px; transform: scale(0.92); opacity: 1; transition: transform 0.3s ease, opacity 0.3s ease;';
+    wrap.addEventListener('click', function(e) { e.stopPropagation(); });
+
+    const scene = document.createElement('div');
+    scene.className = 'fantasy-flip-scene';
+
+    const flipInner = document.createElement('div');
+    /* Finish effects are on per-face overlays — not here. filter/animation on this node breaks 3D flip (card vanishes). */
+    flipInner.className = 'fantasy-flip-card';
+    flipInner.setAttribute('role', 'button');
+    flipInner.setAttribute('aria-label', 'Flip card');
+    flipInner.style.cursor = 'pointer';
+
     const cardBg = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.cardBg) ? FANTASY_ASSETS.cardBg : '';
     const bgStyle = cardBg ? "url('" + cardBg + "') center/cover, " : '';
-    expandedCard.style.cssText = `
-        width: 280px;
-        height: 420px;
+
+    const front = document.createElement('div');
+    front.className = 'fantasy-flip-face fantasy-flip-front';
+    front.style.cssText = `
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
         background: ${bgStyle}linear-gradient(135deg, #e0dcd4 0%, #d5d0c8 50%, #cac4bc 100%);
         border-radius: 20px 20px 80px 20px;
         border: 10px solid ${borderColor};
-        position: relative;
         overflow: hidden;
-        cursor: default;
         box-shadow: 0 20px 60px rgba(0,0,0,0.7);
-        transform: scale(0.9);
-        transition: transform 0.3s ease;
     `;
-    
-    expandedCard.innerHTML = `
-        <div style="position: absolute; top: -20px; left: 50%; transform: translateX(-50%); width: 90px; height: 30px; background: linear-gradient(135deg, ${borderColor} 0%, ${borderColor}88 50%, ${borderColor} 100%); border-radius: 15px 15px 0 0; z-index: 15; box-shadow: 0 4px 10px rgba(0,0,0,0.4);"></div>
+    const teamId = player.team_id;
+    const clubBadge = (teamId != null && teamId !== '') ? (
+        '<div style="position:absolute;top:6px;left:6px;z-index:30;width:36px;height:36px;background:rgba(255,255,255,0.96);border-radius:9px;padding:4px;box-sizing:border-box;box-shadow:0 1px 5px rgba(0,0,0,0.18);">' +
+        '<img src="/team_symbol/' + teamId + '?v={{ cache_timestamp }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block;" onerror="this.parentElement.style.display=\'none\'" /></div>'
+    ) : '';
+
+    /* Inner wrapper: children with their own transforms break face backface-culling in browsers unless isolated. */
+    front.innerHTML = `
+        <div class="fantasy-flip-front-inner" style="position:absolute;inset:0;overflow:hidden;border-radius:12px 12px 72px 12px;-webkit-backface-visibility:hidden;backface-visibility:hidden;">
+        ${clubBadge}
+        <div style="position: absolute; top: -20px; left: 50%; margin-left: -45px; width: 90px; height: 30px; background: linear-gradient(135deg, ${borderColor} 0%, ${borderColor}88 50%, ${borderColor} 100%); border-radius: 15px 15px 0 0; z-index: 15; box-shadow: 0 4px 10px rgba(0,0,0,0.4);"></div>
         <div style="position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px; border: 5px solid #e8e4dc; border-radius: 20px 20px 80px 20px; pointer-events: none; z-index: 1;"></div>
-        
-        <!-- Player Name at Top -->
         <div style="position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 15px; font-weight: 900; color: #1a365d; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 8px; z-index: 10; background: linear-gradient(180deg, rgba(232,230,220,0.97) 0%, rgba(220,216,206,0.95) 100%); border-bottom: 3px solid ${borderColor};">
-            ${(player.shirt_name || player.player_name || '').substring(0, 18)}
+            ${dispName}
         </div>
-        
-        <!-- Position Badge -->
         <div style="position: absolute; top: 42px; right: 12px; z-index: 20; font-size: 12px; font-weight: 900; color: white; background: ${borderColor}; padding: 3px 8px; border-radius: 10px;">${posLabel}</div>
-        
-        <!-- Player Image: 200x200 square, full face visible, no crop -->
-        <div style="position: absolute; top: 52px; left: 50%; margin-left: -100px; width: 200px; height: 200px; min-width: 200px; min-height: 200px; overflow: hidden; border-radius: 12px; background: #d8d4cc; z-index: 2; box-sizing: border-box;">
-            <img src="/player_image/${player.id}?v={{ cache_timestamp if cache_timestamp else '' }}" 
+        <div style="position: absolute; top: 52px; left: 50%; margin-left: -100px; width: 200px; height: 200px; min-width: 200px; min-height: 200px; overflow: visible; border-radius: 12px; background: #d8d4cc; z-index: 2; box-sizing: border-box; box-shadow: 0 6px 14px rgba(0,0,0,0.28);">
+            <div style="position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 12px;">
+            <img src="${fantasyPortraitSrc(player)}"
                  alt="${(player.player_name || '')}"
                  width="200" height="200"
-                 style="display: block; width: 100%; height: 100%; object-fit: contain; object-position: center center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.35)); pointer-events: none;"
+                 class="fantasy-expanded-portrait"
+                 style="display: block; width: 100%; height: 100%; object-fit: contain; object-position: center center; pointer-events: none;"
                  onerror="this.style.display='none'; var n=this.nextElementSibling; if(n) { n.style.display='flex'; n.style.alignItems='center'; n.style.justifyContent='center'; }">
             <div style="display: none; position: absolute; inset: 0; background: linear-gradient(135deg, #e0e0e0 0%, #c0c0c0 100%); align-items: center; justify-content: center; color: #999; font-size: 13px; font-weight: bold;">No Image</div>
+            </div>
+            <div style="position: absolute; bottom: 8px; right: 8px; z-index: 15; min-width: 36px; text-align: center; font-size: 20px; font-weight: 900; font-variant-numeric: tabular-nums; color: #fff; background: rgba(15, 23, 42, 0.9); padding: 4px 10px; border-radius: 8px; line-height: 1.05; box-shadow: 0 2px 10px rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.4); text-shadow: 0 1px 2px rgba(0,0,0,0.6);">${ovrStr}</div>
         </div>
-        
-        <!-- Stats with Symbols (compact) -->
+        <div style="position: absolute; top: 258px; left: 10px; right: 10px; text-align: center; font-size: 12px; font-weight: 800; color: #1e293b; z-index: 12; letter-spacing: 0.02em;">${ageStr}<span style="opacity:0.4;margin:0 8px;">·</span>${natStr}</div>
         <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, rgba(232,230,220,0.98) 0%, #e0dcd4 100%); padding: 8px 10px 10px; border-radius: 0 0 20px 20px; z-index: 10;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                 <div style="font-size: 13px; flex: 1; text-align: center;">⚽</div>
@@ -553,24 +904,81 @@ function showExpandedCard(player) {
                 <div style="font-size: 11px; font-weight: 900; color: #1a365d; flex: 1; text-align: center;">${player.goalkeeping_rating || 0}</div>
             </div>
         </div>
+        </div>
     `;
-    
-    modal.appendChild(expandedCard);
+
+    const back = document.createElement('div');
+    back.className = 'fantasy-flip-face fantasy-flip-back';
+    back.style.cssText = `
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: ${bgStyle}linear-gradient(180deg, #f0ede8 0%, #e8e4de 100%);
+        border-radius: 20px 20px 80px 20px;
+        border: 10px solid ${borderColor};
+        overflow: hidden;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+        box-sizing: border-box;
+        padding: 18px 16px 16px;
+        display: flex;
+        flex-direction: column;
+    `;
+    back.innerHTML = buildFantasyCardBackHtml(player);
+
+    if (finish !== 'none') {
+        var fo = document.createElement('div');
+        fo.className = 'fantasy-finish-overlay fantasy-finish-overlay--' + finish;
+        fo.setAttribute('aria-hidden', 'true');
+        front.appendChild(fo);
+        var bo = document.createElement('div');
+        bo.className = 'fantasy-finish-overlay fantasy-finish-overlay--' + finish;
+        bo.setAttribute('aria-hidden', 'true');
+        /* Behind back-face text so details stay readable */
+        back.insertBefore(bo, back.firstChild);
+    }
+
+    flipInner.appendChild(front);
+    flipInner.appendChild(back);
+    scene.appendChild(flipInner);
+
+    const hint = document.createElement('div');
+    hint.style.cssText = 'color:#94a3b8;font-size:12px;text-align:center;max-width:280px;line-height:1.4;';
+    hint.textContent = 'Click the card to flip · Back shows season, special-abilities slot, stats, rarity, and finish';
+
+    wrap.appendChild(scene);
+    wrap.appendChild(hint);
+    modal.appendChild(wrap);
     document.body.appendChild(modal);
-    
-    // Animate in
-    setTimeout(() => {
-        expandedCard.style.transform = 'scale(1)';
+
+    flipInner.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const wasFlipped = flipInner.classList.contains('is-flipped');
+        if (wasFlipped) {
+            front.style.visibility = 'visible';
+        }
+        flipInner.classList.toggle('is-flipped');
+    });
+
+    flipInner.addEventListener('transitionend', function(e) {
+        if (e.target !== flipInner || e.propertyName !== 'transform') {
+            return;
+        }
+        front.style.visibility = flipInner.classList.contains('is-flipped') ? 'hidden' : 'visible';
+    });
+
+    setTimeout(function() {
+        wrap.style.transform = 'scale(1)';
     }, 10);
-    
-    // Close on click outside
+
     modal.addEventListener('click', function(e) {
         if (e.target === modal) {
-            expandedCard.style.transform = 'scale(0.9)';
-            expandedCard.style.opacity = '0';
-            setTimeout(() => {
-                document.body.removeChild(modal);
-            }, 300);
+            wrap.style.transform = 'scale(0.92)';
+            wrap.style.opacity = '0';
+            setTimeout(function() {
+                if (modal.parentNode) {
+                    modal.parentNode.removeChild(modal);
+                }
+            }, 280);
         }
     });
 }
@@ -589,54 +997,54 @@ function getRarityBorderColor(rarity) {
 
 // Create player card HTML (compact version for wallet)
 function createPlayerCardHTML(player) {
-    const pos = parseInt(player.registered_position) || -1;
-    let posLabel = 'N/A';
-    if (pos == 0) posLabel = 'GK';
-    else if (pos == 2) posLabel = 'SW';
-    else if (pos == 3) posLabel = 'CB';
-    else if (pos == 4) posLabel = 'SB';
-    else if (pos == 5) posLabel = 'DMF';
-    else if (pos == 6) posLabel = 'WB';
-    else if (pos == 7) posLabel = 'CMF';
-    else if (pos == 8) posLabel = 'SMF';
-    else if (pos == 9) posLabel = 'AMF';
-    else if (pos == 10) posLabel = 'WF';
-    else if (pos == 11) posLabel = 'SS';
-    else if (pos == 12) posLabel = 'CF';
-    
-    // Determine rarity based on overall if not provided
-    const overall = player.overall || 0;
-    let rarity = player.rarity;
-    if (!rarity) {
-        if (overall >= 96) rarity = 'limited';
-        else if (overall >= 86) rarity = 'legendary';
-        else if (overall >= 76) rarity = 'mythical';
-        else if (overall >= 61) rarity = 'rare';
-        else rarity = 'normal';
-    }
+    const regPos = fantasyRegisteredPositionInt(player);
+    const posLabel = fantasyPositionLabelFromCode(regPos);
+    const overall = (player.overall != null && player.overall !== '') ? Number(player.overall) : 0;
+    const rarity = player.rarity || fantasyRarityFromOverall(overall);
+    const finish = fantasyNormalizeFinish(player.card_finish);
     const borderColor = getRarityBorderColor(rarity);
     const cardBg = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.cardBg) ? FANTASY_ASSETS.cardBg : '';
     const bgStyle = cardBg ? "url('" + cardBg + "') center/cover, " : '';
     
+    const fcId = (player.fantasy_card_id != null && player.fantasy_card_id !== '') ? player.fantasy_card_id : '';
+    const cSeason = player.card_season || '';
+    const tid = player.team_id;
+    const clubCorner = (tid != null && tid !== '') ? (
+        '<div style="position:absolute;top:3px;left:3px;z-index:25;width:22px;height:22px;background:rgba(255,255,255,0.95);border-radius:5px;padding:2px;box-sizing:border-box;box-shadow:0 1px 3px rgba(0,0,0,0.2);">' +
+        '<img src="/team_symbol/' + tid + '?v={{ cache_timestamp }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block;" onerror="this.parentElement.style.display=\'none\'" /></div>'
+    ) : '';
+    const dispName = (player.player_name || '').substring(0, 12);
+    const ageStr = fantasyAgeYearsDisplay(player.age);
+    const natStr = fantasyNationalityWithFlag(player.nationality);
+    const ovrStr = (player.overall != null && player.overall !== '') ? String(player.overall) : '—';
+    const portraitUrl = fantasyPortraitSrc(player);
     return `
-        <div class="player-card-compact" 
+        <div class="player-card-compact fantasy-card-finish--${finish}" 
              draggable="true"
+             data-fantasy-card-id="${fcId}"
              data-player-id="${player.id}" 
              data-position="${player.registered_position}"
              data-player-name="${player.player_name}"
+             data-card-season="${cSeason}"
              data-rarity="${rarity}"
+             data-card-finish="${finish}"
              data-player-data='${JSON.stringify(player)}'
              style="width: 120px; height: 160px; min-width: 120px; min-height: 160px; flex-shrink: 0; background: ${bgStyle}linear-gradient(135deg, #e0dcd4 0%, #d5d0c8 50%, #cac4bc 100%); border-radius: 12px; border: 4px solid ${borderColor}; position: relative; overflow: hidden; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.4); margin: 0; user-select: none; transition: transform 0.2s;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 900; color: #1a365d; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px; z-index: 10; text-shadow: 1px 1px 2px rgba(255,255,255,0.9); background: linear-gradient(180deg, rgba(232,230,220,0.97) 0%, rgba(220,216,206,0.95) 100%); border-bottom: 2px solid ${borderColor};">${(player.shirt_name || player.player_name || '').substring(0, 12)}</div>
+            ${clubCorner}
+            <div style="position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 900; color: #1a365d; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px; z-index: 10; text-shadow: 1px 1px 2px rgba(255,255,255,0.9); background: linear-gradient(180deg, rgba(232,230,220,0.97) 0%, rgba(220,216,206,0.95) 100%); border-bottom: 2px solid ${borderColor};">${dispName}</div>
             <div style="position: absolute; top: 22px; right: 4px; z-index: 20; font-size: 10px; font-weight: 900; color: white; background: ${borderColor}; padding: 2px 6px; border-radius: 8px;">${posLabel}</div>
-            <div style="position: absolute; top: 28px; left: 16px; width: 88px; height: 88px; min-width: 88px; min-height: 88px; overflow: hidden; border-radius: 8px; background: #d8d4cc; z-index: 2; box-sizing: border-box;">
-                <img src="/player_image/${player.id}?v={{ cache_timestamp if cache_timestamp else '' }}" 
+            <div style="position: absolute; top: 28px; left: 20px; width: 80px; height: 80px; min-width: 80px; min-height: 80px; overflow: visible; border-radius: 8px; background: #d8d4cc; z-index: 2; box-sizing: border-box;">
+                <div style="position:relative;width:100%;height:100%;overflow:hidden;border-radius:8px;">
+                <img src="${portraitUrl}" 
                      alt="${(player.player_name || '')}"
-                     width="88" height="88"
+                     width="80" height="80"
                      style="display: block; width: 100%; height: 100%; object-fit: contain; object-position: center center; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25)); pointer-events: none;"
                      onerror="this.style.display='none'; var ph=this.nextElementSibling; if(ph) { ph.style.display='flex'; ph.style.alignItems='center'; ph.style.justifyContent='center'; }">
                 <div style="display: none; position: absolute; inset: 0; background: linear-gradient(135deg, #e0e0e0 0%, #c0c0c0 100%); align-items: center; justify-content: center; color: #999; font-size: 9px; font-weight: bold;">No Img</div>
+                </div>
+                <div style="position:absolute;bottom:3px;right:3px;z-index:5;min-width:22px;text-align:center;font-size:11px;font-weight:900;font-variant-numeric:tabular-nums;color:#fff;background:rgba(15,23,42,0.88);padding:2px 5px;border-radius:5px;line-height:1.1;box-shadow:0 1px 4px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.35);">${ovrStr}</div>
             </div>
+            <div style="position: absolute; top: 110px; left: 2px; right: 2px; height: 11px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 7px; font-weight: 800; letter-spacing: 0.02em; color: #334155; z-index: 9; line-height: 1.1;">${ageStr}<span style="opacity:0.5;margin:0 3px;">·</span>${natStr}</div>
             <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, rgba(232,230,220,0.98) 0%, #e0dcd4 100%); padding: 3px 4px 5px; border-radius: 0 0 12px 12px; z-index: 10;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 1px;">
                     <div style="font-size: 10px; flex: 1; text-align: center;">⚽</div>
@@ -664,41 +1072,66 @@ function createPlayerCardHTML(player) {
 }
 
 // Buy Booster Pack
-document.getElementById('buy-booster-btn').addEventListener('click', function() {
+(function() {
+var buyBoosterBtn = document.getElementById('buy-booster-btn');
+if (!buyBoosterBtn) return;
+buyBoosterBtn.addEventListener('click', function() {
     const btn = this;
     const currentTR = parseInt(document.getElementById('tr-currency').textContent.replace(/,/g, '')) || 0;
-    
-    if (currentTR < 500) {
-        alert('Not enough TR currency! You need 500 TR to buy a booster pack.');
+    const needTR = (typeof fantasyPackChoice !== 'undefined' && fantasyPackChoice.cost) ? fantasyPackChoice.cost : FANTASY_BOOSTER_COST;
+    const boosterLabel = fantasyBuyButtonLabel();
+
+    if (typeof FANTASY_USE_PACK_SHOP !== 'undefined' && FANTASY_USE_PACK_SHOP) {
+        if (fantasyPackChoice == null || fantasyPackChoice.editionId == null) {
+            alert('Select a booster pack first.');
+            return;
+        }
+    }
+
+    if (currentTR < needTR) {
+        alert('Not enough TR currency! You need ' + needTR.toLocaleString() + ' TR for this pack.');
         return;
     }
-    
+
     btn.disabled = true;
     btn.style.opacity = '0.6';
     btn.textContent = 'Opening...';
-    
+
+    var payload = {};
+    if (typeof FANTASY_USE_PACK_SHOP !== 'undefined' && FANTASY_USE_PACK_SHOP && fantasyPackChoice.editionId != null) {
+        payload.edition_id = fantasyPackChoice.editionId;
+    }
+
     fetch('/fantasy/buy_booster_pack', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify(payload)
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // Update TR currency
-            const newTR = currentTR - 500;
-            document.getElementById('tr-currency').textContent = newTR.toLocaleString();
-            
-            // Preload booster image (your custom booster_pack.png) then animate
+    .then(function(response) {
+        return response.json().then(function(data) {
+            return { ok: response.ok, data: data };
+        });
+    })
+    .then(function(result) {
+        const data = result.data;
+        if (result.ok && data.success) {
+            if (typeof data.tr_balance === 'number') {
+                document.getElementById('tr-currency').textContent = data.tr_balance.toLocaleString();
+            }
+            var packUrl = data.booster_pack_image_url || (fantasyPackChoice && fantasyPackChoice.packImage) || '';
             preloadBoosterImage(function() {
-                animateBoosterPack(data.players);
-            });
+                animateBoosterPack(data.players, packUrl);
+            }, packUrl);
         } else {
-            alert('Error: ' + (data.error || 'Failed to buy booster pack'));
+            alert(data.error || 'Failed to buy booster pack');
             btn.disabled = false;
             btn.style.opacity = '1';
-            btn.textContent = '🎁 Buy Booster Pack (500 TR)';
+            btn.textContent = boosterLabel;
+            if (typeof data.tr_balance === 'number') {
+                document.getElementById('tr-currency').textContent = data.tr_balance.toLocaleString();
+            }
         }
     })
     .catch(error => {
@@ -706,7 +1139,40 @@ document.getElementById('buy-booster-btn').addEventListener('click', function() 
         alert('Error buying booster pack. Please try again.');
         btn.disabled = false;
         btn.style.opacity = '1';
-        btn.textContent = '🎁 Buy Booster Pack (500 TR)';
+        btn.textContent = boosterLabel;
+    });
+});
+})();
+
+document.getElementById('fantasy-reset-test-btn').addEventListener('click', function() {
+    if (!confirm('Erase all fantasy cards and reset TR to ' + FANTASY_STARTING_TR.toLocaleString() + '?')) {
+        return;
+    }
+    const btn = this;
+    btn.disabled = true;
+    fetch('/fantasy/reset_collection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(function(response) {
+        return response.json().then(function(data) {
+            return { ok: response.ok, data: data };
+        });
+    })
+    .then(function(result) {
+        btn.disabled = false;
+        if (result.ok && result.data.success) {
+            if (typeof result.data.tr_balance === 'number') {
+                document.getElementById('tr-currency').textContent = result.data.tr_balance.toLocaleString();
+            }
+            window.location.reload();
+        } else {
+            alert((result.data && result.data.error) || 'Reset failed');
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        alert('Reset failed');
     });
 });
 
@@ -726,15 +1192,37 @@ function waitForGSAP(callback, maxAttempts = 50) {
     }, 100);
 }
 
+function fantasyPortraitSrc(player) {
+    var q = (typeof FANTASY_CACHE_TS !== 'undefined' && FANTASY_CACHE_TS !== '') ? ('?v=' + FANTASY_CACHE_TS) : '';
+    var fid = player.fantasy_card_id;
+    if (fid != null && String(fid).trim() !== '') {
+        return '/fantasy/card_portrait/' + fid + q;
+    }
+    return '/player_image/' + player.id + q;
+}
+
+function fantasyBoosterFlyAngles(cardCount) {
+    var n = Math.max(1, cardCount || 1);
+    var out = [];
+    for (var i = 0; i < n; i++) {
+        out.push((360 / n) * i);
+    }
+    return out;
+}
+
 function _playersWithImages(players) {
     return (players || []).filter(function(p) {
+        if (p.fantasy_card_id != null && String(p.fantasy_card_id).trim() !== '') {
+            return true;
+        }
         const v = p.profile_image;
         return v != null && String(v).trim() !== '';
     });
 }
 
-function preloadBoosterImage(callback) {
-    const url = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) ? FANTASY_ASSETS.boosterPackImage : '';
+function preloadBoosterImage(callback, imageUrlOverride) {
+    var url = imageUrlOverride || ((typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) ? FANTASY_ASSETS.boosterPackImage : '');
+    if (FANTASY_CACHE_TS && url && url.indexOf('?') === -1) url = url + '?v=' + FANTASY_CACHE_TS;
     if (!url) {
         callback();
         return;
@@ -746,13 +1234,14 @@ function preloadBoosterImage(callback) {
 }
 
 // Fallback animation using vanilla JS/CSS
-function animateBoosterPackFallback(players) {
+function animateBoosterPackFallback(players, packImageOverride) {
     const withImages = _playersWithImages(players);
     const container = document.getElementById('booster-animation-container');
     container.style.display = 'block';
     container.style.pointerEvents = 'all';
     
-    const boosterImgUrl = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) ? FANTASY_ASSETS.boosterPackImage : '';
+    var boosterImgUrl = packImageOverride || ((typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) ? FANTASY_ASSETS.boosterPackImage : '');
+    if (FANTASY_CACHE_TS && boosterImgUrl && boosterImgUrl.indexOf('?') === -1) boosterImgUrl = boosterImgUrl + '?v=' + FANTASY_CACHE_TS;
     const boosterPack = document.createElement('div');
     boosterPack.id = 'booster-pack';
     boosterPack.style.cssText = `
@@ -804,6 +1293,7 @@ function animateBoosterPackFallback(players) {
         
         if (shakeCount >= 20) {
             clearInterval(shakeInterval);
+            playBoosterOpenSound();
             // Scale up and fade out
             boosterPack.style.transform = 'translate(-50%, -50%) scale(2)';
             boosterPack.style.opacity = '0';
@@ -812,7 +1302,7 @@ function animateBoosterPackFallback(players) {
                 // Create and animate cards
                 const centerX = window.innerWidth / 2;
                 const centerY = window.innerHeight / 2;
-                const angles = [0, 72, 144, 216, 288];
+                const angles = fantasyBoosterFlyAngles(withImages.length);
                 const radius = 300;
                 
                 withImages.forEach((player, index) => {
@@ -857,7 +1347,7 @@ function animateBoosterPackFallback(players) {
                     const btn = document.getElementById('buy-booster-btn');
                     btn.disabled = false;
                     btn.style.opacity = '1';
-                    btn.textContent = '🎁 Buy Booster Pack (500 TR)';
+                    btn.textContent = fantasyBuyButtonLabel();
                 }, 2000);
             }, 500);
         }
@@ -865,11 +1355,11 @@ function animateBoosterPackFallback(players) {
 }
 
 // GSAP Animation for Booster Pack
-function animateBoosterPack(players) {
+function animateBoosterPack(players, packImageOverride) {
     const withImages = _playersWithImages(players);
     waitForGSAP(function(useFallback) {
         if (useFallback || typeof gsap === 'undefined' || gsap === null) {
-            animateBoosterPackFallback(withImages);
+            animateBoosterPackFallback(withImages, packImageOverride);
             return;
         }
     
@@ -877,7 +1367,8 @@ function animateBoosterPack(players) {
     container.style.display = 'block';
     container.style.pointerEvents = 'all';
     
-    const boosterImgUrl = (typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) || '';
+    var boosterImgUrl = packImageOverride || ((typeof FANTASY_ASSETS !== 'undefined' && FANTASY_ASSETS.boosterPackImage) || '');
+    if (FANTASY_CACHE_TS && boosterImgUrl && boosterImgUrl.indexOf('?') === -1) boosterImgUrl = boosterImgUrl + '?v=' + FANTASY_CACHE_TS;
     const boosterPack = document.createElement('div');
     boosterPack.id = 'booster-pack';
     boosterPack.style.cssText = `
@@ -932,7 +1423,7 @@ function animateBoosterPack(players) {
             const btn = document.getElementById('buy-booster-btn');
             btn.disabled = false;
             btn.style.opacity = '1';
-            btn.textContent = '🎁 Buy Booster Pack (500 TR)';
+            btn.textContent = fantasyBuyButtonLabel();
         }
     });
     
@@ -945,18 +1436,19 @@ function animateBoosterPack(players) {
         ease: 'power1.inOut'
     });
     
-    // Step 2: Scale up and fade out
+    // Step 2: Scale up and fade out (sound at pack “rip”)
     tl.to(boosterPack, {
         scale: 2,
         opacity: 0,
         duration: 0.5,
-        ease: 'power2.out'
+        ease: 'power2.out',
+        onStart: function() { playBoosterOpenSound(); }
     });
     
-    // Step 3: Create and animate 5 cards flying out
+    // Step 3: Cards fly out in a circle
     const centerX = window.innerWidth / 2;
     const centerY = window.innerHeight / 2;
-    const angles = [0, 72, 144, 216, 288]; // 5 cards in a circle
+    const angles = fantasyBoosterFlyAngles(withImages.length);
     const radius = 300;
     
     withImages.forEach((player, index) => {
@@ -1001,14 +1493,13 @@ function animateBoosterPack(players) {
     }); // Close waitForGSAP callback
 }
 
-// Add cards to collection (only players with profile_image)
+// Add cards to collection (persisted cards have fantasy_card_id)
 function addCardsToCollection(players) {
     const purse = document.getElementById('card-purse');
     if (!purse) return;
     
     const withImages = (players || []).filter(function(p) {
-        const v = p.profile_image;
-        return v != null && String(v).trim() !== '';
+        return p.fantasy_card_id != null && String(p.fantasy_card_id).trim() !== '';
     });
     
     const emptyMsg = purse.querySelector('div[style*="Your collection is empty"]');
@@ -1045,8 +1536,7 @@ function addCardsToCollectionFallback(players) {
     if (!purse) return;
     
     const withImages = (players || []).filter(function(p) {
-        const v = p.profile_image;
-        return v != null && String(v).trim() !== '';
+        return p.fantasy_card_id != null && String(p.fantasy_card_id).trim() !== '';
     });
     
     const emptyMsg = purse.querySelector('div[style*="Your collection is empty"]');
@@ -1130,6 +1620,323 @@ window.addEventListener('load', function() {
 
 #buy-booster-btn:active {
     transform: scale(0.95);
+}
+
+.fantasy-flip-scene {
+    width: 280px;
+    height: 420px;
+    perspective: 1200px;
+}
+.fantasy-flip-card {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.65s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+.fantasy-flip-card.is-flipped {
+    transform: rotateY(180deg);
+}
+.fantasy-flip-face {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+/* Separate front/back transforms so each face culls correctly (avoids seeing mirrored front photo). */
+.fantasy-flip-front {
+    transform: rotateY(0deg) translateZ(3px);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+}
+.fantasy-flip-back {
+    transform: rotateY(180deg) translateZ(3px);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+}
+
+/*
+  Card finish: overlays only on faces — never filter on .fantasy-flip-card (breaks 3D flip).
+  Avoid mix-blend-mode here: on beige/light cards it makes foil/poly/gloss all look like a faint white haze.
+  Foil = soft stripes + slow wide shine | Polychrome = pastel blended wheel + slow hue drift | Gloss = bold white speculars + inset gleam.
+*/
+.fantasy-finish-overlay {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 100;
+    overflow: hidden;
+}
+.fantasy-flip-back .fantasy-finish-overlay {
+    z-index: 0;
+}
+.fantasy-flip-back > *:not(.fantasy-finish-overlay) {
+    position: relative;
+    z-index: 1;
+}
+/* --- Foil: softened bands + wide, slow shine sweep --- */
+@keyframes fantasy-foil-sweep {
+    0%, 100% { background-position: -20% 35%, 0 0; }
+    50% { background-position: 120% 65%, 0 0; }
+}
+.fantasy-finish-overlay--foil {
+    background-image:
+        linear-gradient(
+            118deg,
+            transparent 0%,
+            transparent 38%,
+            rgba(255, 255, 255, 0.35) 46%,
+            rgba(235, 242, 255, 0.55) 50%,
+            rgba(255, 255, 255, 0.38) 54%,
+            transparent 62%,
+            transparent 100%
+        ),
+        repeating-linear-gradient(
+            92deg,
+            rgba(165, 178, 200, 0.12) 0px,
+            rgba(215, 225, 240, 0.28) 5px,
+            rgba(155, 168, 190, 0.1) 10px,
+            rgba(230, 236, 248, 0.26) 15px,
+            rgba(165, 178, 200, 0.1) 20px
+        );
+    background-size: 240% 240%, auto;
+    background-blend-mode: normal, normal;
+    animation: fantasy-foil-sweep 5.5s cubic-bezier(0.42, 0, 0.58, 1) infinite;
+    box-shadow: inset 0 0 44px rgba(190, 205, 228, 0.28);
+    opacity: 0.78;
+}
+.fantasy-flip-back .fantasy-finish-overlay--foil {
+    opacity: 0.48;
+}
+/* --- Polychrome: softer blended wheel + slow, gentle hue drift --- */
+@keyframes fantasy-poly-hue {
+    from { filter: hue-rotate(0deg) saturate(1.06); }
+    to { filter: hue-rotate(360deg) saturate(1.06); }
+}
+.fantasy-finish-overlay--polychrome {
+    background: conic-gradient(
+        from 0deg at 50% 50%,
+        rgba(232, 140, 190, 0.85) 0deg,
+        rgba(245, 190, 220, 0.75) 40deg,
+        rgba(160, 210, 235, 0.8) 90deg,
+        rgba(200, 230, 248, 0.72) 130deg,
+        rgba(255, 228, 160, 0.78) 180deg,
+        rgba(220, 200, 250, 0.8) 230deg,
+        rgba(160, 235, 210, 0.75) 280deg,
+        rgba(232, 140, 190, 0.85) 360deg
+    );
+    opacity: 0.4;
+    animation: fantasy-poly-hue 16s linear infinite;
+}
+.fantasy-flip-back .fantasy-finish-overlay--polychrome {
+    opacity: 0.26;
+}
+/* --- Gloss: strong plastic speculars (no filter — keeps 3D flip stable) --- */
+@keyframes fantasy-gloss-pulse {
+    0%, 100% { opacity: 0.92; }
+    50% { opacity: 1; }
+}
+.fantasy-finish-overlay--gloss {
+    background:
+        radial-gradient(ellipse 95% 75% at 20% 16%, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.55) 22%, rgba(255, 255, 255, 0.08) 42%, transparent 52%),
+        radial-gradient(ellipse 45% 38% at 82% 24%, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.35) 45%, transparent 62%),
+        radial-gradient(ellipse 65% 48% at 52% 90%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.12) 48%, transparent 58%),
+        radial-gradient(ellipse 28% 22% at 68% 42%, rgba(255, 255, 255, 0.9) 0%, transparent 70%);
+    animation: fantasy-gloss-pulse 2s ease-in-out infinite;
+    box-shadow:
+        inset 0 0 18px rgba(255, 255, 255, 0.95),
+        inset 0 -25px 50px rgba(255, 255, 255, 0.22);
+    opacity: 1;
+}
+.fantasy-flip-back .fantasy-finish-overlay--gloss {
+    opacity: 0.82;
+}
+
+/* Wallet compact cards — match finishes (no blend-mode washout) */
+.player-card-compact.fantasy-card-finish--foil::after,
+.player-card-compact.fantasy-card-finish--polychrome::after,
+.player-card-compact.fantasy-card-finish--gloss::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 60;
+}
+.player-card-compact.fantasy-card-finish--foil::after {
+    background-image:
+        linear-gradient(
+            118deg,
+            transparent 0%,
+            transparent 38%,
+            rgba(255, 255, 255, 0.35) 46%,
+            rgba(235, 242, 255, 0.55) 50%,
+            rgba(255, 255, 255, 0.38) 54%,
+            transparent 62%,
+            transparent 100%
+        ),
+        repeating-linear-gradient(
+            92deg,
+            rgba(165, 178, 200, 0.12) 0px,
+            rgba(215, 225, 240, 0.28) 5px,
+            rgba(155, 168, 190, 0.1) 10px,
+            rgba(230, 236, 248, 0.26) 15px,
+            rgba(165, 178, 200, 0.1) 20px
+        );
+    background-size: 240% 240%, auto;
+    animation: fantasy-foil-sweep 5.5s cubic-bezier(0.42, 0, 0.58, 1) infinite;
+    box-shadow: inset 0 0 36px rgba(190, 205, 228, 0.28);
+    opacity: 0.76;
+}
+.player-card-compact.fantasy-card-finish--polychrome::after {
+    background: conic-gradient(
+        from 0deg at 50% 50%,
+        rgba(232, 140, 190, 0.85) 0deg,
+        rgba(245, 190, 220, 0.75) 40deg,
+        rgba(160, 210, 235, 0.8) 90deg,
+        rgba(200, 230, 248, 0.72) 130deg,
+        rgba(255, 228, 160, 0.78) 180deg,
+        rgba(220, 200, 250, 0.8) 230deg,
+        rgba(160, 235, 210, 0.75) 280deg,
+        rgba(232, 140, 190, 0.85) 360deg
+    );
+    opacity: 0.38;
+    animation: fantasy-poly-hue 16s linear infinite;
+}
+.player-card-compact.fantasy-card-finish--gloss::after {
+    background:
+        radial-gradient(ellipse 95% 75% at 20% 16%, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.55) 22%, rgba(255, 255, 255, 0.08) 42%, transparent 52%),
+        radial-gradient(ellipse 45% 38% at 82% 24%, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.35) 45%, transparent 62%),
+        radial-gradient(ellipse 65% 48% at 52% 90%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.12) 48%, transparent 58%),
+        radial-gradient(ellipse 28% 22% at 68% 42%, rgba(255, 255, 255, 0.9) 0%, transparent 70%);
+    animation: fantasy-gloss-pulse 2s ease-in-out infinite;
+    box-shadow:
+        inset 0 0 16px rgba(255, 255, 255, 0.95),
+        inset 0 -20px 40px rgba(255, 255, 255, 0.22);
+    opacity: 1;
+}
+
+.fantasy-flip-card img.fantasy-expanded-portrait,
+.fantasy-flip-card .fantasy-flip-front-inner img {
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    transform: translateZ(0.01px);
+}
+
+/* Back face layout */
+.fantasy-back-season {
+    font-size: 19px;
+    font-weight: 900;
+    color: #1a365d;
+    text-align: center;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+.fantasy-special-abilities-slot {
+    margin-top: 8px;
+    flex-shrink: 0;
+    border: 2px dashed rgba(30, 41, 59, 0.22);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.45);
+    padding: 7px 6px 9px;
+    min-height: 72px;
+    display: flex;
+    flex-direction: column;
+}
+.fantasy-special-abilities-slot-title {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #64748b;
+    text-align: center;
+    margin-bottom: 5px;
+}
+.fantasy-special-abilities-slot-inner {
+    flex: 1;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.fantasy-special-abilities-empty {
+    width: 100%;
+    min-height: 32px;
+}
+.fantasy-back-details {
+    margin-top: 8px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    font-size: 11px;
+    color: #334155;
+}
+.fantasy-back-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(30, 41, 59, 0.09);
+}
+.fantasy-back-detail-row span { opacity: 0.88; font-weight: 600; }
+.fantasy-back-detail-row strong { font-weight: 800; font-variant-numeric: tabular-nums; }
+.fantasy-back-rarity-tag--normal { color: #334155; }
+.fantasy-back-rarity-tag--rare { color: #2563eb; }
+.fantasy-back-rarity-tag--mythical { color: #9333ea; }
+.fantasy-back-rarity-tag--legendary { color: #b45309; }
+.fantasy-back-rarity-tag--limited { color: #059669; }
+.fantasy-back-finish-tag--none { color: #64748b; }
+.fantasy-back-finish-tag--gloss { color: #0ea5e9; }
+.fantasy-back-finish-tag--foil { color: #94a3b8; }
+.fantasy-back-finish-tag--polychrome { color: #a855f7; }
+.fantasy-back-cardid {
+    margin-top: auto;
+    padding-top: 10px;
+    font-size: 10px;
+    font-weight: 800;
+    color: #64748b;
+    text-align: center;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+}
+
+/* Symbols only inside slot; medal from per-ability average; row hidden if avg ≤ 84. */
+.fantasy-abilities-symbols {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px 12px;
+    padding: 4px 4px;
+    max-width: 100%;
+}
+.fantasy-ability-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    font-size: 22px;
+    line-height: 1;
+}
+.fantasy-ability-icon--gold {
+    filter: drop-shadow(0 0 5px rgba(234, 179, 8, 0.95)) sepia(0.4) saturate(2.4) hue-rotate(5deg) brightness(1.08);
+}
+.fantasy-ability-icon--silver {
+    filter: grayscale(1) brightness(1.2) contrast(1.08) drop-shadow(0 0 4px rgba(200, 210, 230, 0.95));
+}
+.fantasy-ability-icon--bronze {
+    filter: sepia(0.55) saturate(1.9) hue-rotate(352deg) brightness(0.96) drop-shadow(0 0 2px rgba(180, 83, 9, 0.45));
+}
+.fantasy-ability-icon--muted {
+    filter: grayscale(0.35) brightness(0.92);
+    opacity: 0.5;
 }
 </style>
 {% endblock %}

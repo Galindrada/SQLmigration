@@ -1,0 +1,26 @@
+{
+  "show": {
+    "opening": "02_assets/opening.mp4",
+    "closing": "02_assets/closing.mp4",
+    "segments": []
+  },
+  "games": [
+    {
+      "home_team": "Inter",
+      "away_team": "Napoli",
+      "competition": "Liga Colados \u2014 Jornada 12",
+      "stadium": "Est\u00e1dio San Siro",
+      "referee": "Pierluigi Collina",
+      "goals": [
+        {
+          "video_filename": "goal_clip_1.mp4",
+          "home_score": 1,
+          "away_score": 0,
+          "scorer": "Gignac",
+          "minute": "12",
+          "scoring_team": "home"
+        }
+      ]
+    }
+  ]
+}

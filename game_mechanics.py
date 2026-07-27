@@ -51,6 +51,21 @@ SB_REFERENCE_PREMIUM = 2000000  # Base reference premium for side-backs at overa
 GK_BOOST = 1.0  # Multiplier for Goal Keeping skill contribution
 DEF_BOOST = 1.0  # Multiplier for Defense skill contribution
 
+# High-end base salary smoothing (see calculate_player_salary_base).
+# Skill term is cubic in aggregate ability; positional multipliers push mega-stars very high.
+# Below the threshold the curve is unchanged; only the excess is scaled down (soft knee).
+HIGH_SALARY_SMOOTHING_THRESHOLD = 80_000_000
+HIGH_SALARY_SMOOTHING_EXCESS_RATIO = 0.35  # 1.0 = no extra damping; lower = flatter ultra-top
+
+
+def apply_high_salary_smoothing(calc_sal: float) -> float:
+    """Reduce marginal salary growth above HIGH_SALARY_SMOOTHING_THRESHOLD (piecewise linear soft knee)."""
+    if calc_sal <= HIGH_SALARY_SMOOTHING_THRESHOLD:
+        return calc_sal
+    excess = calc_sal - HIGH_SALARY_SMOOTHING_THRESHOLD
+    return HIGH_SALARY_SMOOTHING_THRESHOLD + excess * HIGH_SALARY_SMOOTHING_EXCESS_RATIO
+
+
 # Global cache for position averages
 _POSITION_AVERAGES_CACHE = None
 _POSITION_AVERAGES_CACHE_DB_PATH = None
@@ -391,6 +406,7 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         # Compress toward reference: low salaries increase, high salaries decrease
         calc_sal = reference_salary + (calc_sal - reference_salary) * SB_SALARY_COMPRESSION
     
+    calc_sal = apply_high_salary_smoothing(float(calc_sal))
     return max(GLOBAL_BASE_SALARY, round(calc_sal / 1000) * 1000)
 
 def apply_random_salary_adjustment(base_salary: int) -> int:
@@ -1176,7 +1192,7 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
                             # Results in -18 to -30+ per season
                 # Apply multiplier scaled down for realistic changes
                 # Stronger pull when seed is present (smaller divisor)
-                divisor = 24.0 if seed_targets else 45.0
+                divisor = 20.0 if seed_targets else 45.0
                 base_change = (final_multiplier * skill_weight * remaining_potential) / divisor
             else:  # Decline
                 # For decline, apply multiplier to current value, scaled down
@@ -2476,6 +2492,7 @@ def calculate_player_salary_base(player_row: pd.Series, pos_avg_df: pd.DataFrame
         # Compress toward reference: low salaries increase, high salaries decrease
         calc_sal = reference_salary + (calc_sal - reference_salary) * SB_SALARY_COMPRESSION
     
+    calc_sal = apply_high_salary_smoothing(float(calc_sal))
     return max(GLOBAL_BASE_SALARY, round(calc_sal / 1000) * 1000)
 
 def apply_random_salary_adjustment(base_salary: int) -> int:
@@ -3261,7 +3278,7 @@ def calculate_player_skill_development(player_data: dict, development_key: int =
                             # Results in -18 to -30+ per season
                 # Apply multiplier scaled down for realistic changes
                 # Stronger pull when seed is present (smaller divisor)
-                divisor = 24.0 if seed_targets else 45.0
+                divisor = 20.0 if seed_targets else 45.0
                 base_change = (final_multiplier * skill_weight * remaining_potential) / divisor
             else:  # Decline
                 # For decline, apply multiplier to current value, scaled down
@@ -4185,229 +4202,229 @@ NATIONALITY_DATA = {
     'Brazil': {
         'probability': 0.050655,
         'skin_color': [(1, 0.50), (3, 0.30), (4, 0.20)],  # 50% skin=1, 30% skin=3, 20% skin=4
-        'first_names': ['Puca','Chama','Alex','Julius','Magno','Romeu','Estevio','Junior','Gerson','Lituca','Cravão','Jaco','Gusto','Setembrino','Susu','Vitelinho','Juninho','Murici','Joelinton','Beto','Aloisio','Evandro','Didinho','Alex','Jair','Preto','Otavio','Dudu','Junior','Zelito','Zeca','Thiago','Diego','Givanildo','Roque','Sonny','Sidney','Matheus'],
-        'surnames': ['Ponteiro','Morteiro','Hassel','Muniz','Quitaça','Maravilha','Amazonia','Xareca','Silva','Mineiro','Paulista','Luso','Gaucho','Baiano','Chupeta','Nazario','Aveiro','Santana','Jesus','Junior','Galindro','Souza','Nitro','Melo','Ronaldo','Pato','Ribas']
+        'first_names': ['Rivaldo','Ronaldo','Romário','Vinícius','Thiago','Anderson','Marcos','Branquinho','Fred','Klayton'],
+        'surnames': ['Galindro','Rochinha','Maravilha','Jr','Jesus','Paquetá','Gaúcho','Nazário','Telles','Jardel']
     },
     'Argentina': {
         'probability': 0.036215,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Mario','Fede','Juliano','Fernando','Alberto','Javier','Martin','Rocco','Queiroga','Juasmin','Nendez','Iturra','Salesio','Sergio','Enzo','Nicolas','Franco','Ezequiel','Alejandro','Facundo','Lisandro','Esteban','Agustin','Maxi','Sebastian','Osvaldo','Giovanni','Hector','Diego','Rodrigo','Pablo','Hernando'],
-        'surnames': ['Ximenes','Cortaluca','Cerdo','Pavillán','Chicorito','Palermo','Cruz','Almeyda','Varela','Valdano','Diaz','Messi','Bautista','Simeone','Lopez','Sotto','Correa','Rulli','Farias','Mareque','Toro','Pavon','Di Santi','Gomez']
+        'first_names': ['Enzo','Nicolás','Franco','Lionel','Andrés','Lisandro','Diego','Javier','Hérnan','Gonzalo'],
+        'surnames': ['Simeone','Lopéz','González','Ferreyra','Véron','Palermo','Redondo','Martinéz','Messi','Zanetti']
     },
     'Spain': {
         'probability': 0.026594,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Rócio','Dorian','Arzo','Alphonso','Sergi','Roberto','Iker','Andres','Xavier','Gerardo','Kiko','Carles','Juanito','Alberto','Alfonso','Ituxarra','Goskitz','Arturo','Sibutche','Michel','Marc','Julen','Ruben','Daniel','Lobo','Pep','Santi','Raul','Pico','Ferran','Nacho'],
-        'surnames': ['Makez','Hernandez','Cócio','Chávez','Wozkitz','Ruggeri','Banderas','Hernandez','Gonzalez','de la Costa','Laporte','del Campo','Garcia','Navarro','Salazar','Gusto','Peralta','Rico','Pinjuan','Fernandez','Lopetegui','Enrique','del Rio','Begiristáin','Camacho','de la Buena']
+        'first_names': ['Javi','Xabi','Cesc','Santi','Iker','Carles','Joan','Vicente','Enrique','Raúl'],
+        'surnames': ['Hérnandez','Hierro','Bérguilla','Alonso','Piquéton','Cuesta','Llorente','Raya','Bargistán','Valerón']
     },
     'France': {
         'probability': 0.021794,
         'skin_color': [(1, 0.75), (3, 0.15), (4, 0.10)],  # 75% skin=1, 15% skin=3, 10% skin=4
-            'first_names': ['Dominic','Gil','Guy','Emmanuel','Cyprien','Antoine','Robert','Olivier','Marcel','Didier','Claude','Le Savoir','Lemarchall','Julian','Sosy','Zargoiux','Molinneux','Fabien','Pierre','Raymond','Raphael','Aurelie','Edouard','Kyllian','Jeremy','Dominique','Florent','Bernard','Samir','Andreu','Djibril'],
-            'surnames': ['Morel','Chaute','Joubert','Calvaire','Carré','Lacroix','Santana','Le Vasseur','Guillotine','Benoit','Saint Laurent','Chanel','Givenchy','Gaultier','Papisse','Candela','Papin','Patrice','Fontaine','Remy','Pavard','Ratatouille','Gusteau','Jacquin','Bonaparte','Dior','Chalamet','Brouyche','Dujardin','Sauvignon','Capucine','Labonne','La Croix','Kebechet','Mauve','Xerouzhi','Wazebechet','Rogier']
+            'first_names': ['Laurent','Antoine','Thomas','Raphael','Fabien','Florent','Mickael','Philipe','Sébastian','Claude'],
+            'surnames': ['Henry','Thuram','Blanc','Debuchy','Mendy','Thauvin','Barthez','Depardieu','Deschamps','Libéreau']
     },
     'England': {
         'probability': 0.016983,
         'skin_color': [(1, 0.80), (3, 0.15), (4, 0.05)],  # 80% skin=1, 15% skin=3, 5% skin=4
-        'first_names': ['Frank','Demp','Cole','Kyre','Mason','Erick','Shawn','Pierce','Jimmy','Jamie','Wayne','Frank','Joseph','Edward','Harry','Phil','Gary','Kyle','Jordan','Peter','Keith','Clint','Mac','Christopher','Souls','Drown','James','Joe','Andrew','Henry','David','Richard','William','Charles','Jude'],
-        'surnames': ['Passington','Harding','Eastbrook','Hog','Buffer','Williams','MacCarrick','Beckham','Adams','Cole','McCoy','Xavier','Pearce','Baines','Holmes','Wallace','Potter','Weasley','Baggins','Reigns','Kross','McDonagh','Flair','Owen','Charlton','Stark','King']
+        'first_names': ['Joseph','David','Gareth','Michael','Darius','Wayne','Frank','James','Peter','Phil'],
+        'surnames': ['Beckham','Cole','Gascoigne','Lineker','Northgate','Campbell','Robinson','Philips','Cahill','Lancelot']
     },
     'Germany': {
         'probability': 0.016983,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Hans','Joh','Gentz','Wills','Bolt','Krimzom','Philip','Franz','Adolf','Bastian','Jurgen','Fritz','Andrea','Felix','Thomas','Karl','Bernard','Stefan','Marcus','Mario','Max','Robin','Deniz','Julian','Heinz','Lukas','Gerb','Leon','Jurgenspittzer','Kirstenwolff','Gutten','Daven','Nistchze','Neuville','Soth','Dutreisch','Kloden','Drikens','Muff','Der Gutz'],
-        'surnames': ['Bach','Lonnemeier','Bors','Dehl','Kehl','Brandt','Meyer','Muller','Nicholas','Schumacher','Schawrz','Einstein','Kant','Marx','Kaiser','Panzer','von Bismarck','Fassbender','Otto','Kruger','Rudof','Hoss','Goring','Effenberg','Himmler','Schneider']
+        'first_names': ['Jurgen','Oliver','Thomas','Mathias','Bastian','Marko','Matts','Stefan','Ron','Mario'],
+        'surnames': ['Muller','Hummels','Effenberg','Hellmans','Sammer','Kahn','Bierhoff','Schneider','Ballack','Gunther']
     },
     'Italy': {
         'probability': 0.016983,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Rodolfo','Aimo','Angelo','Pier','Maggi','Vito','Carlo','Fredo','Salvatore','Bruno','Amerigo','Tomaso','Francesco','Giorgino','Fabrizio','Benito','Gianluigi','Gianluca','Giuseppe','Leonardo','Lorentino','Moscardo','Sauvino','Antonio','Popo','Filippo','Gennaro','Luigi','Vincenzo','Riccardo'],
-        'surnames': ['Maggiolli','Florenzi','Anselmi','Pretchi','Siciglia','Vannata','Corleone','Rossi','Gentile','Zola','Dimarco','Della Rocca','Bastoni','Negroni','Fetuccini','Rossini','Clemenza','Fanucci','del Neri','Constanzini','Lamberto','Berlusconi','da Vinci','Baggio','Pavarotti','Bucetti']
+        'first_names': ['Gianluca','Francesco','Andrea','Paolo','Luigi','Salvatore','Alessandro','Leonardo','Federico','Domenico'],
+        'surnames': ['Della Rocca','Baggio','Zola','Maldini','Baresi','Vieri','Materrazi','Rossi','Florenzi','Mancini']
     },
     'Portugal': {
         'probability': 0.016983,
         'skin_color': [(1, 0.70), (3, 0.25), (4, 0.05)],  # 70% skin=1, 25% skin=3, 5% skin=4
-        'first_names': ['Manuel','José','Alfredo','Luis','Pedro','Carlos','Márcio','Mário','Zéquinha','Toni','Pedro','Mário','Rubén','André','Ricardo','Leandro','Diogo','Tarcisio','Filomeno','Tiago','Bruno','Carlos','Josué','Nélson','Aníbal','Pedrinho','Fábio','Quim','Leonardo','Jota','Ricardinho','Vasco','Joca','Santiago','David','Nuno','Diogo','Cristiano'],
-        'surnames': ['Silvares','Ponte Sor','Regueiras','Barroso','Vilares','Neto','Silva','Galindro','Da Rocha','Rochinha','Amaral','Felix','Capelao','Quaresma','Carvalho','Leitinho','Fernandes','Da Costa','Abreu','Seabra','Cardoso','Ferreirinha','Varandas','Martins','Gastão','Guedes']
+        'first_names': ['Aníbal','Josué','Zéquinha','Bruno','Tiago','Carlos','Nélson','Pedro','Jota','Filipe'],
+        'surnames': ['Galindro','Jesus','Amaral','Da Rocha','Rochinha','Silva','De Abreu','Félix','Fernandes','Forneira']
     },
     'Netherlands': {
         'probability': 0.016983,
         'skin_color': [(1, 0.80), (3, 0.15), (4, 0.05)],  # 80% skin=1, 15% skin=3, 5% skin=4
-        'first_names': ['Gor','Sigh','Dan','Laak','Hij','Jan','Jaap','Frank','Memphis','Virgil','Clarence','Wesley','Edwin','Dennis','Ruud','Luuk','Justin','Kevin','Jetro','Maarten','Ronald','Robin','Arjen','Dick','Roy','Fehn','Drost','Van de'],
-        'surnames': ['Soussij','Invlaar','Wirz','DeMelo','Hooveer','Pasveer','van der Vaart','Kluivert','De Jong','Van Bommel','de Boer','Janssen','van de Beek','de Vrijens','van Gallen','Basten','Berg','Bosman','Rijens','Schaar','Cruijff','Wetterman','Dumfries','Stan','de Ligt']
+        'first_names': ['Luuk','Arjen','Van','Robin','Wesley','Jaap','Rafael','Edwin','Matts','Patrick'],
+        'surnames': ['Stam','Rijkaard','Jansen','Bommel','der Gaag','Michelroy','Gullit','der Vaart','de Jong','Verstappen']
     },
     'Belgium': {
         'probability': 0.016983,
         'skin_color': [(1, 0.75), (3, 0.15), (4, 0.10)],  # 75% skin=1, 15% skin=3, 10% skin=4
-        'first_names': ['Porchetain','Ambion','Vuuk','Vincent','Thibaut','Wilfried','Fernand','Dries','Divock','Timothy','Jeremy','Emile','Silvio','Matz','Simon','Jean','Claude','Sven','Maxim','Filip','Arthur','Charles','Luc','Boir','Chemo','Bizimana'],
-        'surnames': ['Ceulaer','De Ruuk','Koeelers','Le Ceire','Pan','den Borr','Meunier','Preud','Yannick','Gillet','Praet','Sels','van Prist','Chalomet','van Zeno','Cuyper','Wilde','Brunyet','Castagne','Weiss','Goose','Bruyne','Ruus','Emmers','Boyata']
+        'first_names': ['Kevin','Eden','Vincent','Michel','Pierre','Roman','Thomas','Jan','Mathis','Max'],
+        'surnames': ['De Cuipper','Groos','Heellink','Verstappen','Denayer','Robert','Munier','Ba','Mingolet']
     },
     'Croatia': {
         'probability': 0.016983,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Dalibor','Vimior','Cruko','Lorko','Dado','Andres','Sinisa','Luka','Ivan','Dejan','Andrej','Marko','Ante','Josko','Igor','Mila','Nikola','Karl','Marsej','Dalibor','Davor'],
-        'surnames': ['Suker','Vida','Demko','Kolasinac','Prosinecki','Stanic','Vidalic','Benkovic','Subasic','Kovacic','Petric','Vlasic','Pilitic','Milic','Bilic','Pjaca','Zivjaca','Badelj']
+        'first_names': ['Luka','Davor','Matej','Pavel','Milan','Jan','Marko','Nikki','Mateo','Nikola'],
+        'surnames': ['Badelj','Gozukic','Nedved','Milic','Vidaj','Modric','Kovacic','Panteljc','Merdaj','Coric']
     },
     'Serbia': {
         'probability': 0.016983,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Dalibor','Vimior','Cruko','Lorko','Dado','Andres','Sinisa','Milic','Srdjan','Milos','Ludovic','Nikola','Lukic','Savo','Alek','Lazar','Josevic','Kristian','Mikokola','Palik','Salim'],
-        'surnames': ['Markovic','Jokinovic','Jeker','Melovic','Danicelic','Chakic','Slagalo','Jovanovic','Milosevic','Ibisevic','Drulovic','Rochovic','Milosevic','Popovic','Krenkov','Dukic']
+        'first_names': ['Milic','Srdjan','Nicola','Dabor','Dejan','Gratoj','Romaric','Vladjmir','Pretjc','Lazar'],
+        'surnames': ['Markovic','Slagalo','Jovanovic','Milosevic','Ibisevic','Drulovic','Rochovic','Doncic','Popovic','Dukic']
     },
     'Poland': {
         'probability': 0.016983,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Henryk','Pawel','Lukas','Tomasz','Jakub','Marek','Jerzy','Gregor','Euzebiusz','Karol','Krystowik','Schzlyonyk','Garzcsinktz'],
-        'surnames': ['Milik','Piatek','Zalewski','Dudek','Zielinski','Rybus','Panterizki','Razça','Boniek','Caganarek']
+        'first_names': ['Henryk','Pawel','Lukas','Tomasz','Jakub','Marek','Jerzy','Euzebiusz','Karol','Krystowik'],
+        'surnames': ['Milik','Piatek','Zalewski','Dudek','Zielinski','Lewandoski','Kuzskack','Razça','Boniek','Caganarek']
     },
     'Ukraine': {
         'probability': 0.016983,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Valdomir','Andrey','Artem','Dmytro','Viktor','Vitaliy','Mykola','Roman','Yuri','Vasyl','Artemi','Ivan','Alexander','Yevgeny','Golovka'],
-        'surnames': ['Stepanenko','Rebrov','Maluchencko','Milesvkiy','Mykolenko','Gansov','Litochencko','Koval','Zielinski','Malyshev']
+        'first_names': ['Valdomir','Andrey','Artem','Dmytro','Viktor','Vitaliy','Mykola','Roman','Yuri','Ivan'],
+        'surnames': ['Stepanenko','Rebrov','Maluchencko','Milesvkiy','Mykolenko','Rochov','Litoschencko','Koval','Zielinski','Malyshev']
     },
     'Russia': {
         'probability': 0.016983,
         'skin_color': [(1, 0.90), (2, 0.05), (3, 0.05)],  # 90% skin=1, 5% skin=2, 5% skin=3
-        'first_names': ['Lev','Igor','Vladimir','Yuri','Sergey','Dmitri','Denis','Roman','Aleksei','Marat','Ivan','Denis','Alieksey','Fedor'],
-        'surnames': ['Alenitchev','Stallin','Romanoff','Bereshakov','Kutin','Maloev','Sychevchenko','Joorgev','Dubrovski','Zasputin']
+        'first_names': ['Lev','Igor','Vladimir','Yuri','Sergey','Dmitri','Aleksei','Marat','Ivan','Denis'],
+        'surnames': ['Alenitchev','Stallin','Romanoff','Bereshakov','Kutin','Malenkochev','Sychevchenko','Joorgev','Dubrovski','Zasputin']
     },
     'Turkey': {
         'probability': 0.016983,
         'skin_color': [(1, 0.20), (2, 0.30), (3, 0.50)],  # 20% skin=1, 30% skin=2, 50% skin=3
-        'first_names': ['Hakan','Arda','Hasan','Ozan','Volkan','Fatih','Hamit','Kazim','Sabri','Gokhan','Zorkan','Okan','Zermit','Jukhan','Ozzimen'],
-        'surnames': ['Coçalhoglu','Terim','Tosun','Cetin','Tuncay','Sukur','Yilmaz','Demiral','Guler','Betozoglu']
+        'first_names': ['Hakan','Arda','Hasan','Ozan','Volkan','Fatih','Hamit','Kazim','Gokhan','Okan'],
+        'surnames': ['Forneirim','Terim','Tosun','Cetin','Tuncay','Sukur','Yilmaz','Demiral','Guler','Pilitaglu']
     },
     'Morocco': {
         'probability': 0.016983,
         'skin_color': [(2, 0.20), (3, 0.60), (4, 0.20)],  # 20% skin=2, 60% skin=3, 20% skin=4
-        'first_names': ['Hakim','Nassir','Youssef','Brahim','Omar','Yassine','Younes','Adel','Medhi','Marrouane','Zalladin','Mokhtari','Al','Rabat'],
-        'surnames': ['Belhanda','Rabat','Chafik','Moufassa','Kabella','Nazer','Chamakh','Zairi','Naybet','Boussaf']
+        'first_names': ['Hakim','Nassir','Youssef','Brahim','Omar','Yassine','Younes','Medhi','Marrouane','Rabat'],
+        'surnames': ['Belhanda','Raja','Chafik','Moufassa','Kabella','Nazer','Chamakh','Zairi','Naybet','Boussaf']
     },
     'Algeria': {
         'probability': 0.016983,
         'skin_color': [(2, 0.15), (3, 0.70), (4, 0.15)],  # 15% skin=2, 70% skin=3, 15% skin=4
-        'first_names': ['Yacine','Nabil','Rabah','Islam','Mehdi','Zinedine','Oussama','Youcef','Ismael','Karim','Cahri','Souleimahne','Al-Ranjit'],
+        'first_names': ['Yacine','Nabil','Rabah','Islam','Mehdi','Zinedine','Oussama','Youcef','Ismael','Karim'],
         'surnames': ['Madjer','Assad','Kadir','Soudani','Ghilas','Saifi','Djebour','Saiid','Brahimi','Boudaoui']
     },
     'Senegal': {
         'probability': 0.016983,
         'skin_color': [(3, 0.20), (4, 0.80)],  # 20% skin=3, 80% skin=4
-        'first_names': ['Lamine','Pape','Papiss','Issa','Idrissa','Saido','Moussa','Demba','Salif','Fode','Bobo','Kalulu','Zohne','Guitane'],
+        'first_names': ['Lamine','Pape','Papiss','Issa','Idrissa','Saido','Moussa','Demba','Salif','Fode'],
         'surnames': ['Sylva','Diop','Ndiaye','Sow','Gueye','Babacar','Diao','Diarra','Gomis','Ba']
     },
     'Nigeria': {
         'probability': 0.016983,
         'skin_color': [(3, 0.15), (4, 0.85)],  # 15% skin=3, 85% skin=4
-        'first_names': ['Obi','Joseph','Kalu','Ola','Sanusi','Haruna','Julius','Ideye','Obafemi','Sam','Emmanuel','Martial','Orunfinjana','Horogulushe','Tembo'],
-        'surnames': ['Zaidu','Agu','Kanu','Taribo','Babayaro','Omeru','Akwue','Obafemi','Aina','Owusuwelele']
+        'first_names': ['Obi','Joseph','Kalu','Ola','Sanusi','Haruna','Julius','Ideye','Obafemi','Sam'],
+        'surnames': ['Zaidu','Agu','Kanu','Taribo','Batayaro','Ubudu','Aghawoa','Femi','Aina','Owusulele']
     },
     'Ghana': {
         'probability': 0.016983,
         'skin_color': [(3, 0.20), (4, 0.80)],  # 20% skin=3, 80% skin=4
-        'first_names': ['Samuel','Thomas','Jeffrey','Tony','Michael','Asamoah','Jordan','Raphael','Christian','Eric','Manfred','Jules','Erique'],
-        'surnames': ['Diouf','Atsu','Boateng','Prince','Addo','Kudus','Mensah','Fatu','Gyan','Sunday','Essien']
+        'first_names': ['Samuel','Thomas','Jeffrey','Tony','Michael','Asamoah','Jordan','Raphael','Christian','Eric'],
+        'surnames': ['Diouf','Atsu','Boateng','Prince','Addo','Kudus','Mensah','Fatu','Gyan','Essien']
     },
     'Cameroon': {
         'probability': 0.016983,
         'skin_color': [(3, 0.25), (4, 0.75)],  # 25% skin=3, 75% skin=4
-        'first_names': ['Roger','Samuel','Lauren','Lucien','Stephane','Joel','Vincent','Benjamim','Fabrice','Pierre','Columbu','Sanoh','Le-Merrienne'],
-        'surnames': ['Mbeuna','Kongolo','Ekotto','Milla','Song','Bilong','Nego','Onana','Matip','Preto o']
+        'first_names': ['Roger','Samuel','Lauren','Lucien','Stephane','Joel','Vincent','Benjamim','Fabrice','Pierre'],
+        'surnames': ['Mbeumo','Kongolo','Ekotto','Milla','Song','Bilong','Nego','Onana','Matip','Branco o']
     },
     'Egypt': {
         'probability': 0.016983,
         'skin_color': [(2, 0.30), (3, 0.70)],  # 30% skin=2, 70% skin=3
-        'first_names': ['Mohamed','Ahmed','Hossan','Yasser','Ismail','Mustafa','Omar','Saleh','Mokthar','Ibrahim','Yamine','Ecleh','Hassan'],
+        'first_names': ['Mohamed','Ahmed','Hossan','Yasser','Ismail','Mustafa','Omar','Saleh','Mokthar','Ibrahim','Hassan'],
         'surnames': ['Marmoush','Ghaly','Imoteph','Zidan','Elneny','Faisel','Nahmed','Saleht','Rafaat','Zamal']
     },
     'Tunisia': {
         'probability': 0.012173,
         'skin_color': [(2, 0.25), (3, 0.75)],  # 25% skin=2, 75% skin=3
-        'first_names': ['Youssef','Hatem','Riad','Nabil','Oussef','Karim','Nizar','Ali','Sofie','Ziad','Zorbon','Nikia','Gille'],
+        'first_names': ['Youssef','Hatem','Riad','Nabil','Oussef','Karim','Nizar','Ali','Ziad','Gille'],
         'surnames': ['Trabelsi','Jaziri','Khazim','Quedir','Nejib','Houssem','Slim','Meriah','Belaid','Achouri']
     },
     'South Africa': {
         'probability': 0.012173,
         'skin_color': [(1, 0.10), (3, 0.20), (4, 0.70)],  # 10% skin=1, 20% skin=3, 70% skin=4
-        'first_names': ['Bennedict','Quinton','Phil','Aaron','John','Andre','Steven','Eric','David','Manuel','Kerwit','Durmu','Vincent','Weld','Hansi'],
+        'first_names': ['Bennedict','Quinton','Phil','Aaron','John','Andre','Steven','Eric','David','Kerwit'],
         'surnames': ['Fortune','McCarthy','Zuma','Mokoena','Mandela','Joseph','Pistorious','Kulele','Tsahbalala','Zwane']
     },
     'Japan': {
         'probability': 0.012173,
         'skin_color': [(2, 0.90), (3, 0.10)],  # 90% skin=2, 10% skin=3
-        'first_names': ['Keisuke','Hidetoshi','Sakura','Ryo','Genzo','Ozora','Akira','Hikaro', 'Sheinsuke','Takeshi','Suneo','Kenzo','Koji'],
-        'surnames': ['Hyuga','Wakabayashi','Misaki','Tsubasa','Inamoto','Nakamura','Nakazawa','Gohan','Nakata','Fujimoto']
+        'first_names': ['Keisuke','Hidetoshi','Ryo','Genzo','Ozora','Akira','Sheinsuke','Takeshi','Kenzo','Koji'],
+        'surnames': ['Hyuga','Wakabayashi','Misaki','Tsubasa','Inamoto','Nakamura','Kutuzaki','Gohan','Nakata','Fujimoto']
     },
     'South Korea': {
         'probability': 0.012173,
         'skin_color': [(2, 0.90), (3, 0.10)],  # 90% skin=2, 10% skin=3
-        'first_names': ['Son','Sung','Young','Lee','Heung','Ping','Pee','Jing','Din','Sun','Hoon','Soon','Geung'],
+        'first_names': ['Son','Sung','Young','Lee','Heung','Ping','Jing','Din','Sun','Geung'],
         'surnames': ['Ming','Park','Ling','Chun','Gun','Son','Young','Ben','Choy','Mill']
     },
     'China': {
         'probability': 0.012173,
         'skin_color': [(2, 0.95), (3, 0.05)],  # 95% skin=2, 5% skin=3
-        'first_names': ['Wu', 'Zhang', 'Li', 'Wang', 'Chen', 'Liu', 'Yang', 'Huang', 'Zhao', 'Zhou', 'An', 'Bao', 'Dong', 'En', 'Feng', 'Gang', 'Hao', 'In', 'Jian'],
+        'first_names': ['Wu', 'Zhang', 'Li', 'Wang', 'Chen', 'Liu', 'Yang', 'Huang', 'Zhao', 'Zhou'],
         'surnames': ['Wang', 'Li', 'Zhang', 'Liu', 'Chen', 'Yang', 'Huang', 'Zhao', 'Wu', 'Zhou']
     },
     'Australia': {
         'probability': 0.012173,
         'skin_color': [(1, 0.70), (2, 0.20), (3, 0.10)],  # 70% skin=1, 20% skin=2, 10% skin=3
-        'first_names': ['John','Tim', 'Robert','Hugh','Lauren','Joe','Aaron','Harry','Craig','Mark','Sam','Mark','Daniel','Marshment'],
+        'first_names': ['Johan','Tim','Robert','Hugh','Lauren','Joe','Aaron','Harry','Craig','Mark','Sam'],
         'surnames': ['Cahill','Ingles','Viduka','Morten','Kennedy','Foster','Rodwell','Winchester','Jackman','Kerr']
     },
     'Mexico': {
         'probability': 0.016983,
         'skin_color': [(1, 0.20), (3, 0.60), (4, 0.20)],  # 20% skin=1, 60% skin=3, 20% skin=4
-        'first_names': ['Javier','Roberto','Rafael','Alejandro','Jorge','Kinkin','Luiz','Ramon','Hector','Gonzalo','Rivero','Juanito','Cabezo','Rogério','Lo Chito','Lionel','Hernando','Vidal'],
-        'surnames': ['Hernandez','Gutierrez','Banderas','Martinez','Fonseca','Herrera','Sanchez','Marquez','de la Vega']
+        'first_names': ['Javier','Rafael','Jorge','Kinkin','Ramon','Hector','Gonzalo','Juan','Hernando','Vidal'],
+        'surnames': ['Hernandez','Gutierrez','Banderas','Martinez','Fonseca','Herrera','Sanchez','Marquez','de la Vega','Marquez']
     },
     'Colombia': {
         'probability': 0.016983,
         'skin_color': [(1, 0.15), (3, 0.65), (4, 0.20)],  # 15% skin=1, 65% skin=3, 20% skin=4
-        'first_names': ['Ricco','Tisco','Torpedero','Tolo','Hernan', 'Faustino','Carlitos','Radamel','Andres','Rubio','Jackson','Manelito','Panzo'],
+        'first_names': ['Ricco','Tisco','Torpedero','Tolo','Hernan','Carlitos','Radamel','Rubio','Jackson','Panzo'],
         'surnames': ['Martinez','Diaz','Escobar','Yepes','Leon','Ortiz','Rincon','Eusebio','Rios','Rodriguez']
     },
     'Chile': {
         'probability': 0.012173,
         'skin_color': [(1, 0.30), (3, 0.60), (4, 0.10)],  # 30% skin=1, 60% skin=3, 10% skin=4
-        'first_names': ['Carlos','Juan','Jose','Miguel','Albino','Nicolás','Arturo', 'Alexis', 'Eduardo','Claudio', 'Jorge', 'Mauricio', 'Matías', 'Cassandro', 'Diego'],
-        'surnames': ['González', 'Muñoz', 'Rojas', 'Díaz', 'Pérez', 'Soto', 'Silva', 'Morales', 'Flores', 'Castro']
+        'first_names': ['Carlos','Juan','Nicolás','Arturo', 'Alexis', 'Eduardo','Claudio','Mauricio','Matías','Diego'],
+        'surnames': ['González', 'Muñoz', 'Rojas', 'Díaz', 'Pérez', 'Soto', 'Silva', 'Morales','Flores','Castro']
     },
     'Uruguay': {
         'probability': 0.012173,
         'skin_color': [(1, 0.85), (3, 0.15)],  # 85% skin=1, 15% skin=3
-        'first_names': ['Fede','Antonio','Silvio','Diego','Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Romero','Armando','Miguel','Gonzalo'],
+        'first_names': ['Fede','Diego','Luis', 'Edinson', 'Diego', 'Maxi', 'Álvaro', 'Sebastián', 'Romero','Gonzalo'],
         'surnames': ['Rodríguez', 'González', 'Silva', 'Pastore', 'García', 'Formentera', 'Ruiz', 'Martínez', 'Díaz', 'Hernández']
     },
     'Paraguay': {
         'probability': 0.012173,
         'skin_color': [(1, 0.25), (3, 0.65), (4, 0.10)],  # 25% skin=1, 65% skin=3, 10% skin=4
-        'first_names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio', 'Carlos','Rocio','Ponzio','Nel'],
+        'first_names': ['Roque', 'Nelson', 'Oscar', 'Cristian', 'Edgar', 'Julio', 'Dario', 'Lucas', 'Antonio','Rodrigo'],
         'surnames': ['Cardozo', 'González', 'Silva', 'Pérez', 'Santa Cruz', 'Ballasteros', 'López', 'Martínez', 'Díaz', 'Hernández']
     },
     'Peru': {
         'probability': 0.012173,
         'skin_color': [(1, 0.20), (2, 0.10), (3, 0.60), (4, 0.10)],  # 20% skin=1, 10% skin=2, 60% skin=3, 10% skin=4
-        'first_names': ['Paolo', 'Jefferson', 'André', 'Christian', 'Yoshimar', 'Renato', 'Luis', 'Carlos', 'Miguel', 'Raúl','Damian','Lamino','Laro','Rimondes'],
-        'surnames': ['Rodríguez', 'González', 'Silva', 'Bakero', 'García', 'Fernández', 'López', 'Martínez', 'Díaz', 'Hernández']
+        'first_names': ['Paolo', 'Jefferson', 'André', 'Christian','Renato', 'Luis','Raúl','Damian','Lamino'],
+        'surnames': ['Rodríguez', 'González', 'Pizarro', 'Bakero', 'García', 'Fernández', 'López', 'Martínez', 'Díaz', 'Hernández']
     },
     'Ecuador': {
         'probability': 0.012173,
         'skin_color': [(1, 0.15), (3, 0.70), (4, 0.15)],  # 15% skin=1, 70% skin=3, 15% skin=4
-        'first_names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Gabriel', 'Walter', 'Benito','Engelmann'],
-        'surnames': ['Rodríguez', 'González', 'Silva', 'Cabra', 'García', 'Fernández', 'Vasquez', 'Martínez', 'Díaz', 'Hernández']
+        'first_names': ['Antonio', 'Enner', 'Felipe', 'Michael', 'Christian', 'Renato', 'Carlos', 'Gabriel', 'Walter', 'Benito'],
+        'surnames': ['Rodríguez', 'González', 'Valencia', 'Cabra', 'García', 'Fernández', 'Vasquez', 'Martínez', 'Díaz', 'Hernández']
     },
     'Venezuela': {
         'probability': 0.012173,
         'skin_color': [(1, 0.25), (3, 0.60), (4, 0.15)],  # 25% skin=1, 60% skin=3, 15% skin=4
-        'first_names': ['Salomón', 'Rómulo', 'Fernando', 'Carlos', 'Roberto', 'José', 'Camilo', 'Eduardo', 'Gabriel', 'Héctor','Portillez','Navez','De la Playa'],
-        'surnames': ['Rodríguez', 'González', 'Lucho', 'Pérez', 'García', 'Buenavista', 'Libre', 'Martínez', 'Díaz', 'Hernández']
+        'first_names': ['Salomón', 'Rómulo', 'Fernando', 'Carlos', 'Roberto', 'José', 'Camilo', 'Eduardo', 'Gabriel', 'Héctor'],
+        'surnames': ['Maduro', 'González', 'Lucho', 'Pérez', 'García', 'Buenavista', 'Libre', 'Martínez', 'Díaz', 'Hernández']
     },
     'Canada': {
         'probability': 0.012173,
         'skin_color': [(1, 0.70), (2, 0.15), (3, 0.10), (4, 0.05)],  # 70% skin=1, 15% skin=2, 10% skin=3, 5% skin=4
-        'first_names': ['Mitch', 'Alphonso', 'Jonathan','Scott', 'Samuel', 'Mark', 'Russell', 'Blake', 'Declan', 'Ethan','Mikey','Macklin','Connor','Brandon','Jake','Saint'],
+        'first_names': ['Mitch', 'Alphonso', 'Jonathan','Scott', 'Samuel', 'Mark', 'Russell', 'Blake', 'Declan', 'Ethan'],
         'surnames': ['Mark', 'Thomas','Rodrigo','Edgar','Philip','Kirr','Dacourt','Falurein','Gustaff','Moore']
     },
     
@@ -4415,94 +4432,94 @@ NATIONALITY_DATA = {
     'Austria': {
         'probability': 0.012173,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Adolf','Jurgen','Heinrich','Michael','George','Manuel','Lukas','Angel','Markus','Julian'],
-        'surnames': ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Muschaft', 'Becker', 'Schulz', 'Goring', 'Eisenwoer','Ziegler']
+        'first_names': ['Marko','David','Adolf','Ruehn','Jurgen','Gruten','Mayer','Wagner','Sebastian','Benjamin'],
+        'surnames': ['Weiss','Fischer','Schmidt','Schwarz','Wimmer','Schuster','Wolf','Strasser','Bettelheim','Aigner']
     },
     'Switzerland': {
         'probability': 0.012173,
         'skin_color': [(1, 0.85), (3, 0.10), (4, 0.05)],  # 85% skin=1, 10% skin=3, 5% skin=4
-        'first_names': ['Lionel','Granit','Henrique','Michel','Jean','Diego','Lukas','Patrick','Markus','Julles','Lohren','Karim','Volz','Gennaro'],
-        'surnames': ['Blanc', 'Schmidt', 'Dubois', 'Robertstein', 'Frei', 'Meyer', 'Raffaello', 'Becker', 'Schulz', 'Perrin', 'Silva','Ziegler']
+        'first_names': ['Granit','Henrique','Michel','Jean','Diego','Lukas','Patrick','Markus','Julles','Lohren'],
+        'surnames': ['Blanc', 'Schmidt', 'Dubois', 'Robertstein', 'Frei', 'Meyer', 'Raffaello', 'Becker', 'Schulz','Ziegler']
     },
     'Sweden': {
         'probability': 0.012173,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Viktor','Henrik','Andreas','Olaf','Merk','Isak','Manuel','Fredrik','Joseph','Max','William','Alexander','Alfred'],
-        'surnames': ['Marksson', 'Larsson', 'Svensson', 'Karlsson', 'Eriksson', 'Junstorm', 'Hallstrom', 'Rottenberg', 'Storm', 'Vannaheim', 'Andersson','Hiccup']
+        'first_names': ['Viktor','Henrik','Olaf','Isak','Fredrik','Joseph','Max','William','Alexander','Alfred'],
+        'surnames': ['Marksson', 'Larsson', 'Svensson', 'Karlsson', 'Eriksson', 'Hallstrom', 'Rottenberg', 'Storm', 'Antonius', 'Andersson']
     },
     'Norway': {
         'probability': 0.012173,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Viktor','Henrik','John','Olef','Erling','Alexander','Gustav','Fredrik','Puntus','Max','Tore','Perth','Oslo'],
-        'surnames': ['Markssen', 'Larssen', 'Olsen', 'Vaalaand', 'Erikssen', 'Braut', 'Pedersen', 'Berg', 'Dahl', 'Haaland', 'Andersen','Estoic']
+        'first_names': ['Viktor','Henrik','John','Olef','Erling','Alexander','Fredrik','Puntus','Max','Oslo'],
+        'surnames': ['Markssen', 'Larssen', 'Olsen', 'Erikssen', 'Braut', 'Pedersen', 'Berg', 'Dahl', 'Haaland','Estoic']
     },
     'Denmark': {
         'probability': 0.012173,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Viktor','Henrik','Christian','Rasmus','Peter','Hugh','Greg','Fredrik','Leonel','Dedrik','Morten','Morgan','Brian','Samuel'],
-        'surnames': ['Eriksen', 'Larsen', 'Kjaer', 'Froholt', 'Huljmand', 'Tommasson', 'Jorgensen', 'Kasper', 'Hojlmund', 'Christensen', 'Andersen','Sorensen']
+        'first_names': ['Viktor','Henrik','Christian','Rasmus','Peter','Hugh','Greg','Fredrik','Dedrik','Morten'],
+        'surnames': ['Eriksen', 'Kjaer', 'Froholt', 'Huljmand', 'Tommasson', 'Jorgensen', 'Hojlmund', 'Christensen', 'Andersen','Sorensen']
     },
     'Finland': {
         'probability': 0.012173,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Viktor','Henrik','Jared','Olav','Peter','Mika','Jasper','Fredrik','Thor','Lukas','Lauri','Mika','Christopher'],
-        'surnames': ['Heikinen', 'Makela', 'Litmanem', 'Hyppia', 'Moller', 'Trosten', 'Niemi', 'Koivist', 'Virtanen', 'Iltamen', 'Jarvinen','Sulkvist']
+        'first_names': ['Viktor','Henrik','Jared','Olav','Peter','Mika','Jasper','Fredrik','Thor','Lukas','Christopher'],
+        'surnames': ['Heikinen', 'Litmanem', 'Hyppia', 'Trosten', 'Niemi', 'Koivist', 'Virtanen', 'Iltamen', 'Jarvinen','Sulkvist']
     },
     'Iceland': {
         'probability': 0.012173,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Viktor','Henrik','Gylfi','Bjorn','Herman','Johan','Jasper','Fredrik','Alfred','Lukas','Fylkir','Lyomir','Gryk'],
-        'surnames': ['Jónsson', 'Sigurðsson', 'Guðmundsson', 'Gunnarsson', 'Ólafsson', 'Einarsson', 'Kristjánsson', 'Magnússon', 'Stefánsson', 'Jóhannesson', 'Björnsson','Loki']
+        'first_names': ['Viktor','Henrik','Gylfi','Bjorn','Herman','Johan','Jasper','Fredrik','Alfred','Lukas'],
+        'surnames': ['Sigurðsson', 'Guðmundsson', 'Gunnarsson', 'Ólafsson', 'Einarsson', 'Kristjánsson', 'Magnússon', 'Stefánsson', 'Jóhannesson', 'Björnsson']
     },
     'Ireland': {
         'probability': 0.012173,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Roy','Olmen'],
-        'surnames': ['Murphy', 'Kelly', 'Sullivan', 'Guiness', 'Smith', 'O\'Brien',  'O\'Connor', 'O\'Neill', 'O\'Reilly' 'Quinn','O\'Callaghan', 'O\'Shea', 'Dunne', 'Fitzgerald']
+        'first_names': ['Henry','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Roy'],
+        'surnames': ['Murphy', 'Sullivan', 'Guiness', 'O\'Brien',  'O\'Connor', 'O\'Neill', 'O\'Reilly','O\'Callaghan', 'O\'Shea', 'Dunne', 'Fitzgerald']
     },
     'Scotland': {
         'probability': 0.007362,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Ballantines','Logan'],
-        'surnames': ['Smith', 'MacGregor','Ferguson','MacDonald','McLean','Stewart','Robertson','Murray','Graham','Armstrong','Douglas']
+        'first_names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Steven','Ballantines','Logan'],
+        'surnames': ['Smith', 'McGregor','Ferguson','MacDonald','McLean','Stewart','Robertson','Murray','Graham','Armstrong','Douglas']
     },
     'Wales': {
         'probability': 0.007362,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Logan'],
+        'first_names': ['Henry','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Logan'],
         'surnames': ['Williams','Evans','Hughes','Pritchard','Powell','Bale','Griffiths','Lancelot','Percival','Price']
     },
     'Northern Ireland': {
         'probability': 0.007362,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Henry','Josh','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Bono'],
-        'surnames': ['Murphy', 'Kelly', 'Sullivan', 'Guiness', 'Smith', 'O\'Brien',  'O\'Connor', 'O\'Neill', 'O\'Reilly' 'Quinn','O\'Callaghan', 'O\'Shea', 'Dunne', 'Fitzgerald']
+        'first_names': ['Henry','George','Mark','Alfred','Bob','Gareth','Louis','Keith','Steven','Bono'],
+        'surnames': ['Murphy', 'Kelly', 'Sullivan', 'Guiness', 'Smith', 'O\'Brien',  'O\'Connor', 'O\'Neill', 'O\'Reilly','O\'Callaghan', 'O\'Shea']
     },
     
     # Additional missing countries from database
     'Albania': {
         'probability': 0.004962,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Krish','Eduard', 'Xerdan', 'Granit', 'Endrit', 'Kavor', 'Lorik', 'Luka', 'Semir', 'Jeton', 'Petro'],
+        'first_names': ['Eduard', 'Xerdan', 'Granit', 'Endrit', 'Kavor', 'Lorik', 'Luka', 'Semir', 'Jeton', 'Petro'],
         'surnames': ['Abazaj', 'Mitaj', 'Berisha', 'Gashi', 'Kadriu', 'Euzabaj', 'Pajaziti', 'Rexhepi', 'Durmisi', 'Cana']
     },
     'Angola': {
         'probability': 0.004962,
         'skin_color': [(3, 0.20), (4, 0.80)],  # 20% skin=3, 80% skin=4
-        'first_names': ['Lumueno','Kiko','Jorginho', 'Bruno', 'Carlinhos', 'Domingos', 'Manel', 'Nandinho', 'Gilberto', 'Rafa', 'Rogério', 'João','Gervásio'],
-        'surnames': ['Santos', 'Fernandes', 'Teta', 'Costa', 'Ferradura', 'Cacimbo', 'Rodrigues', 'Ferreira', 'Vemba', 'Gomes']
+        'first_names': ['Pedro','Lubuemo','Gustavo','Ricardo','Estefano','Quinzinho','Rogério','Matata','Eliseu','Clésio'],
+        'surnames': ['Santos', 'Fernandes', 'Teta', 'Costa', 'Ferradura', 'Cachimbo', 'Toninho', 'Ferreira', 'Vemba', 'Gomes']
     },
     'Armenia': {
         'probability': 0.004962,
         'skin_color': [(1, 0.85), (2, 0.10), (3, 0.05)],  # 85% skin=1, 10% skin=2, 5% skin=3
-        'first_names': ['Yermen','Islam','Arman', 'David', 'Gor', 'Hayk', 'Karen', 'Levon', 'Mher', 'Narek', 'Ruben', 'Sargis'],
+        'first_names': ['Yermen','Islam','Arman', 'David', 'Gor', 'Hayk', 'Karen', 'Levon', 'Mher', 'Narek'],
         'surnames': ['Grigoryan', 'Khachatryan', 'Harutyunyan', 'Sargsyan', 'Vardanyan', 'Petrosyan', 'Mkhitaryan', 'Ghazaryan', 'Chyan', 'Avetisyan']
     },
     'Belarus': {
         'probability': 0.004962,
         'skin_color': [(1, 0.95), (3, 0.05)],  # 95% skin=1, 5% skin=3
-        'first_names': ['Boronov','Aliaksandr', 'Dzmitry', 'Ihar', 'Kanstantsin', 'Maksim', 'Pavel', 'Siarhei', 'Uladzimir', 'Vitali', 'Yury'],
-        'surnames': ['Ivanov', 'Petrov', 'Sidorov', 'Kozlov', 'Morozov', 'Volkov', 'Alekseev', 'Lebedev', 'Semenov', 'Egorov']
+        'first_names': ['Boronov','Aliaksandr', 'Dzmitry', 'Kanstantsin', 'Maksim', 'Pavel', 'Siarhei', 'Uladzimir', 'Vitali', 'Yury'],
+        'surnames': ['Ivanov', 'Petrov', 'Sidorov', 'Kozlov', 'Morozov', 'Volkov', 'Alekseev', 'Galindrev', 'Semenov', 'Egorov']
     },
     'Benin': {
         'probability': 0.004962,
@@ -4519,8 +4536,8 @@ NATIONALITY_DATA = {
     'Bosnia and Herzegovina': {
         'probability': 0.004962,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Adnan', 'Benjamin', 'Srdjan', 'Emir', 'Faruk', 'Goran', 'Haris', 'Ivan', 'Jasmin', 'Kenan'],
-        'surnames': ['Kovačević', 'Petrović', 'Nikolić', 'Marković', 'Đorđević', 'Stojanović', 'Ilić', 'Stanković', 'Pavlović', 'Milošević']
+        'first_names': ['Adnan', 'Benjamin', 'Srdjan', 'Emir', 'Faruk', 'Goran', 'Haris', 'Ivan', 'Jasmin', 'Nikola'],
+        'surnames': ['Kovacevic', 'Petrovic', 'Nikolic', 'Markovic', 'Dordjevic', 'Stojanovic', 'Ilic', 'Stankovic', 'Pavlovic', 'Milosevic']
     },
     'Bulgaria': {
         'probability': 0.004962,
@@ -4537,14 +4554,14 @@ NATIONALITY_DATA = {
     'Cape Verde': {
         'probability': 0.004962,
         'skin_color': [(3, 0.30), (4, 0.70)],  # 30% skin=3, 70% skin=4
-        'first_names': ['Adilson', 'Bruno', 'Litos', 'Domingos', 'Eduardo', 'Quinzinho', 'Gilberto', 'Chiquinho', 'Manecas', 'João'],
-        'surnames': ['Santos', 'Varela', 'Patrao', 'Costa', 'Pereira', 'Mota', 'Rodrigues', 'Luvinha', 'Alves', 'Gomes']
+        'first_names': ['Adilson', 'Bruno', 'Litos', 'Domingos', 'Eduardo', 'Paulino', 'Gilberto', 'Chico', 'Manecas', 'Juval'],
+        'surnames': ['Santos', 'Varela', 'Romario', 'Costa', 'Pataca', 'Mota', 'Rodrigues', 'Luvinha', 'Alves', 'Gomes']
     },
     'Congo': {
         'probability': 0.004962,
         'skin_color': [(3, 0.20), (4, 0.80)],  # 20% skin=3, 80% skin=4
-        'first_names': ['Alain', 'Boris', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean'],
-        'surnames': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou']
+        'first_names': ['Alain', 'Boris', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Ariza', 'Henrico', 'Ivan', 'Mako'],
+        'surnames': ['Mabiala', 'Nkounkou', 'Makukuly', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Kukuila']
     },
     'Costa Rica': {
         'probability': 0.004962,
@@ -4555,7 +4572,7 @@ NATIONALITY_DATA = {
     'Cote d\'Ivoire': {
         'probability': 0.004962,
         'skin_color': [(3, 0.20), (4, 0.80)],  # 20% skin=3, 80% skin=4
-        'first_names': ['Abou', 'Bakary', 'Cheick', 'Didier', 'Emmanuel', 'Franck', 'Gervinho', 'Hervé', 'Ibrahim', 'Jean'],
+        'first_names': ['Salomon', 'Bakary', 'Cheick', 'Didier', 'Emmanuel', 'Franck', 'Joseph', 'Hervé', 'Ibrahim', 'Jean'],
         'surnames': ['Traoré', 'Ouattara', 'Koné', 'Diabaté', 'Bamba', 'Coulibaly', 'Drogba', 'Kalou', 'Tiéné', 'Zokora']
     },
     'Cyprus': {
@@ -4573,8 +4590,8 @@ NATIONALITY_DATA = {
     'DR Congo': {
         'probability': 0.004962,
         'skin_color': [(3, 0.20), (4, 0.80)],  # 20% skin=3, 80% skin=4
-        'first_names': ['Alain', 'Boris', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean'],
-        'surnames': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou']
+        'first_names': ['Alain', 'Boris', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Ariza'],
+        'surnames': ['Mabiala', 'Nkounkou', 'Mouko', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Makukila']
     },
     'Equatorial Guinea': {
         'probability': 0.004962,
@@ -4615,8 +4632,8 @@ NATIONALITY_DATA = {
     'Greece': {
         'probability': 0.007362,
         'skin_color': [(1, 0.90), (3, 0.10)],  # 90% skin=1, 10% skin=3
-        'first_names': ['Labros','Takis','Pakis','Alexandros', 'Dimitrios', 'Georgios', 'Ioannis', 'Konstantinos', 'Josuelius', 'Nikolaos', 'Panagiotis', 'Alexios', 'Vannidis'],
-        'surnames': ['Papadopoulos', 'Forneiridis', 'Karagiannis', 'Leonidas', 'Kratos', 'Nikolaidis', 'Samaris', 'Malakaidis', 'Pretorius', 'Pyssas']
+        'first_names': ['Takis', 'Dimitrios', 'Georgios', 'Ioannis', 'Konstantinos', 'Josuelius', 'Nikolaos', 'Panagiotis', 'Alexios', 'Vannidis'],
+        'surnames': ['Papadopoulos', 'Forneiridis', 'Pilitanidis', 'Leonidas', 'Zeus', 'Rochinanidis', 'Samaris', 'Malakaidis', 'Pretorius', 'Pyssas']
     },
     'Grenada': {
         'probability': 0.003038,
@@ -4628,13 +4645,13 @@ NATIONALITY_DATA = {
         'probability': 0.003038,
         'skin_color': [(3, 0.30), (4, 0.70)],  # 30% skin=3, 70% skin=4
         'first_names': ['Alain', 'Bruno', 'Christian', 'Daniel', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ivan', 'Jean'],
-        'surnames': ['Mabiala', 'Nkounkou', 'Moukila', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Moukila', 'Nkounkou']
+        'surnames': ['Mabiala', 'Nkounkou', 'Mourides', 'Bouanga', 'Makengo', 'Ndinga', 'Mabika', 'Bouanga', 'Molé', 'Lakaka']
     },
     'Guinea': {
         'probability': 0.003038,
         'skin_color': [(3, 0.20), (4, 0.80)],  # 20% skin=3, 80% skin=4
         'first_names': ['Aboubacar', 'Boubacar', 'Cheick', 'Daouda', 'Emmanuel', 'François', 'Gabriel', 'Henri', 'Ibrahim', 'Jean'],
-        'surnames': ['Diallo', 'Bah', 'Camara', 'Traoré', 'Sow', 'Barry', 'Keita', 'Sylla', 'Cissé', 'Touré']
+        'surnames': ['Diallo', 'Bah', 'Camara', 'Traoré', 'Sow', 'Barry', 'Keita', 'Sylla', 'Pissé', 'Touré']
     },
     'Guinea-Bissau': {
         'probability': 0.003038,
@@ -4723,7 +4740,7 @@ NATIONALITY_DATA = {
     'Mozambique': {
         'probability': 0.003038,
         'skin_color': [(3, 0.25), (4, 0.75)],  # 25% skin=3, 75% skin=4
-        'first_names': ['Abel', 'Gildo', 'Carlos', 'Clésio', 'Emmanuel', 'Edson', 'Gabriel', 'Rique', 'Reinildo', 'Ronaldo'],
+        'first_names': ['Manel', 'Mateus', 'Carlos', 'Claudio', 'Juca', 'Edson', 'Gabriel', 'Mita', 'Reinildo', 'Ronaldo'],
         'surnames': ['Mabiala', 'Silva', 'Mexer', 'Quembo', 'Makengo', 'Néné', 'Lourenço', 'Catamo', 'Martins', 'Dove']
     },
     'Netherlands Antilles': {
@@ -4823,7 +4840,6 @@ NATIONALITY_DATA = {
         'surnames': ['Mugabe', 'Tsvangirai', 'Nkomo', 'Mugabe', 'Chinamasa', 'Mpofu', 'Mugabe', 'Tsvangirai', 'Nkomo', 'Mugabe']
     }
 }
-
 # Surname data by nationality
 # NOTE: This is now only used for backward compatibility.
 # All countries in NATIONALITY_DATA now have 'surnames' included.
@@ -4941,7 +4957,7 @@ SURNAME_DATA = {
     'Zimbabwe': ['Mugabe', 'Tsvangirai', 'Nkomo', 'Mugabe', 'Chinamasa', 'Mpofu', 'Mugabe', 'Tsvangirai', 'Nkomo', 'Mugabe']
 }
 
-def crop_name(name: str, max_length: int = 25) -> str:
+def crop_name(name: str, max_length: int = 30) -> str:
     """Crop a name to fit database limits (default 15 characters for PES6)."""
     if len(name) <= max_length:
         return name
@@ -5354,11 +5370,9 @@ def generate_proper_regen(retired_player_data: Dict, db_path: str = None, overri
         # Always use probabilistic selection - do NOT inherit from retiring player
         nationality = select_nationality()
     
-    # Use the global generate_player_name function (supports new structure with cropping)
+    # Use the global generate_player_name function
     first_name, surname = generate_player_name(nationality)
     full_name = f"{first_name} {surname}".strip() if surname else first_name
-    # Ensure full name doesn't exceed 15 characters (PES6 limit)
-    full_name = crop_name(full_name, 15)
     
     # Shirt name: surname in uppercase (or first name if no surname)
     shirt_name = (surname.upper() if surname else first_name.upper())[:100]  # Crop to 100

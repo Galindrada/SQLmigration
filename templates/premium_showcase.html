@@ -167,12 +167,16 @@
                         <p class="text-muted mt-2 mb-0">Submit undisclosed bids before the timer expires. Powerdog will bid at the end.</p>
                     </div>
                 </div>
-                <div class="card" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,99,71,0.6); max-width: 260px;">
+                <div class="card" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,99,71,0.6); max-width: 320px;">
                     <div class="card-body text-center">
                         <h6 class="text-danger font-weight-bold mb-2">Admin Controls</h6>
-                        <p class="text-muted small mb-3">Cancel the current Premium Showcase without processing any bids.</p>
+                        <p class="text-muted small mb-2">Finish the auction now: Powerdog CPU bids are applied, winners get players and payments, then a new round can start.</p>
+                        <form method="post" action="{{ url_for('premium_showcase_finish_now') }}" class="mb-3" onsubmit="return confirm('Finish this auction now? Powerdog will bid on each listed player, winners will be settled, and a new showcase round will start if possible.');">
+                            <button type="submit" class="btn btn-warning btn-sm btn-block">⚡ Finish auction now</button>
+                        </form>
+                        <p class="text-muted small mb-2">Cancel without settling bids.</p>
                         <form method="post" action="{{ url_for('premium_showcase_cancel') }}" onsubmit="return confirm('Cancel current Premium Showcase? No bids will be processed and slots will be discarded.');">
-                            <button type="submit" class="btn btn-outline-danger btn-sm">🛑 Cancel Showcase</button>
+                            <button type="submit" class="btn btn-outline-danger btn-sm btn-block">🛑 Cancel Showcase</button>
                         </form>
                     </div>
                 </div>

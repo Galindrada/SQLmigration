@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Prepare Round {{ round_number }} — 500M squads{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 960px;">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <h1 class="mt-3">⚽ Before Round {{ round_number }}</h1>
+    <p class="text-muted">
+        Every <strong>user-controlled team</strong> playing in this round needs a valid <strong>€500M squad</strong>.
+        The squad you save applies to <strong>all rounds</strong> in that competition (group + knockout).
+    </p>
+    <p><a href="{{ url_for('inter_leagues') }}" class="btn btn-outline-secondary btn-sm">← Back to Inter-Leagues</a></p>
+
+    {% if participating_teams|length == 0 %}
+        <div class="alert alert-info">
+            No user teams in this round’s fixtures — you can go straight to the simulation.
+        </div>
+        <a href="{{ url_for('simulate_all_round1', round_number=round_number) }}" class="btn btn-primary btn-lg">Continue to Round {{ round_number }} simulation →</a>
+    {% else %}
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Teams needing a squad</strong>
+                {% if all_ready %}
+                <span class="badge badge-success">All ready</span>
+                {% else %}
+                <span class="badge badge-warning">Action required</span>
+                {% endif %}
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-striped mb-0">
+                    <thead>
+                        <tr>
+                            <th>Competition</th>
+                            <th>Team</th>
+                            <th>Manager</th>
+                            <th>Status</th>
+                            <th style="min-width: 220px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in participating_teams %}
+                        <tr>
+                            <td>{{ row.competition_name }}</td>
+                            <td><strong>{{ row.team_name }}</strong></td>
+                            <td>{{ row.username }}</td>
+                            <td>
+                                {% if row.ready %}
+                                <span class="badge badge-success">Ready ({{ row.squad_count }} players)</span>
+                                {% else %}
+                                <span class="badge badge-danger">Need squad ({{ row.squad_count }}/11+)</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a class="btn btn-sm btn-primary"
+                                   href="{{ url_for('select_inter_league_squad', competition_id=row.competition_id, round_id=row.round_id, team_id=row.team_id, return_round=round_number) }}">
+                                    📋 Select / edit squad
+                                </a>
+                                <form method="POST" action="{{ url_for('auto_select_inter_league_squad', competition_id=row.competition_id, round_id=row.round_id, team_id=row.team_id, return_round=round_number) }}" style="display:inline;" onsubmit="return confirm('Replace with auto-selected 500M squad?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-info">🤖 Auto (500M)</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {% if all_ready %}
+        <a href="{{ url_for('simulate_all_round1', round_number=round_number) }}" class="btn btn-primary btn-lg">Continue to Round {{ round_number }} simulation →</a>
+        {% else %}
+        <div class="alert alert-warning">
+            Select or auto-fill a squad for each team marked <strong>Need squad</strong>, then return here to continue.
+        </div>
+        <button type="button" class="btn btn-secondary btn-lg" disabled title="Complete all squads first">Continue to simulation (locked)</button>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

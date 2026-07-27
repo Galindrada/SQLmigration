@@ -54,23 +54,54 @@
                     <table>
                         <thead>
                             <tr>
+                                <th>Club #</th>
                                 <th>Name</th>
                                 <th>Age</th>
                                 <th>Game Position</th>
                                 <th>Side</th>
                                 <th>Salary</th>
                                 <th>Market Value</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for player in team.players %}
                                 <tr>
+                                    <td>{{ player.club_number if player.club_number is not none else '-' }}</td>
                                     <td><a href="{{ url_for('pes6_player_details', player_id=player.id) }}" class="player-name-hover" data-player-id="{{ player.id }}">{{ player.player_name }}</a></td>
                                     <td>{{ player.age }}</td>
                                     <td>{{ player.game_position }}</td>
                                     <td>{{ player.strong_foot }}</td>
                                     <td>{{ player.salary | int | format_currency }}</td>
                                     <td>{{ player.market_value | int | format_currency }}</td>
+                                    <td>
+                                        <form method="POST" action="{{ url_for('update_team_management_club_number', player_id=player.id) }}" style="display:inline-flex; align-items:center; gap:6px; margin:0 8px 0 0;">
+                                            <label for="club-number-{{ player.id }}" style="margin:0; font-size:0.85em;">#</label>
+                                            <input
+                                                id="club-number-{{ player.id }}"
+                                                type="number"
+                                                name="club_number"
+                                                min="0"
+                                                max="99"
+                                                value="{{ player.club_number if player.club_number is not none else 0 }}"
+                                                style="width:65px; height:28px; padding:2px 6px;"
+                                                required
+                                            >
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Set</button>
+                                        </form>
+                                        <form method="POST" action="{{ url_for('move_player_to_user_team') }}" style="display:inline-flex; align-items:center; gap:6px; margin:0;">
+                                            <input type="hidden" name="player_id" value="{{ player.id }}">
+                                            <select name="destination_team_id" required style="height:28px; max-width:220px;">
+                                                <option value="">Move to team</option>
+                                                {% for other_team in managed_teams %}
+                                                    {% if other_team.id != team.id %}
+                                                        <option value="{{ other_team.id }}">{{ other_team.name }}</option>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </select>
+                                            <button type="submit" class="btn btn-sm btn-warning">Move</button>
+                                        </form>
+                                    </td>
                                 </tr>
                             {% endfor %}
                         </tbody>

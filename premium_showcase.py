@@ -18,6 +18,25 @@ from typing import Dict, List, Optional, Tuple
 
 import db_helper
 
+
+def _parse_showcase_expires_local(dt_str: str):
+    """
+    Parse round expires_at for comparison with datetime.now().
+    DB stores naive local ISO from datetime.now().isoformat(); handle Z/+00:00 if present.
+    """
+    if not dt_str:
+        return None
+    s = str(dt_str).strip()
+    try:
+        if s.endswith('Z'):
+            s = s[:-1] + '+00:00'
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is not None:
+            return dt.astimezone().replace(tzinfo=None)
+        return dt
+    except Exception:
+        return None
+
 # Skills for "top 3 skills" - numeric skill columns
 SKILL_COLS = [
     'attack', 'defense', 'balance', 'stamina', 'top_speed', 'acceleration',
@@ -315,7 +334,8 @@ def submit_user_slot(conn: sqlite3.Connection, slot_id: int, player_id: int, use
         return {'success': False, 'error': 'Slot not found'}
     if slot['player_id']:
         return {'success': False, 'error': 'Slot already filled'}
-    if slot['status'] != 'active' or datetime.fromisoformat(slot['expires_at']) <= datetime.now():
+    expires_at = _parse_showcase_expires_local(slot['expires_at'])
+    if slot['status'] != 'active' or not expires_at or expires_at <= datetime.now():
         return {'success': False, 'error': 'Showcase expired or closed'}
 
     # Verify player belongs to user and overall > 83
@@ -359,7 +379,8 @@ def submit_bid(conn: sqlite3.Connection, slot_id: int, bid_amount: int, user_id:
     # User slots can be bid on only when filled
     if slot['source'] == 'user' and not slot['player_id']:
         return {'success': False, 'error': 'Slot not yet filled'}
-    if slot['status'] != 'active' or datetime.fromisoformat(slot['expires_at']) <= datetime.now():
+    expires_at = _parse_showcase_expires_local(slot['expires_at'])
+    if slot['status'] != 'active' or not expires_at or expires_at <= datetime.now():
         return {'success': False, 'error': 'Bidding closed'}
 
     if bid_amount <= 0:
@@ -384,19 +405,35 @@ def submit_bid(conn: sqlite3.Connection, slot_id: int, bid_amount: int, user_id:
     return {'success': True}
 
 
-def process_showcase_end(conn: sqlite3.Connection) -> Dict:
-    """At timer end: Powerdog with most money bids 40-185% on each slot. Determine winners."""
+def process_showcase_end(conn: sqlite3.Connection, force: bool = False) -> Dict:
+    """At timer end (or manual force): Powerdog bids per slot, determine winners, close round."""
     cur = conn.cursor()
-    cur.execute("""
-        SELECT id FROM premium_showcase_rounds
-        WHERE status = 'active' AND expires_at <= ?
-        ORDER BY id DESC LIMIT 1
-    """, (datetime.now().isoformat(),))
+    if force:
+        cur.execute("""
+            SELECT id FROM premium_showcase_rounds
+            WHERE status = 'active'
+            ORDER BY id DESC LIMIT 1
+        """)
+    else:
+        cur.execute("""
+            SELECT id FROM premium_showcase_rounds
+            WHERE status = 'active' AND expires_at <= ?
+            ORDER BY id DESC LIMIT 1
+        """, (datetime.now().isoformat(),))
     round_row = cur.fetchone()
     if not round_row:
         return {'success': False, 'processed': False}
 
     round_id = round_row['id']
+
+    # Manual finish: drop prior CPU bids so Powerdog bids are not duplicated
+    if force:
+        cur.execute("""
+            DELETE FROM premium_showcase_bids
+            WHERE is_user_bid = 0
+            AND slot_id IN (SELECT id FROM premium_showcase_slots WHERE round_id = ?)
+        """, (round_id,))
+        conn.commit()
 
     # Get all Powerdog teams (ordered by budget, exclude 141)
     cur.execute("""

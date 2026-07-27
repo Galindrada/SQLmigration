@@ -258,7 +258,23 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
             hail_mary_events.append({'type': 'hail_mary_corner', 'minute': random.randint(85, 90), 'team': 'home' if random.random() < 0.5 else 'away', 'needs_user_input': False})
         if random.random() < 0.05:
             free_kick_events.append({'type': 'dangerous_free_kick', 'minute': random.randint(1, 90), 'team': 'home' if random.random() < 0.5 else 'away', 'needs_user_input': False})
-    
+
+        def _ineligible_from_events(ev_list):
+            """Players sent off or injured cannot score or take part in further match events."""
+            out = set()
+            for e in ev_list:
+                if e.get('type') in ('red_card', 'injury'):
+                    pid = e.get('player_id')
+                    if pid is not None:
+                        out.add(pid)
+            return out
+
+        home_ineligible_ids = _ineligible_from_events(home_events)
+        away_ineligible_ids = _ineligible_from_events(away_events)
+    else:
+        home_ineligible_ids = set()
+        away_ineligible_ids = set()
+
     # Player stats
     player_stats = []
     stats_dict = {}
@@ -300,8 +316,10 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
     # Distribute goals AND assists together (prevents self-assists and ensures assists <= goals)
     # Track scorers so we can exclude them from assist candidates
     home_goal_scorers = []
-    non_gk_home = [p for p in home_lineup_final if get_pos_int(p) != 0]
-    
+    non_gk_home = [p for p in home_lineup_final if get_pos_int(p) != 0 and p.get('id') not in home_ineligible_ids]
+    if not non_gk_home:
+        non_gk_home = [p for p in home_lineup_final if get_pos_int(p) != 0]
+
     for _ in range(home_score):
         if not non_gk_home:
             continue
@@ -368,8 +386,10 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
     
     # Distribute away goals AND assists
     away_goal_scorers = []
-    non_gk_away = [p for p in away_lineup_final if get_pos_int(p) != 0]
-    
+    non_gk_away = [p for p in away_lineup_final if get_pos_int(p) != 0 and p.get('id') not in away_ineligible_ids]
+    if not non_gk_away:
+        non_gk_away = [p for p in away_lineup_final if get_pos_int(p) != 0]
+
     for _ in range(away_score):
         if not non_gk_away:
             continue
@@ -600,6 +620,8 @@ def simulate_international_game_with_players(home_players, away_players, fake_pl
         'events': home_events + away_events,  # Include cards and injuries in events
         'penalty_events': penalty_events,  # Penalties that may need user input
         'hail_mary_events': hail_mary_events,  # Hail-Mary corners that may need user input
-        'free_kick_events': free_kick_events  # Dangerous free-kicks that may need user input
+        'free_kick_events': free_kick_events,  # Dangerous free-kicks that may need user input
+        # Red-carded or injured players must not take special events (resolved in app.py)
+        'ineligible_player_ids': {'home': home_ineligible_ids, 'away': away_ineligible_ids},
     }
 

@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+
+{% block title %}Depth Chart & Tactics Room{% endblock %}
+
+{% block content %}
+<div class="dc-room">
+    <div class="dc-hero">
+        <h2>Depth Chart & Tactics Room</h2>
+        <p>All squads in one depth chart, plus a tactical playground for each team with save/load.</p>
+    </div>
+
+    <section class="dc-global">
+        <h3>Global Depth Chart (All Teams + Loaned Players)</h3>
+        <div class="dc-columns">
+            {% for bucket in depth_chart_positions %}
+            <article class="dc-column">
+                <h4>{{ bucket }}</h4>
+                {% if global_depth_chart[bucket] %}
+                    {% for player in global_depth_chart[bucket] %}
+                    <div class="dc-player {% if player.is_loaned %}dc-player--loaned{% endif %}">
+                        <div class="dc-player__body">
+                            <div class="dc-player__name-wrap">
+                                <span class="dc-player__name">{{ player.player_name }}</span>
+                                <div class="dc-player__hover">
+                                    <div class="dc-player__hover-header">
+                                        <img src="{{ url_for('serve_player_image_by_id', player_id=player.id) }}"
+                                             alt="{{ player.player_name }}"
+                                             class="dc-player__hover-photo"
+                                             onerror="this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                                        <div>
+                                            <div class="dc-player__hover-name">{{ player.player_name }}</div>
+                                            <div class="dc-player__hover-pos">{{ player.position_bucket }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="dc-player__hover-info">
+                                        <div><strong>Club #:</strong> {{ player.club_number if player.club_number is not none else '-' }}</div>
+                                        <div><strong>Team:</strong> {{ player.current_team }}</div>
+                                        {% if player.is_loaned %}
+                                        <div><strong>Loaned by:</strong> {{ player.origin_team }}</div>
+                                        {% endif %}
+                                        <div><strong>Top skills:</strong>
+                                            {% for label, value in player.top_skills %}
+                                                {{ label }} {{ value }}{% if not loop.last %}, {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="dc-player__meta">
+                                Age {{ player.age if player.age is not none else '-' }} |
+                                OVR {{ player.overall if player.overall is not none else '-' }} |
+                                {{ player.strong_foot if player.strong_foot else '-' }}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="dc-empty">No players</div>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="dc-tactics">
+        <h3>Team Tactics Playground</h3>
+        {% for team in managed_teams %}
+        <div class="dc-team-board" data-team-id="{{ team.id }}">
+            <div class="dc-team-board__header">
+                <div class="dc-team-title">
+                    {% if team.pes6_team_id %}
+                    <img src="{{ url_for('serve_team_symbol', team_id=team.pes6_team_id) }}" alt="{{ team.name }} crest" onerror="this.style.display='none';">
+                    {% endif %}
+                    <strong>{{ team.name }}</strong>
+                </div>
+                <div class="dc-team-controls">
+                    <label>Formation</label>
+                    <select class="form-control form-control-sm js-formation" style="width:90px;">
+                        <option value="433">4-3-3</option>
+                        <option value="442">4-4-2</option>
+                        <option value="4231">4-2-3-1</option>
+                        <option value="352">3-5-2</option>
+                        <option value="343">3-4-3</option>
+                        <option value="424">4-2-4</option>
+                        <option value="541">5-4-1</option>
+                        <option value="361">3-6-1</option>
+                    </select>
+                    <button class="btn btn-sm btn-primary js-save">Save</button>
+                    <button class="btn btn-sm btn-secondary js-clear">Clear</button>
+                    <span class="js-status"></span>
+                </div>
+            </div>
+
+            <div class="dc-team-layout">
+                <aside class="dc-pool">
+                    <h5>Roster Pool</h5>
+                    {% for player in team.players %}
+                    <div class="dc-pool-card" draggable="true"
+                         data-player-id="{{ player.id }}"
+                         data-player-name="{{ player.player_name }}"
+                         data-player-position="{{ player.position_bucket }}"
+                         data-player-team="{{ team.name }}"
+                         data-player-number="{{ player.club_number if player.club_number is not none else '-' }}"
+                         data-player-overall="{{ player.overall if player.overall is not none else 0 }}"
+                         data-player-age="{{ player.age if player.age is not none else '-' }}"
+                         data-player-foot="{{ player.strong_foot if player.strong_foot else '-' }}"
+                         data-player-skills="{{ (player.top_skills|map(attribute=0)|list|join(', ')) }}">
+                        <img src="{{ url_for('serve_player_image_by_id', player_id=player.id) }}" alt="{{ player.player_name }}" onerror="this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+                        <div>
+                            <strong>{{ player.player_name }}</strong>
+                            <small>{{ player.position_bucket }} | OVR {{ player.overall if player.overall is not none else '-' }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </aside>
+
+                <div class="dc-pitch-wrap">
+                    <div class="dc-pitch js-pitch"></div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </section>
+</div>
+
+<style>
+    .dc-hero { margin-bottom: 16px; padding: 12px; border-radius: 10px; border: 1px solid #304460; background: linear-gradient(145deg, #172133, #0f1827); color: #e8f0ff; }
+    .dc-global h3, .dc-tactics h3 { margin: 14px 0 10px; color: #ffd86b; }
+    .dc-columns { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .dc-column { background: #151f2f; border: 1px solid #2e425f; border-radius: 10px; padding: 8px; min-height: 180px; }
+    .dc-column h4 { font-size: 0.9rem; color: #ffd86b; margin-bottom: 8px; }
+    .dc-player { display: flex; gap: 7px; margin-bottom: 7px; border: 1px solid #324966; background: #202f45; border-radius: 8px; padding: 6px; position: relative; }
+    .dc-player--loaned { border-color: #a07a28; background: #3a2c15; }
+    .dc-player__name-wrap { position: relative; display: inline-block; }
+    .dc-player__name { font-size: 0.8rem; font-weight: 700; line-height: 1.05; color: #f3f7ff; cursor: pointer; text-decoration: underline dotted rgba(200, 220, 255, 0.45); text-underline-offset: 2px; }
+    .dc-player__meta { font-size: 0.68rem; color: #cfddf2; margin-top: 2px; }
+    .dc-player__hover {
+        display: none;
+        position: absolute;
+        top: 120%;
+        left: 0;
+        z-index: 30;
+        width: 260px;
+        border: 1px solid #42648f;
+        border-radius: 10px;
+        background: linear-gradient(145deg, #17263d, #101c2e);
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+        padding: 10px;
+    }
+    .dc-player__name-wrap:hover .dc-player__hover { display: block; }
+    .dc-player__hover-header { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .dc-player__hover-photo { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; border: 1px solid #7f9ec6; }
+    .dc-player__hover-name { color: #f4f8ff; font-size: 0.82rem; font-weight: 700; line-height: 1.1; }
+    .dc-player__hover-pos { color: #bed1ee; font-size: 0.68rem; }
+    .dc-player__hover-info { color: #d7e4f8; font-size: 0.68rem; line-height: 1.35; }
+    .dc-empty { color: #99acc8; font-size: 0.85rem; }
+
+    .dc-team-board { margin-top: 14px; border: 1px solid #2f4260; border-radius: 12px; background: #131d2d; }
+    .dc-team-board__header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #2f4260; gap: 10px; }
+    .dc-team-title { display: flex; align-items: center; gap: 8px; color: #f2f6ff; }
+    .dc-team-title img { width: 34px; height: 34px; border-radius: 6px; object-fit: cover; background: rgba(255,255,255,0.1); }
+    .dc-team-controls { display: flex; align-items: center; gap: 8px; }
+    .dc-team-controls label { margin: 0; font-size: 0.8rem; color: #bed0eb; }
+    .js-status { font-size: 0.72rem; color: #b8cae6; min-width: 150px; }
+    .dc-team-layout { display: grid; grid-template-columns: 280px 1fr; gap: 10px; padding: 10px; }
+    .dc-pool { max-height: 620px; overflow-y: auto; border: 1px solid #2f4260; border-radius: 10px; padding: 8px; background: #1a2740; }
+    .dc-pool h5 { font-size: 0.9rem; color: #ffd86b; margin-bottom: 8px; }
+    .dc-pool-card { display: flex; gap: 8px; border: 1px solid #35527b; border-radius: 8px; background: #21314d; padding: 6px; margin-bottom: 6px; cursor: grab; }
+    .dc-pool-card img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid #708fbb; }
+    .dc-pool-card strong { display: block; font-size: 0.78rem; color: #f1f6ff; line-height: 1.05; }
+    .dc-pool-card small { display: block; font-size: 0.66rem; color: #bfd2f1; }
+    .dc-pitch-wrap { border: 1px solid #2f4260; border-radius: 10px; padding: 8px; background: #1a2740; }
+    .dc-pitch {
+        position: relative;
+        min-height: 630px;
+        border: 2px solid #8fd49f;
+        border-radius: 12px;
+        background:
+            linear-gradient(to bottom, rgba(255,255,255,0.04), rgba(255,255,255,0.02)),
+            repeating-linear-gradient(to bottom, #2f7a3e 0, #2f7a3e 64px, #2c713a 64px, #2c713a 128px);
+    }
+    .dc-pitch::before, .dc-pitch::after { content: ""; position: absolute; pointer-events: none; }
+    .dc-pitch::before { left: 0; right: 0; top: 50%; border-top: 2px solid rgba(255,255,255,0.5); }
+    .dc-pitch::after { left: 50%; top: 50%; width: 110px; height: 110px; margin-left: -55px; margin-top: -55px; border: 2px solid rgba(255,255,255,0.5); border-radius: 50%; }
+    .dc-slot {
+        position: absolute; transform: translate(-50%, -50%); width: 110px; min-height: 85px;
+        border: 2px dashed rgba(255,255,255,0.66); border-radius: 10px; background: rgba(0,0,0,0.22);
+        display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 4px;
+    }
+    .dc-slot.over { border-color: #ffd86b; background: rgba(255,216,107,0.2); }
+    .dc-slot__label { color: #e4f0e9; font-size: 0.64rem; margin-bottom: 3px; }
+    .dc-slot-player { width: 100%; text-align: center; cursor: move; }
+    .dc-slot-player img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1px solid #dde9ff; }
+    .dc-slot-player__name { color: #fff; font-size: 0.64rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dc-slot-player__meta { color: #d9e3f1; font-size: 0.6rem; line-height: 1; }
+    @media (max-width: 1300px) { .dc-columns { grid-template-columns: repeat(3, 1fr); } .dc-team-layout { grid-template-columns: 1fr; } }
+</style>
+
+<script>
+const formations = {
+    "433": [{l:"GK",x:50,y:90},{l:"LB",x:18,y:72},{l:"CB",x:40,y:74},{l:"CB",x:60,y:74},{l:"RB",x:82,y:72},{l:"CM",x:30,y:55},{l:"DM",x:50,y:58},{l:"CM",x:70,y:55},{l:"LW",x:20,y:28},{l:"ST",x:50,y:22},{l:"RW",x:80,y:28}],
+    "442": [{l:"GK",x:50,y:90},{l:"LB",x:18,y:72},{l:"CB",x:40,y:74},{l:"CB",x:60,y:74},{l:"RB",x:82,y:72},{l:"LM",x:20,y:52},{l:"CM",x:40,y:52},{l:"CM",x:60,y:52},{l:"RM",x:80,y:52},{l:"ST",x:40,y:26},{l:"ST",x:60,y:26}],
+    "4231":[{l:"GK",x:50,y:90},{l:"LB",x:18,y:72},{l:"CB",x:40,y:74},{l:"CB",x:60,y:74},{l:"RB",x:82,y:72},{l:"DM",x:42,y:58},{l:"DM",x:58,y:58},{l:"LW",x:24,y:40},{l:"AM",x:50,y:37},{l:"RW",x:76,y:40},{l:"ST",x:50,y:21}],
+    "352": [{l:"GK",x:50,y:90},{l:"CB",x:30,y:72},{l:"CB",x:50,y:74},{l:"CB",x:70,y:72},{l:"LWB",x:12,y:56},{l:"CM",x:36,y:56},{l:"AM",x:50,y:50},{l:"CM",x:64,y:56},{l:"RWB",x:88,y:56},{l:"ST",x:40,y:26},{l:"ST",x:60,y:26}],
+    "343": [{l:"GK",x:50,y:90},{l:"CB",x:30,y:72},{l:"CB",x:50,y:74},{l:"CB",x:70,y:72},{l:"LM",x:15,y:52},{l:"CM",x:40,y:52},{l:"CM",x:60,y:52},{l:"RM",x:85,y:52},{l:"LW",x:22,y:27},{l:"ST",x:50,y:21},{l:"RW",x:78,y:27}],
+    "424": [{l:"GK",x:50,y:90},{l:"LB",x:18,y:72},{l:"CB",x:40,y:74},{l:"CB",x:60,y:74},{l:"RB",x:82,y:72},{l:"CM",x:40,y:55},{l:"CM",x:60,y:55},{l:"LW",x:14,y:28},{l:"ST",x:38,y:23},{l:"ST",x:62,y:23},{l:"RW",x:86,y:28}],
+    "541": [{l:"GK",x:50,y:90},{l:"LWB",x:10,y:72},{l:"CB",x:30,y:74},{l:"CB",x:50,y:75},{l:"CB",x:70,y:74},{l:"RWB",x:90,y:72},{l:"LM",x:20,y:50},{l:"CM",x:42,y:50},{l:"CM",x:58,y:50},{l:"RM",x:80,y:50},{l:"ST",x:50,y:24}],
+    "361": [{l:"GK",x:50,y:90},{l:"CB",x:30,y:72},{l:"CB",x:50,y:74},{l:"CB",x:70,y:72},{l:"LM",x:12,y:54},{l:"DM",x:30,y:54},{l:"CM",x:42,y:48},{l:"AM",x:58,y:48},{l:"DM",x:70,y:54},{l:"RM",x:88,y:54},{l:"ST",x:50,y:22}]
+};
+
+function payloadFromNode(node) {
+    return {
+        id: node.dataset.playerId, name: node.dataset.playerName, position: node.dataset.playerPosition,
+        team: node.dataset.playerTeam, number: node.dataset.playerNumber, overall: node.dataset.playerOverall,
+        age: node.dataset.playerAge, foot: node.dataset.playerFoot, skills: node.dataset.playerSkills
+    };
+}
+
+function bindDragSource(node) {
+    node.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('application/json', JSON.stringify(payloadFromNode(node)));
+    });
+}
+
+function renderPlayer(slot, p) {
+    slot.innerHTML = `
+        <div class="dc-slot__label">${slot.dataset.label}</div>
+        <div class="dc-slot-player" draggable="true"
+             data-player-id="${p.id}" data-player-name="${p.name}" data-player-position="${p.position}"
+             data-player-team="${p.team}" data-player-number="${p.number}" data-player-overall="${p.overall}"
+             data-player-age="${p.age}" data-player-foot="${p.foot}" data-player-skills="${p.skills || ''}">
+            <img src="/player_image/${p.id}" alt="${p.name}" onerror="this.src='{{ url_for('static', filename='player_images/default.png') }}';">
+            <div class="dc-slot-player__name">${p.name}</div>
+            <div class="dc-slot-player__meta">#${p.number} | OVR ${p.overall}</div>
+        </div>
+    `;
+    bindDragSource(slot.querySelector('.dc-slot-player'));
+}
+
+function clearSlot(slot) {
+    slot.innerHTML = `<div class="dc-slot__label">${slot.dataset.label}</div>`;
+}
+
+function getLineup(board) {
+    const lineup = {};
+    board.querySelectorAll('.dc-slot').forEach((slot, idx) => {
+        const playerNode = slot.querySelector('.dc-slot-player');
+        if (playerNode) lineup[idx] = payloadFromNode(playerNode);
+    });
+    return lineup;
+}
+
+function applyLineup(board, lineup) {
+    Object.entries(lineup || {}).forEach(([idx, player]) => {
+        const slot = board.querySelector(`.dc-slot[data-slot-index="${idx}"]`);
+        if (slot) renderPlayer(slot, player);
+    });
+}
+
+function buildBoard(container, formation) {
+    const board = container.querySelector('.js-pitch');
+    board.innerHTML = '';
+    (formations[formation] || formations["433"]).forEach((def, idx) => {
+        const slot = document.createElement('div');
+        slot.className = 'dc-slot';
+        slot.dataset.slotIndex = idx;
+        slot.dataset.label = def.l;
+        slot.style.left = def.x + '%';
+        slot.style.top = def.y + '%';
+        slot.innerHTML = `<div class="dc-slot__label">${def.l}</div>`;
+        slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('over'); });
+        slot.addEventListener('dragleave', () => slot.classList.remove('over'));
+        slot.addEventListener('drop', (e) => {
+            e.preventDefault();
+            slot.classList.remove('over');
+            const raw = e.dataTransfer.getData('application/json');
+            if (!raw) return;
+            const payload = JSON.parse(raw);
+            renderPlayer(slot, payload);
+        });
+        board.appendChild(slot);
+    });
+}
+
+async function loadSaved(container) {
+    const teamId = container.dataset.teamId;
+    const status = container.querySelector('.js-status');
+    try {
+        const res = await fetch(`/depth_chart/load_tactics/${teamId}`);
+        const data = await res.json();
+        if (!data.success) {
+            status.textContent = data.error || 'Load failed';
+            return;
+        }
+        if (!data.has_saved) {
+            status.textContent = 'No saved tactics yet';
+            return;
+        }
+        container.querySelector('.js-formation').value = data.formation;
+        buildBoard(container, data.formation);
+        applyLineup(container.querySelector('.js-pitch'), data.lineup || {});
+        status.textContent = `Loaded saved tactics (${data.formation})`;
+    } catch (err) {
+        status.textContent = 'Load failed';
+    }
+}
+
+async function saveBoard(container) {
+    const teamId = parseInt(container.dataset.teamId, 10);
+    const formation = container.querySelector('.js-formation').value;
+    const board = container.querySelector('.js-pitch');
+    const status = container.querySelector('.js-status');
+    status.textContent = 'Saving...';
+    try {
+        const res = await fetch('/depth_chart/save_tactics', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ team_id: teamId, formation, lineup: getLineup(board) })
+        });
+        const data = await res.json();
+        status.textContent = data.success ? 'Saved successfully' : (data.error || 'Save failed');
+    } catch (err) {
+        status.textContent = 'Save failed';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.dc-pool-card').forEach(bindDragSource);
+    document.querySelectorAll('.dc-team-board').forEach((container) => {
+        const formationSel = container.querySelector('.js-formation');
+        buildBoard(container, formationSel.value);
+        loadSaved(container);
+        formationSel.addEventListener('change', () => buildBoard(container, formationSel.value));
+        container.querySelector('.js-clear').addEventListener('click', () => {
+            container.querySelectorAll('.dc-slot').forEach(clearSlot);
+            container.querySelector('.js-status').textContent = 'Board cleared';
+        });
+        container.querySelector('.js-save').addEventListener('click', () => saveBoard(container));
+    });
+});
+</script>
+{% endblock %}

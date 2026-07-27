@@ -196,6 +196,19 @@
                     </div>
                 {% endfor %}
             </div>
+
+            <h3 style="margin-top: 20px;">Special Abilities</h3>
+            <div class="player-details-section">
+                {% if active_stars %}
+                <div class="skills-grid">
+                    {% for star_name in active_stars %}
+                    <p><strong><span style="color: #1565c0;">★</span> {{ star_name }}</strong></p>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="mb-0"><strong>No special abilities.</strong></p>
+                {% endif %}
+            </div>
         </div>
     </div>
 

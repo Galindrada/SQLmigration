@@ -2707,6 +2707,204 @@ def change_skin_colour(manager: TeamManager):
         print(f"❌ Error changing skin colour: {e}")
         manager.conn.rollback()
 
+
+def clear_player_seed(manager: TeamManager):
+    """Interactively clear a single player's seed_player field (set to NULL)."""
+    try:
+        print("\n" + "="*80)
+        print("🌱 SEED CLEARER")
+        print("="*80)
+
+        player_id_input = input("\nEnter Player ID (or 'cancel' to go back): ").strip()
+        if player_id_input.lower() == 'cancel':
+            print("❌ Operation cancelled")
+            return
+
+        try:
+            player_id = int(player_id_input)
+        except ValueError:
+            print("❌ Invalid player ID. Please enter a number.")
+            return
+
+        cursor = manager.conn.cursor()
+        cursor.execute("""
+            SELECT p.id, p.player_name, p.seed_player, p.club_id, t.club_name
+            FROM players p
+            LEFT JOIN teams t ON p.club_id = t.id
+            WHERE p.id = ?
+        """, (player_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            print(f"❌ Player with ID {player_id} not found")
+            return
+
+        player_name = row['player_name']
+        current_seed = row['seed_player']
+        club_name = row['club_name'] if row['club_name'] else 'No Club'
+
+        print(f"\n📋 Player information:")
+        print(f"   ID:          {player_id}")
+        print(f"   Name:        {player_name}")
+        print(f"   Club:        {club_name}")
+        print(f"   seed_player: {current_seed if current_seed is not None else 'None'}")
+
+        if current_seed is None or str(current_seed).strip() == "" or int(current_seed) == 0:
+            print("ℹ️ Player already has no seed_player set. No change made.")
+            return
+
+        confirm = input(
+            f"\n⚠️  Clear seed_player for {player_name} (ID {player_id}) "
+            f"(current value: {current_seed})? This will set it to NULL. (y/N): "
+        ).strip().lower()
+        if confirm != 'y':
+            print("❌ Operation cancelled, no changes made.")
+            return
+
+        cursor.execute(
+            "UPDATE players SET seed_player = NULL WHERE id = ?",
+            (player_id,)
+        )
+        manager.conn.commit()
+        print(f"\n✅ Cleared seed_player for {player_name} (ID {player_id}).")
+
+    except Exception as e:
+        print(f"❌ Error clearing seed_player: {e}")
+        manager.conn.rollback()
+
+
+def toggle_player_blacklist(manager: TeamManager):
+    """Interactively add or remove a player from the global CPU blacklist (user_id = 1)."""
+    try:
+        print("\n" + "="*80)
+        print("🚫 PLAYER BLACKLIST TOGGLER (user_id = 1)")
+        print("="*80)
+
+        player_id_input = input("\nEnter Player ID (or 'cancel' to go back): ").strip()
+        if player_id_input.lower() == 'cancel':
+            print("❌ Operation cancelled")
+            return
+
+        try:
+            player_id = int(player_id_input)
+        except ValueError:
+            print("❌ Invalid player ID. Please enter a number.")
+            return
+
+        cursor = manager.conn.cursor()
+        cursor.execute("""
+            SELECT p.id, p.player_name, p.club_id, t.club_name
+            FROM players p
+            LEFT JOIN teams t ON p.club_id = t.id
+            WHERE p.id = ?
+        """, (player_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            print(f"❌ Player with ID {player_id} not found")
+            return
+
+        player_name = row['player_name']
+        club_name = row['club_name'] if row['club_name'] else 'No Club'
+
+        # Check current blacklist status for user_id = 1 (CPU)
+        cursor.execute("SELECT 1 FROM blacklist WHERE user_id = 1 AND player_id = ?", (player_id,))
+        is_blacklisted = cursor.fetchone() is not None
+
+        print(f"\n📋 Player information:")
+        print(f"   ID:    {player_id}")
+        print(f"   Name:  {player_name}")
+        print(f"   Club:  {club_name}")
+        print(f"   Status: {'BLACKLISTED' if is_blacklisted else 'not blacklisted'}")
+
+        if is_blacklisted:
+            confirm = input(
+                f"\n⚠️  Remove {player_name} (ID {player_id}) from CPU blacklist? (y/N): "
+            ).strip().lower()
+            if confirm != 'y':
+                print("❌ Operation cancelled, no changes made.")
+                return
+
+            cursor.execute(
+                "DELETE FROM blacklist WHERE user_id = 1 AND player_id = ?",
+                (player_id,)
+            )
+            manager.conn.commit()
+            print(f"\n✅ Removed {player_name} (ID {player_id}) from CPU blacklist.")
+        else:
+            confirm = input(
+                f"\n⚠️  Add {player_name} (ID {player_id}) to CPU blacklist? (y/N): "
+            ).strip().lower()
+            if confirm != 'y':
+                print("❌ Operation cancelled, no changes made.")
+                return
+
+            cursor.execute(
+                "INSERT INTO blacklist (user_id, player_id) VALUES (1, ?)",
+                (player_id,)
+            )
+            manager.conn.commit()
+            print(f"\n✅ Added {player_name} (ID {player_id}) to CPU blacklist.")
+
+    except Exception as e:
+        print(f"❌ Error toggling blacklist: {e}")
+        manager.conn.rollback()
+
+def cleanup_stuck_cpu_user_offer_listings(manager: TeamManager):
+    """
+    Mark stuck cpu_user_offer listings as rejected when they have no live offers.
+    A live offer is status active/pending.
+    """
+    try:
+        print("\n" + "=" * 80)
+        print("🧹 CLEANUP STUCK CPU USER OFFERS")
+        print("=" * 80)
+
+        cursor = manager.conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) as total
+            FROM market_bazaar_listings mbl
+            WHERE mbl.listing_type = 'cpu_user_offer'
+            AND mbl.status = 'active'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM market_bazaar_offers mbo
+                WHERE mbo.listing_id = mbl.id
+                AND mbo.status IN ('active', 'pending')
+            )
+        """)
+        stuck_count = cursor.fetchone()['total']
+
+        if stuck_count == 0:
+            print("✅ No stuck cpu_user_offer listings found.")
+            return
+
+        print(f"Found {stuck_count} stuck active cpu_user_offer listing(s) with no live offers.")
+        confirm = input("Mark these listings as 'rejected' now? (y/N): ").strip().lower()
+        if confirm != 'y':
+            print("❌ Operation cancelled, no changes made.")
+            return
+
+        cursor.execute("""
+            UPDATE market_bazaar_listings
+            SET status = 'rejected'
+            WHERE listing_type = 'cpu_user_offer'
+            AND status = 'active'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM market_bazaar_offers mbo
+                WHERE mbo.listing_id = market_bazaar_listings.id
+                AND mbo.status IN ('active', 'pending')
+            )
+        """)
+        updated = cursor.rowcount
+        manager.conn.commit()
+        print(f"✅ Cleanup complete. Updated {updated} listing(s) to 'rejected'.")
+
+    except Exception as e:
+        print(f"❌ Error cleaning stuck cpu_user_offer listings: {e}")
+        manager.conn.rollback()
+
 def get_position_name(position_code: int) -> str:
     """Convert position code to readable name"""
     positions = {
@@ -2744,7 +2942,7 @@ def display_menu():
     print("12. Fix team ID mismatches")
     print("13. Replace player from CSV by ID")
     print("14. Replace player manually (field by field)")
-    print("15. Rename players with long names (16+ characters)")
+    print("15. Rename long player / shirt names (16+ characters)")
     print("16. Duplicate player stats for a team")
     print("17. Delete a game from Colados League")
     print("18. Fix invalid face/skin combinations")
@@ -2761,7 +2959,10 @@ def display_menu():
     print("29. Clear player historical statistics")
     print("30. Match international stats (copy lifetime to current season)")
     print("31. Skin Colour Changer")
-    print("32. Exit")
+    print("32. Seed clearer (remove seed_player)")
+    print("33. Blacklist toggler (CPU/global blacklist)")
+    print("34. Cleanup stuck cpu_user_offer listings")
+    print("35. Exit")
     print("="*60)
 
 def list_users(manager: TeamManager):
@@ -3113,8 +3314,8 @@ def replace_player_manually(manager: TeamManager):
         print(f"❌ Error in replace_player_manually: {e}")
 
 def rename_long_names(manager: TeamManager):
-    """Rename players with 16+ character names one by one"""
-    print("\n✏️ RENAME LONG PLAYER NAMES")
+    """Rename players with 16+ character player_name or shirt_name, one player at a time."""
+    print("\n✏️ RENAME LONG PLAYER / SHIRT NAMES")
     print("-" * 40)
     
     try:
@@ -3123,69 +3324,122 @@ def rename_long_names(manager: TeamManager):
         skipped_count = 0
         
         while True:
-            # Find the next player with 16+ character name
             cursor.execute("""
-                SELECT id, player_name, club_id
-                FROM players 
+                SELECT id, player_name, shirt_name, club_id
+                FROM players
                 WHERE LENGTH(player_name) >= 16
-                ORDER BY LENGTH(player_name) DESC, player_name
+                   OR LENGTH(COALESCE(shirt_name, '')) >= 16
+                ORDER BY max(LENGTH(player_name), LENGTH(COALESCE(shirt_name, ''))) DESC,
+                         player_name
                 LIMIT 1
             """)
             player = cursor.fetchone()
             
             if not player:
-                print(f"\n🎉 All done! No more players with 16+ character names.")
-                print(f"📊 Summary: {renamed_count} renamed, {skipped_count} skipped")
+                print(f"\n🎉 All done! No more players with 16+ character player or shirt names.")
+                print(f"📊 Summary: {renamed_count} field(s) updated, {skipped_count} field(s) skipped")
                 break
             
             player_id = player['id']
             current_name = player['player_name']
+            current_shirt = player['shirt_name'] or ''
+            long_name = len(current_name) >= 16
+            long_shirt = len(current_shirt) >= 16
             
-            print(f"\n📝 Player found with long name:")
+            print(f"\n📝 Player found:")
             print(f"   ID: {player_id}")
-            print(f"   Name: {current_name}")
-            print(f"   Length: {len(current_name)} characters")
+            print(f"   Name: {current_name} ({len(current_name)} chars){' ⚠️ long' if long_name else ''}")
+            print(f"   Shirt: {current_shirt!r} ({len(current_shirt)} chars){' ⚠️ long' if long_shirt else ''}")
             
-            while True:
-                new_name = input(f"\n   Enter new name (or 'skip' to skip, 'quit' to exit): ").strip()
-                
-                if new_name.lower() == 'quit':
-                    print(f"\n👋 Exiting... Summary: {renamed_count} renamed, {skipped_count} skipped")
-                    return
-                
-                if new_name.lower() == 'skip':
-                    print("   ⏭️  Skipped.")
-                    skipped_count += 1
-                    break
-                
-                if not new_name:
-                    print("   ❌ Name cannot be empty. Please try again.")
-                    continue
-                
-                if len(new_name) > 50:
-                    print("   ❌ Name too long (max 50 characters). Please try again.")
-                    continue
-                
-                # Confirm the change
-                confirm = input(f"   Confirm change '{current_name}' → '{new_name}'? (y/n): ").strip().lower()
-                
-                if confirm == 'y':
-                    # Update the player name
-                    cursor.execute("UPDATE players SET player_name = ? WHERE id = ?", (new_name, player_id))
-                    manager.conn.commit()
+            if long_name:
+                while True:
+                    new_name = input(
+                        f"\n   Enter new PLAYER name (or 'skip' to leave name, 'quit' to exit): "
+                    ).strip()
                     
-                    print(f"   ✅ Successfully updated: '{current_name}' → '{new_name}'")
-                    renamed_count += 1
-                    break
-                elif confirm == 'n':
-                    print("   ❌ Change cancelled. Please try again.")
-                    continue
-                else:
-                    print("   ❌ Please enter 'y' or 'n'.")
-                    continue
+                    if new_name.lower() == 'quit':
+                        print(
+                            f"\n👋 Exiting... Summary: {renamed_count} field(s) updated, {skipped_count} field(s) skipped"
+                        )
+                        return
+                    
+                    if new_name.lower() == 'skip':
+                        print("   ⏭️  Skipped player name.")
+                        skipped_count += 1
+                        break
+                    
+                    if not new_name:
+                        print("   ❌ Name cannot be empty. Please try again.")
+                        continue
+                    
+                    if len(new_name) > 50:
+                        print("   ❌ Name too long (max 50 characters). Please try again.")
+                        continue
+                    
+                    confirm = input(f"   Confirm change '{current_name}' → '{new_name}'? (y/n): ").strip().lower()
+                    
+                    if confirm == 'y':
+                        cursor.execute(
+                            "UPDATE players SET player_name = ? WHERE id = ?",
+                            (new_name, player_id),
+                        )
+                        manager.conn.commit()
+                        print(f"   ✅ Player name updated: '{current_name}' → '{new_name}'")
+                        renamed_count += 1
+                        current_name = new_name
+                        break
+                    elif confirm == 'n':
+                        print("   ❌ Change cancelled. Please try again.")
+                        continue
+                    else:
+                        print("   ❌ Please enter 'y' or 'n'.")
+                        continue
+            
+            if long_shirt:
+                while True:
+                    new_shirt = input(
+                        f"\n   Enter new SHIRT name (or 'skip' to leave shirt name, 'quit' to exit): "
+                    ).strip()
+                    
+                    if new_shirt.lower() == 'quit':
+                        print(
+                            f"\n👋 Exiting... Summary: {renamed_count} field(s) updated, {skipped_count} field(s) skipped"
+                        )
+                        return
+                    
+                    if new_shirt.lower() == 'skip':
+                        print("   ⏭️  Skipped shirt name.")
+                        skipped_count += 1
+                        break
+                    
+                    if not new_shirt:
+                        print("   ❌ Shirt name cannot be empty. Please try again.")
+                        continue
+                    
+                    if len(new_shirt) > 50:
+                        print("   ❌ Shirt name too long (max 50 characters). Please try again.")
+                        continue
+                    
+                    confirm = input(f"   Confirm shirt '{current_shirt}' → '{new_shirt}'? (y/n): ").strip().lower()
+                    
+                    if confirm == 'y':
+                        cursor.execute(
+                            "UPDATE players SET shirt_name = ? WHERE id = ?",
+                            (new_shirt, player_id),
+                        )
+                        manager.conn.commit()
+                        print(f"   ✅ Shirt name updated: '{current_shirt}' → '{new_shirt}'")
+                        renamed_count += 1
+                        break
+                    elif confirm == 'n':
+                        print("   ❌ Change cancelled. Please try again.")
+                        continue
+                    else:
+                        print("   ❌ Please enter 'y' or 'n'.")
+                        continue
         
     except KeyboardInterrupt:
-        print(f"\n👋 Exiting... Summary: {renamed_count} renamed, {skipped_count} skipped")
+        print(f"\n👋 Exiting... Summary: {renamed_count} field(s) updated, {skipped_count} field(s) skipped")
     except Exception as e:
         print(f"❌ Database error: {e}")
 
@@ -5112,7 +5366,7 @@ def main():
     try:
         while True:
             display_menu()
-            choice = input("\nEnter your choice (1-31): ").strip()
+            choice = input("\nEnter your choice (1-35): ").strip()
             
             if choice == '1':
                 list_users(manager)
@@ -5177,10 +5431,16 @@ def main():
             elif choice == '31':
                 change_skin_colour(manager)
             elif choice == '32':
+                clear_player_seed(manager)
+            elif choice == '33':
+                toggle_player_blacklist(manager)
+            elif choice == '34':
+                cleanup_stuck_cpu_user_offer_listings(manager)
+            elif choice == '35':
                 print("👋 Goodbye!")
                 break
             else:
-                print("❌ Invalid choice. Please enter 1-32.")
+                print("❌ Invalid choice. Please enter 1-35.")
     
     except KeyboardInterrupt:
         print("\n👋 Exiting...")

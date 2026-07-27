@@ -9,7 +9,7 @@
     
     <div class="list-group" style="max-width: 500px; margin-top: 20px;">
         {% for team in teams %}
-        <a href="{{ url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team.id) }}" 
+        <a href="{{ url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team.id, return_round=return_round) if return_round else url_for('select_inter_league_squad', competition_id=competition_id, round_id=round_id, team_id=team.id) }}" 
            class="list-group-item list-group-item-action">
             <h5>{{ team.team_name }}</h5>
         </a>
@@ -17,7 +17,11 @@
     </div>
     
     <div style="margin-top: 20px;">
+        {% if return_round %}
+        <a href="{{ url_for('prepare_inter_league_simulate_round', round_number=return_round) }}" class="btn btn-secondary">Back</a>
+        {% else %}
         <a href="{{ url_for('inter_leagues', competition_id=competition_id) }}" class="btn btn-secondary">Back</a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

@@ -42,7 +42,7 @@ except ImportError:
     print("⚠️  Phase 2 features (swaps/loans) not available")
 
 # Free agency timer in minutes
-fa_timer = 720
+fa_timer = 780
 
 @dataclass
 class TeamComposition:
@@ -470,6 +470,7 @@ class CPUAI:
                     ON bpp.registered_position = p.registered_position
                 WHERE p.club_id = ? 
                 AND p.registered_position IN ({position_list_sql})
+                AND CAST(p.overall AS INTEGER) <= 73
                 AND (bpp.best_ovr IS NULL OR p.overall < bpp.best_ovr)
                 AND p.id NOT IN (SELECT player_id FROM market_bazaar_listings WHERE status = 'active')
                 AND p.id NOT IN (SELECT player_id FROM blacklist WHERE user_id = 1)
@@ -800,25 +801,25 @@ class CPUAI:
             # STANCE-BASED PRICING
             if stance == 'Rebuilder' and player_age > 27:
                 # Rebuilder: Players >27 years old sell for 70-90% of market value
-                asking_price = int(market_value * random.uniform(0.60, 1.00))
+                asking_price = int(market_value * random.uniform(0.70, 1.10))
             elif stance in ['Contender', 'Tinkering']:
                 # Contender/Tinkering: Normal price + 30% bump
                 if is_toxic or budget < 0:
                     # Sell below market value for toxic contracts or debt, but still add 30%
-                    base_price = market_value * random.uniform(0.6, 1.15)
+                    base_price = market_value * random.uniform(0.7, 1.25)
                     asking_price = int(base_price * 1.05)
                 else:
                     # Normal asking price + 30%
-                    base_price = market_value * random.uniform(0.95, 1.35)
+                    base_price = market_value * random.uniform(0.95, 1.45)
                     asking_price = int(base_price * 1.15)
             else:
                 # Powerdog and default: Standard pricing
                 if is_toxic or budget < 0:
                     # Sell below market value for toxic contracts or debt
-                    asking_price = int(market_value * random.uniform(0.65, 1.1))
+                    asking_price = int(market_value * random.uniform(0.75, 1.2))
                 else:
                     # Normal asking price
-                    asking_price = int(market_value * random.uniform(0.85, 1.45))
+                    asking_price = int(market_value * random.uniform(0.95, 1.55))
             
             # Create market listing (8 hours expiration)
             expires_at = datetime.now() + timedelta(hours=8)
@@ -1940,22 +1941,22 @@ class CPUAI:
             if stance == 'Powerdog':
                 # Powerdog: 20-45% overpayment bump
                 # Willing to pay more than the value difference
-                overpayment_bump = random.uniform(0.20, 0.45)
+                overpayment_bump = random.uniform(0.10, 0.30)
                 overpayment_amount = int(target_value * overpayment_bump)
                 cash_compensation = int(value_diff + overpayment_amount)
             elif stance == 'Contender':
                 # Contender: 5-20% overpayment bump
-                overpayment_bump = random.uniform(0.05, 0.20)
+                overpayment_bump = random.uniform(0.01, 0.10)
                 overpayment_amount = int(target_value * overpayment_bump)
                 cash_compensation = int(value_diff + overpayment_amount)
             elif stance == 'Rebuilder':
                 # Rebuilder: 10-45% overpayment bump (for young talent)
-                overpayment_bump = random.uniform(0.10, 0.45)
+                overpayment_bump = random.uniform(0.05, 0.30)
                 overpayment_amount = int(target_value * overpayment_bump)
                 cash_compensation = int(value_diff + overpayment_amount)
             elif stance == 'Tinkering':
                 # Tinkering: 5-20% overpayment bump
-                overpayment_bump = random.uniform(0.05, 0.20)
+                overpayment_bump = random.uniform(0.01, 0.10)
                 overpayment_amount = int(target_value * overpayment_bump)
                 cash_compensation = int(value_diff + overpayment_amount)
             else:
@@ -2185,20 +2186,20 @@ class CPUAI:
             
             if stance == 'Powerdog':
                 # Powerdog: 20-45% bump
-                stance_bump_min = 0.20
-                stance_bump_max = 0.45
+                stance_bump_min = 0.10
+                stance_bump_max = 0.25
             elif stance == 'Contender':
                 # Contender: 5-20% bump
-                stance_bump_min = 0.05
-                stance_bump_max = 0.20
+                stance_bump_min = 0.01
+                stance_bump_max = 0.15
             elif stance == 'Rebuilder':
                 # Rebuilder: 10-45% bump
-                stance_bump_min = 0.10
-                stance_bump_max = 0.45
+                stance_bump_min = 0.01
+                stance_bump_max = 0.10
             elif stance == 'Tinkering':
                 # Tinkering: 5-20% bump
-                stance_bump_min = 0.05
-                stance_bump_max = 0.20
+                stance_bump_min = 0.01
+                stance_bump_max = 0.10
             
             # Apply stance bump to offer range
             if adjusted_min >= 0:  # Only apply bump to positive offers
@@ -2731,18 +2732,18 @@ class CPUAI:
                 raise_amount = 250000
                 new_salary = current_offer + raise_amount
                 
-                # More generous affordability (AGGRESSIVE criteria)
+                # Affordability vs market value (tighter caps to limit wage inflation)
                 estimated_signing_bonus = int(new_salary * 0.4)
                 
-                # Much more generous salary limits
+                # max() takes the looser of: share of estimated market value, or bump over current bid
                 if interest_score >= 120:  # Position needed + quality
-                    max_affordable_salary = max(estimated_value * 0.35, current_offer * 2.0)  # Very aggressive
+                    max_affordable_salary = max(estimated_value * 0.24, current_offer * 1.32)
                 elif interest_score >= 100:  # High interest
-                    max_affordable_salary = max(estimated_value * 0.30, current_offer * 1.8)
+                    max_affordable_salary = max(estimated_value * 0.20, current_offer * 1.22)
                 elif interest_score >= 80:  # Medium-high interest
-                    max_affordable_salary = max(estimated_value * 0.25, current_offer * 1.6)
+                    max_affordable_salary = max(estimated_value * 0.17, current_offer * 1.14)
                 else:  # Lower interest
-                    max_affordable_salary = max(estimated_value * 0.20, current_offer * 1.4)
+                    max_affordable_salary = max(estimated_value * 0.14, current_offer * 1.08)
                 
                 # Debug logging for salary analysis
                 if player_overall >= 75:  # Only log for decent players

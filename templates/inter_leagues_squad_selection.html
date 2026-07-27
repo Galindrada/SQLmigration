@@ -19,13 +19,20 @@
     {% endwith %}
     
     <h1>👥 Select Squad - {{ competition_name }} - Round {{ round_info.round_number }}</h1>
-    <p><a href="{{ url_for('inter_leagues', competition_id=competition_id) }}">← Back to Inter-Leagues</a></p>
+    <p>
+        {% if return_round %}
+        <a href="{{ url_for('prepare_inter_league_simulate_round', round_number=return_round) }}">← Back to Round {{ return_round }} setup</a>
+        {% else %}
+        <a href="{{ url_for('inter_leagues', competition_id=competition_id) }}">← Back to Inter-Leagues</a>
+        {% endif %}
+    </p>
     
     <!-- Squad Selection Info -->
     <div class="section" style="margin-top: 20px;">
         <div class="alert alert-info">
-            <h4>💰 Salary Cap: €100,000,000 (100M)</h4>
-            <p>Select players from all your teams. Total salary of selected players must not exceed 100M.</p>
+            <h4>💰 Salary Cap: €500,000,000 (500M)</h4>
+            <p>Select players from all your teams. Total salary of selected players must not exceed 500M.</p>
+            <p class="mb-0"><strong>Eligibility:</strong> Players serving an inter-league red-card suspension or carrying an inter-league injury are not shown here.</p>
         </div>
     </div>
     
@@ -60,6 +67,9 @@
     
     <!-- Player Selection Form -->
     <form method="POST" id="squadForm">
+        {% if return_round %}
+        <input type="hidden" name="return_round" value="{{ return_round }}">
+        {% endif %}
         <div class="section" style="margin-top: 30px;">
             <h3>👥 Available Players</h3>
             <div class="table-responsive">
@@ -77,7 +87,7 @@
                     </thead>
                     <tbody>
                         {% for player in all_players %}
-                        <tr {% if player.InterLeague_RC == 1 %}style="background-color: #ffe6e6;"{% elif player.InterLeague_YC > 0 %}style="background-color: #fff9e6;"{% endif %}>
+                        <tr {% if player.InterLeague_YC > 0 %}style="background-color: #fff9e6;"{% endif %}>
                             <td>
                                 <input type="checkbox" 
                                        name="player_ids" 
@@ -85,8 +95,7 @@
                                        {% if player.id in selected_player_ids %}checked{% endif %}
                                        data-salary="{{ player.salary or 0 }}"
                                        onchange="updateSalaryTotal()"
-                                       class="player-checkbox"
-                                       {% if player.InterLeague_RC == 1 %}title="Serving suspension (will be cleared when round starts)"{% endif %}>
+                                       class="player-checkbox">
                             </td>
                             <td>
                                 <a href="{{ url_for('pes6_player_details', player_id=player.id) }}">
@@ -98,9 +107,7 @@
                             <td><strong>{{ player.overall or 'N/A' }}</strong></td>
                             <td>€{{ "{:,.0f}".format(player.salary or 0) }}</td>
                             <td>
-                                {% if player.InterLeague_RC == 1 %}
-                                    <span class="badge badge-danger" title="Serving 1-game suspension (will be cleared when round starts)">🔴 Suspended (1 game)</span>
-                                {% elif player.InterLeague_YC > 0 %}
+                                {% if player.InterLeague_YC > 0 %}
                                     <span class="badge badge-warning" title="Yellow cards: {{ player.InterLeague_YC }}">🟡 {{ player.InterLeague_YC }} YC</span>
                                 {% else %}
                                     <span class="badge badge-success">✅ Available</span>
@@ -115,7 +122,11 @@
         
         <div class="section" style="margin-top: 30px; margin-bottom: 30px;">
             <button type="submit" class="btn btn-success btn-lg" id="submitBtn">Save Squad Selection</button>
+            {% if return_round %}
+            <a href="{{ url_for('prepare_inter_league_simulate_round', round_number=return_round) }}" class="btn btn-secondary btn-lg">Cancel</a>
+            {% else %}
             <a href="{{ url_for('inter_leagues', competition_id=competition_id) }}" class="btn btn-secondary btn-lg">Cancel</a>
+            {% endif %}
             <button type="button" class="btn btn-info btn-lg" id="autoSelectBtn" onclick="autoSelectSquad()">
                 🤖 Auto-Select Squad
             </button>
@@ -175,7 +186,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (total > {{ salary_cap }}) {
             e.preventDefault();
-            alert('Total salary (€' + total.toLocaleString('en-US') + ') exceeds the 100M salary cap!');
+            alert('Total salary (€' + total.toLocaleString('en-US') + ') exceeds the 500M salary cap!');
             return false;
         }
     });
@@ -192,8 +203,11 @@ function autoSelectSquad() {
     
     // Get team_id from user_team object passed to template
     const teamId = {{ user_team.id }};
+    const returnRound = {% if return_round %}{{ return_round }}{% else %}null{% endif %};
+    let autoUrl = `/inter_leagues/auto_select_squad/{{ competition_id }}/{{ round_id }}/${teamId}`;
+    if (returnRound) autoUrl += '?return_round=' + returnRound;
     
-    fetch(`/inter_leagues/auto_select_squad/{{ competition_id }}/{{ round_id }}/${teamId}`, {
+    fetch(autoUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

@@ -100,6 +100,298 @@ def recalculate_all_overalls():
     finally:
         conn.close()
 
+
+def ensure_fantasy_card_game_schema(cursor):
+    """
+    Fantasy card game: create tables if missing (never DROP), add columns if missing.
+    Mirrors app.ensure_fantasy_tables() so refresh_and_reimport stays in sync.
+    """
+    print("\n🃏 Fantasy card game schema (user_fantasy_currency, fantasy_cards)...")
+
+    try:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_fantasy_currency (
+                user_id INTEGER PRIMARY KEY,
+                tr_balance INTEGER NOT NULL DEFAULT 1000,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        print("  ✅ user_fantasy_currency table ready")
+    except Exception as e:
+        print(f"  ❌ user_fantasy_currency: {e}")
+
+    try:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fantasy_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                player_id INTEGER NOT NULL,
+                season TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+            )
+            """
+        )
+        print("  ✅ fantasy_cards table ready (CREATE IF NOT EXISTS — existing table left unchanged)")
+    except Exception as e:
+        print(f"  ❌ fantasy_cards: {e}")
+
+    try:
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fantasy_cards_user ON fantasy_cards(user_id)"
+        )
+        print("  ✅ idx_fantasy_cards_user index ready")
+    except Exception as e:
+        print(f"  ❌ idx_fantasy_cards_user: {e}")
+
+    try:
+        cursor.execute("ALTER TABLE fantasy_cards ADD COLUMN contract_games INTEGER")
+        print("  ✅ Added contract_games column")
+    except Exception as e:
+        if "duplicate column name" not in str(e).lower():
+            print(f"  ❌ contract_games: {e}")
+        else:
+            print("  ℹ️  contract_games column already exists")
+
+    try:
+        cursor.execute(
+            """
+            UPDATE fantasy_cards SET contract_games = 10 + (abs(random()) % 21)
+            WHERE contract_games IS NULL
+            """
+        )
+    except Exception as e:
+        print(f"  ⚠️  contract_games backfill: {e}")
+
+    for col_sql, label in (
+        ("ALTER TABLE fantasy_cards ADD COLUMN card_rarity TEXT", "card_rarity"),
+        ("ALTER TABLE fantasy_cards ADD COLUMN card_finish TEXT", "card_finish"),
+    ):
+        try:
+            cursor.execute(col_sql)
+            print(f"  ✅ Added {label} column")
+        except Exception as e:
+            if "duplicate column name" not in str(e).lower():
+                print(f"  ❌ {label}: {e}")
+            else:
+                print(f"  ℹ️  {label} column already exists")
+
+    try:
+        cursor.execute(
+            """
+            UPDATE fantasy_cards SET card_finish = 'none'
+            WHERE card_finish IS NULL OR TRIM(COALESCE(card_finish, '')) = ''
+            """
+        )
+    except Exception as e:
+        print(f"  ⚠️  card_finish default: {e}")
+
+    try:
+        cursor.execute(
+            """
+            UPDATE fantasy_cards SET card_rarity = (
+                SELECT CASE
+                    WHEN COALESCE(p.overall, 0) >= 91 THEN 'legendary'
+                    WHEN COALESCE(p.overall, 0) >= 86 THEN 'mythical'
+                    WHEN COALESCE(p.overall, 0) >= 81 THEN 'rare'
+                    ELSE 'normal'
+                END
+                FROM players p WHERE p.id = fantasy_cards.player_id
+            )
+            WHERE card_rarity IS NULL OR TRIM(COALESCE(card_rarity, '')) = ''
+            """
+        )
+    except Exception as e:
+        print(f"  ⚠️  card_rarity backfill: {e}")
+
+    for col_sql, label in (
+        ("ALTER TABLE fantasy_cards ADD COLUMN back_games_played INTEGER NOT NULL DEFAULT 0", "back_games_played"),
+        ("ALTER TABLE fantasy_cards ADD COLUMN back_goals INTEGER NOT NULL DEFAULT 0", "back_goals"),
+        ("ALTER TABLE fantasy_cards ADD COLUMN back_assists INTEGER NOT NULL DEFAULT 0", "back_assists"),
+        ("ALTER TABLE fantasy_cards ADD COLUMN back_mvp INTEGER NOT NULL DEFAULT 0", "back_mvp"),
+    ):
+        try:
+            cursor.execute(col_sql)
+            print(f"  ✅ Added {label} column")
+        except Exception as e:
+            if "duplicate column name" not in str(e).lower():
+                print(f"  ❌ {label}: {e}")
+            else:
+                print(f"  ℹ️  {label} column already exists")
+
+    try:
+        cursor.execute("ALTER TABLE fantasy_cards ADD COLUMN card_profile_image TEXT")
+        print("  ✅ Added card_profile_image column")
+    except Exception as e:
+        if "duplicate column name" not in str(e).lower():
+            print(f"  ❌ card_profile_image: {e}")
+        else:
+            print("  ℹ️  card_profile_image column already exists")
+
+    try:
+        cursor.execute(
+            """
+            UPDATE fantasy_cards SET card_profile_image = (
+                SELECT p.profile_image FROM players p WHERE p.id = fantasy_cards.player_id
+            )
+            WHERE card_profile_image IS NULL OR TRIM(COALESCE(card_profile_image, '')) = ''
+            """
+        )
+    except Exception as e:
+        print(f"  ⚠️  card_profile_image backfill: {e}")
+
+    try:
+        cursor.execute("ALTER TABLE fantasy_cards ADD COLUMN card_face_snapshot TEXT")
+        print("  ✅ Added card_face_snapshot column")
+    except Exception as e:
+        if "duplicate column name" not in str(e).lower():
+            print(f"  ❌ card_face_snapshot: {e}")
+        else:
+            print("  ℹ️  card_face_snapshot column already exists")
+
+    try:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fantasy_booster_editions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL UNIQUE,
+                description TEXT,
+                total_boosters INTEGER NOT NULL,
+                boosters_sold INTEGER NOT NULL DEFAULT 0,
+                cards_per_booster INTEGER NOT NULL DEFAULT 5,
+                pct_normal REAL NOT NULL DEFAULT 70,
+                pct_rare REAL NOT NULL DEFAULT 20,
+                pct_mythical REAL NOT NULL DEFAULT 8,
+                pct_legendary REAL NOT NULL DEFAULT 2,
+                pct_limited_slot REAL NOT NULL DEFAULT 2,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        print("  ✅ fantasy_booster_editions table ready")
+    except Exception as e:
+        print(f"  ❌ fantasy_booster_editions: {e}")
+
+    try:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fantasy_edition_limited_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                edition_id INTEGER NOT NULL,
+                player_id INTEGER NOT NULL,
+                display_name TEXT,
+                card_profile_image TEXT NOT NULL,
+                card_face_snapshot TEXT NOT NULL,
+                copies_total INTEGER NOT NULL DEFAULT 1,
+                copies_remaining INTEGER NOT NULL,
+                sort_order INTEGER DEFAULT 0,
+                FOREIGN KEY (edition_id) REFERENCES fantasy_booster_editions(id) ON DELETE CASCADE,
+                FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fantasy_edition_limited_edition ON fantasy_edition_limited_cards(edition_id)"
+        )
+        print("  ✅ fantasy_edition_limited_cards table ready")
+    except Exception as e:
+        print(f"  ❌ fantasy_edition_limited_cards: {e}")
+
+    for col_sql, label in (
+        ("ALTER TABLE fantasy_cards ADD COLUMN edition_id INTEGER", "edition_id"),
+        ("ALTER TABLE fantasy_cards ADD COLUMN edition_limited_id INTEGER", "edition_limited_id"),
+    ):
+        try:
+            cursor.execute(col_sql)
+            print(f"  ✅ Added {label} on fantasy_cards")
+        except Exception as e:
+            if "duplicate column name" not in str(e).lower():
+                print(f"  ❌ {label}: {e}")
+            else:
+                print(f"  ℹ️  fantasy_cards.{label} already exists")
+
+    try:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fantasy_edition_pool_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                edition_id INTEGER NOT NULL,
+                pack_index INTEGER NOT NULL,
+                slot_index INTEGER NOT NULL,
+                pool_kind TEXT NOT NULL,
+                player_id INTEGER NOT NULL,
+                card_rarity TEXT NOT NULL,
+                card_finish TEXT NOT NULL,
+                card_profile_image TEXT NOT NULL,
+                card_face_snapshot TEXT NOT NULL,
+                edition_limited_id INTEGER,
+                FOREIGN KEY (edition_id) REFERENCES fantasy_booster_editions(id) ON DELETE CASCADE,
+                FOREIGN KEY (player_id) REFERENCES players(id),
+                FOREIGN KEY (edition_limited_id) REFERENCES fantasy_edition_limited_cards(id),
+                UNIQUE (edition_id, pack_index, slot_index)
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fantasy_pool_edition_pack ON fantasy_edition_pool_cards(edition_id, pack_index)"
+        )
+        print("  ✅ fantasy_edition_pool_cards table ready")
+    except Exception as e:
+        print(f"  ❌ fantasy_edition_pool_cards: {e}")
+
+    try:
+        cursor.execute(
+            "ALTER TABLE fantasy_booster_editions ADD COLUMN pool_generated INTEGER NOT NULL DEFAULT 0"
+        )
+        print("  ✅ Added pool_generated on fantasy_booster_editions")
+    except Exception as e:
+        if "duplicate column name" not in str(e).lower():
+            print(f"  ❌ pool_generated: {e}")
+        else:
+            print("  ℹ️  pool_generated column already exists")
+
+    for col_sql, label in (
+        ("ALTER TABLE fantasy_booster_editions ADD COLUMN booster_pack_image TEXT", "booster_pack_image"),
+        ("ALTER TABLE fantasy_booster_editions ADD COLUMN shop_visible INTEGER NOT NULL DEFAULT 0", "shop_visible"),
+        ("ALTER TABLE fantasy_booster_editions ADD COLUMN cost_tr INTEGER", "cost_tr"),
+        ("ALTER TABLE fantasy_booster_editions ADD COLUMN edition_disabled INTEGER NOT NULL DEFAULT 0", "edition_disabled"),
+    ):
+        try:
+            cursor.execute(col_sql)
+            print(f"  ✅ Added {label} on fantasy_booster_editions")
+        except Exception as e:
+            if "duplicate column name" not in str(e).lower():
+                print(f"  ❌ {label}: {e}")
+            else:
+                print(f"  ℹ️  fantasy_booster_editions.{label} already exists")
+
+    try:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fantasy_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO fantasy_settings (key, value)
+            VALUES ('default_booster_cost_tr', '500')
+            """
+        )
+        print("  ✅ fantasy_settings table ready")
+    except Exception as e:
+        print(f"  ❌ fantasy_settings: {e}")
+
+
 def safe_refresh_database():
     """Safely refresh database schema without erasing existing data"""
     print('🔧 Safely refreshing database schema...')
@@ -1505,6 +1797,26 @@ def safe_refresh_database():
             print("  ✅ Created team_preferred_lineup table")
         except Exception as e:
             print(f"  ❌ Error creating team_preferred_lineup table: {e}")
+
+        # Create user_team_tactics table for depth chart saved tactics per managed team
+        print("\n🧠 Creating user_team_tactics table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_team_tactics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    league_team_id INTEGER NOT NULL,
+                    formation TEXT NOT NULL,
+                    lineup_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (league_team_id) REFERENCES league_teams(id) ON DELETE CASCADE,
+                    UNIQUE(user_id, league_team_id)
+                )
+            """)
+            print("  ✅ Created user_team_tactics table")
+        except Exception as e:
+            print(f"  ❌ Error creating user_team_tactics table: {e}")
         
         # Create international_teams table for international squads
         print("\n🌍 Creating international_teams table...")
@@ -1775,6 +2087,8 @@ def safe_refresh_database():
         except Exception as e:
             print(f"  ❌ Error creating user_favourites table: {e}")
         
+        ensure_fantasy_card_game_schema(cursor)
+        
         # Initialize first season if none exists
         try:
             cursor.execute("SELECT COUNT(*) FROM league_seasons")
@@ -1945,6 +2259,12 @@ def create_new_database():
         print("✅ Colados League schema added successfully.")
     except Exception as e:
         print(f"❌ Error adding Colados League schema: {e}")
+    
+    try:
+        ensure_fantasy_card_game_schema(cursor)
+        conn.commit()
+    except Exception as e:
+        print(f"❌ Error applying fantasy card schema: {e}")
     
     cursor.close()
     conn.close()
