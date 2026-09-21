@@ -1,0 +1,76 @@
+{{define "competition_detail.html"}}
+{{template "head" .}}
+{{$c := .Data.Competition}}
+<section class="hero-block compact">
+  <p class="eyebrow"><a href="/admin/competitions">← Competitions</a></p>
+  <h1>{{$c.Name}}</h1>
+  <p class="lede">{{kindLabel $c.Kind}} · status {{$c.Status}} · {{$c.Description}}</p>
+</section>
+
+<div class="two-col">
+  <section class="panel">
+    <h2>Rules</h2>
+    <form method="POST" action="/admin/competitions/{{$c.ID}}/rules" class="grid-form">
+      <label>Teams <input type="number" name="team_count" value="{{$c.Rules.TeamCount}}"></label>
+      <label>Groups <input type="number" name="group_count" value="{{$c.Rules.GroupCount}}"></label>
+      <label>Salary cap <input type="number" name="salary_cap" value="{{$c.Rules.SalaryCap}}"></label>
+      <label>Sim style
+        <select name="sim_style">
+          <option value="elifoot" {{if eq $c.Rules.SimStyle "elifoot"}}selected{{end}}>Elifoot</option>
+          <option value="simple" {{if eq $c.Rules.SimStyle "simple"}}selected{{end}}>Simple</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" name="home_and_away" {{if $c.Rules.HomeAndAway}}checked{{end}}> Home &amp; away</label>
+      <label class="check"><input type="checkbox" name="allow_cards" {{if $c.Rules.AllowCards}}checked{{end}}> Cards</label>
+      <label class="check"><input type="checkbox" name="allow_injuries" {{if $c.Rules.AllowInjuries}}checked{{end}}> Injuries</label>
+      <label class="check"><input type="checkbox" name="allow_penalties" {{if $c.Rules.AllowPenalties}}checked{{end}}> Penalties</label>
+      <label class="check"><input type="checkbox" name="allow_special_events" {{if $c.Rules.AllowSpecialEvents}}checked{{end}}> Special events</label>
+      <label class="check"><input type="checkbox" name="extra_time" {{if $c.Rules.ExtraTime}}checked{{end}}> Extra time</label>
+      <label class="full">Notes <input name="notes" value="{{$c.Rules.Notes}}"></label>
+      <button type="submit">Save rules</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Schedule</h2>
+    <form method="POST" action="/admin/competitions/{{$c.ID}}/schedule" class="grid-form">
+      <label>Mode
+        <select name="mode">
+          <option value="manual" {{if eq $c.Schedule.Mode "manual"}}selected{{end}}>Manual</option>
+          <option value="fixed" {{if eq $c.Schedule.Mode "fixed"}}selected{{end}}>Fixed timestamp</option>
+          <option value="recurring" {{if eq $c.Schedule.Mode "recurring"}}selected{{end}}>Recurring</option>
+        </select>
+      </label>
+      <label>Kickoff (ISO)
+        <input name="kickoff_at" value="{{$c.Schedule.KickoffAt}}" placeholder="2026-09-21T20:00:00Z">
+      </label>
+      <label>Timezone <input name="timezone" value="{{$c.Schedule.Timezone}}"></label>
+      <label>Interval (min) <input type="number" name="interval_minutes" value="{{$c.Schedule.IntervalMinutes}}"></label>
+      <label>Matchday length (min) <input type="number" name="matchday_duration_minutes" value="{{$c.Schedule.MatchdayDurationMinutes}}"></label>
+      <label class="check"><input type="checkbox" name="enabled" {{if $c.Schedule.Enabled}}checked{{end}}> Schedule enabled</label>
+      <button type="submit">Save schedule</button>
+    </form>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Playing den fixtures</h2>
+  <form method="POST" action="/admin/competitions/{{$c.ID}}/matches" class="grid-form">
+    <label>Home <input name="home_name" required placeholder="Home club / nation"></label>
+    <label>Away <input name="away_name" required placeholder="Away club / nation"></label>
+    <label>Round <input name="round_label" value="Matchday 1"></label>
+    <button type="submit">Create &amp; open den</button>
+  </form>
+  <ul class="comp-list tight">
+    {{range .Data.Matches}}
+    <li>
+      <div>{{.RoundLabel}}: {{.HomeName}} vs {{.AwayName}} <span class="muted">{{.Status}} {{.HomeScore}}-{{.AwayScore}}</span></div>
+      <a href="/den/{{.ID}}">Enter den</a>
+    </li>
+    {{else}}
+    <li class="muted">No matches yet.</li>
+    {{end}}
+  </ul>
+</section>
+{{template "foot" .}}
+{{end}}

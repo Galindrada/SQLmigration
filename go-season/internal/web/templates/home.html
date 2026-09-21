@@ -1,0 +1,33 @@
+{{define "home.html"}}
+{{template "head" .}}
+<section class="hero-block">
+  <h1>Season control</h1>
+  <p class="lede">One den for user, CPU, and hybrid competitions. Create comps in admin, open a match, watch the socket feed.</p>
+  {{if .User.IsAdmin}}
+  <p><a class="cta" href="/admin/competitions">Open competitions menu</a></p>
+  {{end}}
+</section>
+
+<section class="list-block">
+  <h2>Competitions</h2>
+  {{if not .Data}}
+    <p class="muted">No competitions yet.</p>
+  {{else}}
+  <ul class="comp-list">
+    {{range .Data}}
+    <li>
+      <div>
+        <strong>{{.Name}}</strong>
+        <span class="tag">{{kindLabel .Kind}}</span>
+        <span class="muted">{{.Status}}</span>
+      </div>
+      {{if $.User.IsAdmin}}
+      <a href="/admin/competitions/{{.ID}}">Manage</a>
+      {{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
+</section>
+{{template "foot" .}}
+{{end}}

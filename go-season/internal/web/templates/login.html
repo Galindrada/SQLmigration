@@ -1,0 +1,21 @@
+{{define "login.html"}}
+{{template "head" .}}
+<section class="login-stage">
+  <div class="login-copy">
+    <p class="eyebrow">Colados continuous season</p>
+    <h1>GO SEASON</h1>
+    <p class="lede">Same SQLite users. New live playing den for every competition kind.</p>
+  </div>
+  <form class="login-form" method="POST" action="/login">
+    <label>Username
+      <input type="text" name="username" autocomplete="username" required>
+    </label>
+    <label>Password
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit">Enter</button>
+    <p class="hint">Demo admin: <code>SeasonAdmin</code> / <code>season-demo</code></p>
+  </form>
+</section>
+{{template "foot" .}}
+{{end}}

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+*.log
+
+# SQLite runtime junk
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Go season engine — ignore local builds/secrets; source under go-season/ is tracked
+go-season/bin/
+go-season/tmp/
+go-season/dist/
+go-season/.env
+go-season/.env.local
+go-season/go-season
+go-season/server
+go-season/cmd/server/server
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,43 @@
+{{define "admin_competitions.html"}}
+{{template "head" .}}
+<section class="hero-block compact">
+  <h1>Competitions</h1>
+  <p class="lede">Backend menu to create competitions, lock rules, and schedule fixed or recurring kickoffs.</p>
+</section>
+
+<section class="panel">
+  <h2>Create competition</h2>
+  <form method="POST" action="/admin/competitions" class="grid-form">
+    <label>Name <input name="name" required placeholder="Champions Night Cup"></label>
+    <label>Kind
+      <select name="kind" required>
+        <option value="user">User (Colados)</option>
+        <option value="cpu">CPU simulated</option>
+        <option value="hybrid">Hybrid (Inter-Leagues)</option>
+      </select>
+    </label>
+    <label class="full">Description <input name="description" placeholder="Optional"></label>
+    <label class="full">Notes <input name="notes" placeholder="Shown on rules defaults"></label>
+    <button type="submit">Create</button>
+  </form>
+</section>
+
+<section class="list-block">
+  <h2>Existing</h2>
+  <ul class="comp-list">
+    {{range .Data.Competitions}}
+    <li>
+      <div>
+        <strong>{{.Name}}</strong>
+        <span class="tag">{{kindLabel .Kind}}</span>
+        <span class="muted">{{.Status}} · sim {{.Rules.SimStyle}}</span>
+      </div>
+      <a href="/admin/competitions/{{.ID}}">Configure</a>
+    </li>
+    {{else}}
+    <li class="muted">None yet.</li>
+    {{end}}
+  </ul>
+</section>
+{{template "foot" .}}
+{{end}}

@@ -1,0 +1,32 @@
+{{define "head"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}} · Go Season</title>
+  <link rel="stylesheet" href="/static/css/season.css">
+</head>
+<body>
+  <div class="atmosphere"></div>
+  <header class="top">
+    <a class="brand" href="/">GO SEASON</a>
+    <nav>
+      {{if .User.Username}}
+        <a href="/">Home</a>
+        {{if .User.IsAdmin}}<a href="/admin/competitions">Competitions</a>{{end}}
+        <span class="user">{{.User.Username}}</span>
+        <form class="inline" method="POST" action="/logout"><button type="submit">Logout</button></form>
+      {{end}}
+    </nav>
+  </header>
+  <main class="shell">
+    {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
+    {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+{{end}}
+
+{{define "foot"}}
+  </main>
+</body>
+</html>
+{{end}}
