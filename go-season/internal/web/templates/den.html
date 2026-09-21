@@ -1,0 +1,23 @@
+{{define "den.html"}}
+{{template "head" .}}
+{{$m := .Data.Match}}
+{{$c := .Data.Competition}}
+<section class="den-stage" id="den" data-match-id="{{$m.ID}}">
+  <div class="den-meta">
+    <p class="eyebrow">{{kindLabel $c.Kind}} · {{$c.Name}}</p>
+    <h1 id="scoreline">{{$m.HomeName}} <span id="score">{{$m.HomeScore}}-{{$m.AwayScore}}</span> {{$m.AwayName}}</h1>
+    <p class="lede" id="phase">{{$m.RoundLabel}} · <span id="minute">0'</span> · <span id="phase-label">{{$m.Status}}</span></p>
+    <p class="muted" id="rules-summary"></p>
+  </div>
+
+  <div class="den-controls">
+    <button type="button" id="btn-start">Start simulation</button>
+    <button type="button" id="btn-stop" class="ghost">Stop</button>
+    <span id="ws-status" class="pill">connecting…</span>
+  </div>
+
+  <ol class="event-feed" id="feed" aria-live="polite"></ol>
+</section>
+<script src="/static/js/den.js"></script>
+{{template "foot" .}}
+{{end}}

@@ -1,0 +1,8 @@
+bin/
+tmp/
+dist/
+.env
+.env.local
+go-season
+server
+*.exe
